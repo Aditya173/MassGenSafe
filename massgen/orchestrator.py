@@ -632,6 +632,11 @@ class Orchestrator(ChatAgent):
                 "require_gap_report": bool(
                     getattr(self.config, "checklist_require_gap_report", True),
                 ),
+                # Require explicit change substantiveness metadata so rounds can
+                # naturally terminate when only incremental work remains.
+                "require_substantiveness": True,
+                # Needed by checklist server to interpret T-item semantics.
+                "changedoc_mode": self._is_changedoc_enabled(),
                 "workspace_path": getattr(
                     getattr(backend, "filesystem_manager", None),
                     "cwd",
@@ -711,8 +716,43 @@ class Orchestrator(ChatAgent):
                     "type": "string",
                     "description": ("Path to the markdown gap report in the workspace. " "Required when checklist report gating is enabled."),
                 },
+                "substantiveness": {
+                    "type": "object",
+                    "description": ("Structured summary of planned change depth used to enforce " "substantive iteration and natural convergence."),
+                    "properties": {
+                        "transformative_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of transformative changes planned.",
+                        },
+                        "structural_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of structural changes planned.",
+                        },
+                        "incremental_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of incremental-only changes planned.",
+                        },
+                        "decision_space_exhausted": {
+                            "type": "boolean",
+                            "description": ("True only when no meaningful structural/transformative " "improvements remain."),
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Short justification for the counts.",
+                        },
+                    },
+                    "required": [
+                        "transformative_count",
+                        "structural_count",
+                        "incremental_count",
+                        "decision_space_exhausted",
+                    ],
+                },
             },
-            "required": ["scores", "improvements"],
+            "required": ["scores", "improvements", "substantiveness"],
         }
 
         # Create tool function with closure over mutable state
@@ -726,6 +766,9 @@ class Orchestrator(ChatAgent):
                 "an object with 'score' (0-100) and 'reasoning' (why you gave that "
                 "score). The 'improvements' field should describe features or content "
                 "that an ideal answer would have but no existing answer has attempted. "
+                "The 'substantiveness' field must classify planned changes as "
+                "transformative/structural/incremental and indicate whether decision "
+                "space is exhausted. "
                 "Use 'report_path' to pass a markdown gap report when required."
             ),
             input_schema=input_schema,
@@ -740,6 +783,7 @@ class Orchestrator(ChatAgent):
                 report_path=args.get("report_path", ""),
                 items=items,
                 state=_state,
+                substantiveness=args.get("substantiveness"),
             )
 
             return {
@@ -821,12 +865,13 @@ class Orchestrator(ChatAgent):
                 "require_gap_report": bool(
                     getattr(self.config, "checklist_require_gap_report", True),
                 ),
+                "require_substantiveness": True,
+                "changedoc_mode": self._is_changedoc_enabled(),
                 "workspace_path": getattr(
                     getattr(agent.backend, "filesystem_manager", None),
                     "cwd",
                     None,
                 ),
-                "report_cutoff": 70,
             },
         )
         logger.debug(

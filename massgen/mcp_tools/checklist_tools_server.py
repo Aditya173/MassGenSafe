@@ -68,6 +68,88 @@ def _extract_score(entry: Any) -> int:
     return 0
 
 
+def _as_non_negative_int(value: Any, default: int = 0) -> int:
+    """Best-effort conversion to non-negative int."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_substantiveness(
+    substantiveness: Any,
+    state: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Normalize structured substantiveness payload for checklist gating.
+
+    Expected payload shape:
+    {
+      "transformative_count": int >= 0,
+      "structural_count": int >= 0,
+      "incremental_count": int >= 0,
+      "decision_space_exhausted": bool,
+      "notes": str (optional)
+    }
+    """
+    require_substantiveness = bool(state.get("require_substantiveness", False))
+    result: Dict[str, Any] = {
+        "required": require_substantiveness,
+        "provided": substantiveness is not None,
+        "valid": True,
+        "issues": [],
+        "transformative_count": 0,
+        "structural_count": 0,
+        "incremental_count": 0,
+        "decision_space_exhausted": False,
+        "notes": "",
+        "has_substantive_plan": False,
+        "incremental_only": False,
+    }
+
+    if substantiveness is None:
+        if require_substantiveness:
+            result["valid"] = False
+            result["issues"].append("Missing `substantiveness` payload.")
+        return result
+
+    if isinstance(substantiveness, str):
+        try:
+            substantiveness = json.loads(substantiveness)
+        except (json.JSONDecodeError, TypeError):
+            result["valid"] = False
+            result["issues"].append("`substantiveness` must be a JSON object.")
+            return result
+
+    if not isinstance(substantiveness, dict):
+        result["valid"] = False
+        result["issues"].append("`substantiveness` must be an object.")
+        return result
+
+    result["transformative_count"] = _as_non_negative_int(
+        substantiveness.get("transformative_count", 0),
+    )
+    result["structural_count"] = _as_non_negative_int(
+        substantiveness.get("structural_count", 0),
+    )
+    result["incremental_count"] = _as_non_negative_int(
+        substantiveness.get("incremental_count", 0),
+    )
+    result["decision_space_exhausted"] = bool(
+        substantiveness.get("decision_space_exhausted", False),
+    )
+    result["notes"] = str(substantiveness.get("notes", "") or "").strip()
+    result["has_substantive_plan"] = (result["transformative_count"] + result["structural_count"]) > 0
+    result["incremental_only"] = not result["has_substantive_plan"] and result["incremental_count"] > 0
+
+    if require_substantiveness and not result["decision_space_exhausted"] and (result["transformative_count"] + result["structural_count"] + result["incremental_count"]) == 0:
+        result["valid"] = False
+        result["issues"].append(
+            "Substantiveness is required: provide change counts or mark decision space as exhausted.",
+        )
+
+    return result
+
+
 def _resolve_report_file(report_path: str, state: Dict[str, Any]) -> tuple[Path | None, str | None]:
     """Resolve report path to a workspace-local absolute path."""
     raw_path = (report_path or "").strip()
@@ -143,6 +225,7 @@ def evaluate_checklist_submission(
     report_path: str,
     items: list,
     state: Dict[str, Any],
+    substantiveness: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Evaluate checklist submission and return verdict payload used by stdio + SDK."""
     if not isinstance(scores, dict):
@@ -166,6 +249,9 @@ def evaluate_checklist_submission(
         items_detail.append({"id": key, "score": score, "passed": passed})
 
     report_eval = _evaluate_gap_report(report_path, state)
+    substantiveness_eval = _normalize_substantiveness(substantiveness, state)
+    substantiveness_gate_triggered = False
+    convergence_offramp_triggered = False
 
     if not has_existing_answers:
         verdict = iterate_action
@@ -174,12 +260,85 @@ def evaluate_checklist_submission(
         # Verdict determined solely by T1-T5 scores — no report gate
         verdict = terminate_action if true_count >= required else iterate_action
 
-        if verdict == iterate_action:
-            failed_ids = [d["id"] for d in items_detail if not d["passed"]]
+        # Substantiveness gate: require payload when configured
+        if substantiveness_eval.get("required", False) and not substantiveness_eval.get("valid", True):
+            verdict = iterate_action
+            substantiveness_gate_triggered = True
+
+        # Natural convergence off-ramp:
+        # When core quality is strong and only tail "more improvement/novelty"
+        # style items are failing, stop if no substantive plan remains.
+        #
+        # Important: changedoc and generic checklist modes use different
+        # semantics for T3. In changedoc mode, T3 is traceability and should
+        # remain part of core quality; in generic mode, T3 is a tail
+        # "no meaningful improvements left" check.
+        failed_ids = [d["id"] for d in items_detail if not d["passed"]]
+        failed_set = set(failed_ids)
+        passed_map = {d["id"]: d["passed"] for d in items_detail}
+
+        changedoc_mode = bool(state.get("changedoc_mode", False))
+        if changedoc_mode:
+            core_item_candidates = ("T1", "T2", "T3", "T4")
+            tail_failure_ids = {"T5"}
+        else:
+            core_item_candidates = ("T1", "T2", "T4")
+            tail_failure_ids = {"T3", "T5"}
+
+        core_quality_ids = [item_id for item_id in core_item_candidates if item_id in passed_map]
+        core_quality_strong = all(passed_map[item_id] for item_id in core_quality_ids)
+        only_tail_failures = bool(failed_set) and failed_set.issubset(tail_failure_ids)
+        near_converged = true_count >= max(1, required - 2)
+        no_substantive_path = (
+            substantiveness_eval.get("valid", False)
+            and not substantiveness_eval.get("has_substantive_plan", False)
+            and (substantiveness_eval.get("decision_space_exhausted", False) or substantiveness_eval.get("incremental_only", False))
+        )
+        if verdict == iterate_action and not substantiveness_gate_triggered and only_tail_failures and core_quality_strong and near_converged and no_substantive_path:
+            verdict = terminate_action
+            convergence_offramp_triggered = True
+
+        if verdict == iterate_action and not convergence_offramp_triggered:
             improvements_text = improvements.strip() if improvements else ""
             explanation = f"{true_count} of {len(items)} items passed (required: {required}). " f"Verdict: {verdict}. "
             if failed_ids:
                 explanation += f"Items that need improvement: {', '.join(failed_ids)}. "
+            if substantiveness_gate_triggered:
+                explanation += (
+                    "Substantiveness details are required before iterating: provide counts for "
+                    "transformative/structural/incremental changes, or mark "
+                    "`decision_space_exhausted=true` when no meaningful improvements remain. "
+                )
+            if (
+                has_existing_answers
+                and substantiveness_eval.get("valid", False)
+                and not substantiveness_eval.get("has_substantive_plan", False)
+                and not substantiveness_eval.get("decision_space_exhausted", False)
+            ):
+                explanation += (
+                    "You have not identified any structural or transformative work yet. " "Do not spend another round on cosmetic changes — either define a " "substantive plan or terminate. "
+                )
+            # T5-specific novelty guidance: when novelty fails, give the agent
+            # concrete direction instead of just listing T5 as a failed item.
+            t5_failed = "T5" in failed_set
+            if t5_failed and substantiveness_eval.get("valid", False):
+                if substantiveness_eval.get("decision_space_exhausted", False) or substantiveness_eval.get("incremental_only", False):
+                    explanation += (
+                        "T5 (novelty) failed and you reported no structural/transformative "
+                        "work remaining. Incremental polish will not fix a novelty deficit. "
+                        "To pass T5 you must introduce a genuinely NEW element — a different "
+                        "creative direction, an unexplored interaction model, a decision that "
+                        "no prior answer has attempted, or a fundamentally different way to "
+                        "solve part of the problem. If no such move exists, mark "
+                        "`decision_space_exhausted=true` and let the system converge. "
+                    )
+                else:
+                    explanation += (
+                        "T5 (novelty) failed. Your next answer needs at least one genuinely "
+                        "novel element — not synthesis of existing approaches, but a NEW "
+                        "decision, architectural choice, or creative direction not present "
+                        "in any prior answer. "
+                    )
             explanation += "Your new answer MUST make material changes — do NOT simply copy or " "resubmit the same content."
             if improvements_text:
                 explanation += (
@@ -188,7 +347,9 @@ def evaluate_checklist_submission(
                     f"obviously better, not just marginally different."
                 )
         else:
-            explanation = f"{true_count} of {len(items)} items passed (required: {required}). " f"Verdict: {verdict}."
+            explanation = f"{true_count} of {len(items)} items passed (required: {required}). Verdict: {verdict}."
+            if convergence_offramp_triggered:
+                explanation += " Convergence off-ramp activated: core quality is strong and no " "substantive novelty plan remains, so additional rounds would likely " "be incremental-only."
 
     # Include report diagnostics for transparency (informational only)
     if report_eval.get("provided"):
@@ -197,6 +358,18 @@ def evaluate_checklist_submission(
             report_summary += f" Report notes: {'; '.join(report_eval['issues'])}."
         explanation += report_summary
 
+    # Include substantiveness diagnostics
+    substantiveness_summary = (
+        " Substantiveness: "
+        f"T={substantiveness_eval.get('transformative_count', 0)}, "
+        f"S={substantiveness_eval.get('structural_count', 0)}, "
+        f"I={substantiveness_eval.get('incremental_count', 0)}, "
+        f"exhausted={'yes' if substantiveness_eval.get('decision_space_exhausted') else 'no'}."
+    )
+    if substantiveness_eval.get("issues"):
+        substantiveness_summary += f" Substantiveness issues: {'; '.join(substantiveness_eval['issues'])}."
+    explanation += substantiveness_summary
+
     return {
         "verdict": verdict,
         "explanation": explanation,
@@ -204,7 +377,10 @@ def evaluate_checklist_submission(
         "required": required,
         "items": items_detail,
         "report": report_eval,
+        "substantiveness": substantiveness_eval,
         "report_gate_triggered": False,
+        "substantiveness_gate_triggered": substantiveness_gate_triggered,
+        "convergence_offramp_triggered": convergence_offramp_triggered,
     }
 
 
@@ -224,6 +400,7 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
         scores: dict,
         improvements: str = "",
         report_path: str = "",
+        substantiveness: dict | None = None,
     ) -> str:
         # Codex sometimes sends scores as a JSON string; normalise to dict
         if isinstance(scores, str):
@@ -248,6 +425,7 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
             report_path=report_path,
             items=current_items,
             state=state,
+            substantiveness=substantiveness,
         )
         return json.dumps(result)
 
@@ -256,16 +434,19 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
         "object with 'score' (0-100) and 'reasoning' (why you gave that score). "
         "The 'improvements' field should describe features or content that an "
         "ideal answer would have but no existing answer has attempted. "
+        "Use the 'substantiveness' object to report planned change counts "
+        "(transformative/structural/incremental) and whether decision space is exhausted. "
         "Use 'report_path' to provide a markdown gap report when report gating "
         "is enabled."
     )
 
-    # Set proper signature so FastMCP sees both parameters
+    # Set proper signature so FastMCP sees all parameters
     sig = inspect.Signature(
         [
             inspect.Parameter("scores", inspect.Parameter.POSITIONAL_OR_KEYWORD),
             inspect.Parameter("improvements", inspect.Parameter.POSITIONAL_OR_KEYWORD),
             inspect.Parameter("report_path", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            inspect.Parameter("substantiveness", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
         ],
     )
     submit_checklist.__signature__ = sig

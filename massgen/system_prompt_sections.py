@@ -136,7 +136,12 @@ _CHECKLIST_ITEMS_CHANGEDOC = [
     "Each decision has strong, specific rationale tied to task requirements. No weak " '"Why" fields or strawman alternatives.',
     "Every decision is traceable to specific artifacts — Implementation fields reference " "actual code locations, and the output implements what was decided.",
     "The actual deliverable achieves genuine quality, depth, and polish. Would impress " "the person who asked.",
-    "At least one genuinely novel or ambitious element (NEW markers or evident in output). " "Goes beyond the safe, obvious approach.",
+    "At least one genuinely novel or ambitious element (NEW markers or evident in output). "
+    "Goes beyond the safe, obvious approach. Pure synthesis — combining existing agents' "
+    "approaches without original thinking — does not count as novel. Synthesis is competent "
+    "refinement, not novelty. Implementing open gaps listed in a prior changedoc does not "
+    "count as novel — those are known issues, not original thinking. Novel means a NEW "
+    "decision, architectural challenge, or unexplored direction not present in ANY prior answer.",
 ]
 
 
@@ -272,25 +277,14 @@ lead somewhere that incremental refinement never would.
   has extra value — it explores paths that pure refinement misses.\""""
 
 
-def _build_changedoc_checklist_analysis(has_prior_answers: bool = False) -> str:
+def _build_changedoc_checklist_analysis() -> str:
     """Build changedoc-anchored analysis section for checklist modes.
 
     Replaces the generic _build_checklist_analysis() when changedoc is enabled.
     Grounds evaluation in the agent's decision journal rather than generic
-    quality assessment.
-
-    Args:
-        has_prior_answers: Whether prior answers exist (enables round-aware T5 guidance).
+    quality assessment. 7 steps that map to the changedoc checklist items.
     """
-    round_aware_t5_note = ""
-    if has_prior_answers:
-        round_aware_t5_note = (
-            "\n\nWhen prior answers exist, *novel* means a genuinely substantive improvement a user "
-            "would notice — not cosmetic changes, formatting tweaks, or feature adoption from "
-            "another agent's changedoc."
-        )
-
-    return f"""## Changedoc-Anchored Analysis
+    return """## Changedoc-Anchored Analysis
 
 Complete your full analysis before reading the Decision section below. Do not let
 the decision criteria influence your assessment.
@@ -371,7 +365,7 @@ Focus exclusively on what is missing, weak, or falls short.
   polish? Be specific about what is lacking, not about what is adequate.
 - **Traceability gaps**: Are there code choices that lack corresponding changedoc entries?
 - **Novelty deficit**: Is there at least one genuinely novel or ambitious element, or
-  does everything take the safe, obvious path?{round_aware_t5_note}
+  does everything take the safe, obvious path?
 
 Do not confuse *correctness fixes* with *quality improvements*. An answer can be
 technically correct and still have a shallow decision journal.
@@ -598,6 +592,30 @@ Now decide: call `{iterate_action}` or `{terminate_action}`.
 - `{iterate_action}`: produce an improved answer (synthesizing across answers if multiple exist).
 - `{terminate_action}`: select the best existing answer and stop.
 
+### Substantiveness Test
+
+Classify each planned change as:
+- **TRANSFORMATIVE**: Fundamentally different approach, architecture, or creative direction.
+  Examples: switching from client-side to server-side rendering, replacing a REST API with
+  GraphQL, rewriting a synchronous pipeline as event-driven, choosing a completely different
+  data model or storage engine.
+- **STRUCTURAL**: Meaningful redesign of a component, new capability, or significant quality
+  lift — the bar is: *would a user with no knowledge of the implementation notice this as a
+  meaningfully different experience?*
+  Examples: adding real-time collaboration to a single-user editor, introducing a caching
+  layer that changes perceived performance, redesigning navigation to support a new workflow,
+  adding offline support, building a new visualization that reveals patterns previously hidden.
+- **INCREMENTAL**: Minor polish, formatting, or small additions that do not change the user's
+  experience in a meaningful way.
+  Examples: CSS tweaks and animation refinements, adding aria labels or alt text to existing
+  elements, reformatting code or reordering sections, adding source notes or attribution,
+  adding individual keyboard shortcuts, reduced-motion support, async decoding, adding test
+  tooling or developer-facing infrastructure.
+
+If no planned changes are TRANSFORMATIVE or STRUCTURAL, seriously consider whether
+further iteration will produce meaningful improvement — or just accumulate incremental
+changes. Voting may be the better choice.
+
 ### Confidence Assessment
 
 Your goal is **excellence**, not minimum viability. The question is not "does this
@@ -615,7 +633,20 @@ Be honest — do not inflate or deflate your scores.
 
 ### Submit Your Scores
 
-Call `submit_checklist` with per-item reasoning, an improvements summary, and a report path.
+Call `submit_checklist` with per-item reasoning, an improvements summary, a report path,
+and a **substantiveness** object.
+
+The **substantiveness** object is required so the system can:
+- Continue iteration only when there is meaningful (transformative/structural) work left
+- Naturally terminate when decision space is exhausted and remaining ideas are incremental-only
+
+Use:
+- `transformative_count`: fundamentally different approach/architecture changes planned
+- `structural_count`: major capability/experience redesign changes planned
+- `incremental_count`: polish-level changes planned
+- `decision_space_exhausted`: `true` only if no meaningful structural/transformative improvements remain
+- `notes`: short justification
+
 Each score entry MUST include `"reasoning"` explaining why you gave that score —
 reference specific evidence from your analysis.
 
@@ -633,7 +664,14 @@ tells you to iterate, you are expected to implement what you identified.
       "T5": {{"score": <0-100>, "reasoning": "<why>"}}
     }},
     report_path="<path to your markdown gap report>",
-    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
+    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>",
+    substantiveness={{
+      "transformative_count": <int>,
+      "structural_count": <int>,
+      "incremental_count": <int>,
+      "decision_space_exhausted": <true|false>,
+      "notes": "<why these counts are accurate>"
+    }}
   )
 
 The tool will evaluate your scores and return a verdict telling you whether
@@ -2543,7 +2581,7 @@ Your goal is to iteratively refine answers until they meet the quality bar.
             threshold = self.voting_threshold if self.voting_threshold is not None else 5
 
             items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
-            analysis = _build_changedoc_checklist_analysis(has_prior_answers=(self.answers_used > 0)) if self.has_changedoc else _build_checklist_analysis()
+            analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
             if effective_sensitivity == "checklist":
                 decision = _build_checklist_decision(
                     threshold,
@@ -2563,7 +2601,7 @@ Your goal is to iteratively refine answers until they meet the quality bar.
 {decision}"""
         elif effective_sensitivity == "checklist_gated":
             items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
-            analysis = _build_changedoc_checklist_analysis(has_prior_answers=(self.answers_used > 0)) if self.has_changedoc else _build_checklist_analysis()
+            analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
             decision = _build_checklist_gated_decision(
                 items,
                 require_gap_report=self.checklist_require_gap_report,
@@ -2711,7 +2749,7 @@ class DecompositionSection(SystemPromptSection):
 
             if self.voting_sensitivity in ("checklist", "checklist_scored"):
                 items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
-                analysis = _build_changedoc_checklist_analysis(has_prior_answers=(self.answers_used > 0)) if self.has_changedoc else _build_checklist_analysis()
+                analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
                 if self.voting_sensitivity == "checklist":
                     decision = _build_checklist_decision(
                         self.voting_threshold,
@@ -2738,7 +2776,7 @@ Both are terminal actions that end your round.
 {decision}"""
             elif self.voting_sensitivity == "checklist_gated":
                 items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
-                analysis = _build_changedoc_checklist_analysis(has_prior_answers=(self.answers_used > 0)) if self.has_changedoc else _build_checklist_analysis()
+                analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
                 decision = _build_checklist_gated_decision(
                     items,
                     terminate_action="stop",
@@ -2977,31 +3015,19 @@ def _build_changedoc_subsequent_round_prompt(gap_report_mode: str = "changedoc")
     """Build subsequent-round changedoc instructions.
 
     Args:
-        gap_report_mode: Controls Quality Assessment placement.
-            "changedoc" appends Quality Assessment section to the template.
+        gap_report_mode: Controls Open Gaps placement.
+            "changedoc" appends Open Gaps section to the template.
             "separate" / "none" omit it.
     """
     quality_assessment = ""
     if gap_report_mode == "changedoc":
         quality_assessment = """
 
-### Quality Assessment
-
-Before submitting, step back and assess gaps in the overall result. Do not describe
-what works well — focus exclusively on what falls short.
-
-**User Experience Gaps**: Imagine receiving this output with no context about how it was
-built. Walk through it as a user would — read it, use it, evaluate the final artifact.
-Where does the experience fall short? What would disappoint, confuse, or feel incomplete?
-
-**Remaining Gaps**: For each gap, describe what is missing and what specific change would
-address it. Be concrete — "improve error handling" is too vague; "add user-facing error
-messages for network timeouts in the upload flow" is actionable.
-
-**Worth Another Iteration?**: If all remaining gaps are incremental (cosmetic polish,
-minor additions, formatting), state that clearly — do not manufacture reasons to iterate.
-Only recommend further iteration if at least one gap represents a STRUCTURAL improvement
-a user would notice."""
+## Open Gaps
+[Gaps you identified but chose not to address. One line each. These are for transparency,
+not directives — the next agent should form their OWN assessment of what matters, not
+treat this as a todo list.]
+- [Gap]: [why not addressed — e.g., "incremental", "out of scope", "insufficient time"]"""
 
     return f"""## Change Document (Decision Journal)
 
@@ -3039,6 +3065,22 @@ Fewer, stronger decisions produce better outcomes than accumulating every idea.
 
 If you start fresh rather than building on an existing answer, note in the Deliberation Trail why you chose a different approach.
 
+### Rationale Preservation Rule
+
+When inheriting a decision (marking Origin with `(kept)` or `(modified)`):
+
+**REQUIRED:**
+1. Preserve the ORIGINAL "Why:" field as written by the first agent who introduced it. The "Why:" must explain the domain reasoning — why this choice suits the task requirements.
+2. Add a separate **"Synthesis Note:"** field below "Why:" for your meta-reasoning about why you kept or modified the decision.
+3. Update "Implementation:" to reference YOUR code locations.
+
+**FORBIDDEN:**
+- Do NOT replace "Why:" with meta-justification like "this was the best prior answer" or "agent X had strong rationale"
+- Do NOT collapse "Why:" into "use agent X as base"
+
+**Why this matters:** When `"Why:"` becomes `"this was best"`, future agents lose the original reasoning and spend cycles restoring it instead of adding features.
+Keep domain reasoning in `"Why:"` and process reasoning in `"Synthesis Note:"`.
+
 ### Code references
 
 Use relative paths within the workspace. Include symbol names and line numbers — your code is frozen once submitted.
@@ -3067,7 +3109,8 @@ when your answer is submitted.
 ### DEC-001: [Inherited decision title]
 **Origin:** agent1.1 → agent1.2 (kept)
 **Choice:** [What was chosen]
-**Why:** [Rationale]
+**Why:** [PRESERVE original domain rationale from agent1.1]
+**Synthesis Note:** [YOUR meta-reasoning: why you kept this, what validates it]
 **Alternatives considered:**
 - [Alternative]: [Why rejected]
 **Implementation:**
@@ -3076,7 +3119,8 @@ when your answer is submitted.
 ### DEC-002: [Modified decision]
 **Origin:** agent1.1 → agent1.2 (kept) → [SELF] (modified)
 **Choice:** [Your revised choice]
-**Why:** [Why you changed it — agent1.1 chose X, but Y is better because...]
+**Why:** [PRESERVE original domain rationale, then explain modification]
+**Synthesis Note:** [Why you changed it — agent1.1 chose X, changed to Y because...]
 **Alternatives considered:**
 - agent1.1's original approach: [Why you changed it]
 **Implementation:**

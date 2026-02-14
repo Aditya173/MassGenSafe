@@ -328,6 +328,7 @@ class TestGapReportGateRemoval:
             report_path="",
             items=items,
             state=state,
+            substantiveness=None,
         )
         assert result["verdict"] == "vote"
         # Report gate should NOT override
@@ -349,6 +350,7 @@ class TestGapReportGateRemoval:
             report_path="",
             items=items,
             state=state,
+            substantiveness=None,
         )
         # Report diagnostics should be in the result
         assert "report" in result
@@ -371,6 +373,7 @@ class TestGapReportGateRemoval:
             report_path="",
             items=items,
             state=state,
+            substantiveness=None,
         )
         assert result["verdict"] == "vote"
 
@@ -381,8 +384,279 @@ class TestGapReportGateRemoval:
             report_path="nonexistent/path.md",
             items=items,
             state=state,
+            substantiveness=None,
         )
         assert result2["verdict"] == "vote"
+
+
+# ---------------------------------------------------------------------------
+# Substantiveness gating and convergence off-ramp
+# ---------------------------------------------------------------------------
+
+
+class TestSubstantivenessGating:
+    """Tests for substantiveness-based convergence control."""
+
+    @pytest.mark.asyncio
+    async def test_substantiveness_required_forces_iterate_when_missing(self, tmp_path):
+        """When substantiveness is required, missing payload should force iterate."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 70,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 95, "reasoning": "strong"},
+                    "T2": {"score": 95, "reasoning": "strong"},
+                    "T3": {"score": 95, "reasoning": "strong"},
+                    "T4": {"score": 95, "reasoning": "strong"},
+                    "T5": {"score": 95, "reasoning": "strong"},
+                },
+                improvements="No critical gaps",
+            ),
+        )
+        assert result["verdict"] == "new_answer"
+        assert result["substantiveness_gate_triggered"] is True
+        assert "Substantiveness" in result["explanation"]
+
+    @pytest.mark.asyncio
+    async def test_convergence_offramp_terminates_incremental_only_tail_failures(self, tmp_path):
+        """Allow natural termination when only T3/T5 fail and no substantive plan remains."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 70,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 90, "reasoning": "core quality strong"},
+                    "T2": {"score": 88, "reasoning": "core quality strong"},
+                    "T3": {"score": 55, "reasoning": "remaining gaps exist"},
+                    "T4": {"score": 92, "reasoning": "deliverable strong"},
+                    "T5": {"score": 58, "reasoning": "novelty limited"},
+                },
+                improvements="Only polish-level tweaks remain",
+                substantiveness={
+                    "transformative_count": 0,
+                    "structural_count": 0,
+                    "incremental_count": 2,
+                    "decision_space_exhausted": True,
+                    "notes": "No meaningful structural moves left",
+                },
+            ),
+        )
+        assert result["verdict"] == "vote"
+        assert result["convergence_offramp_triggered"] is True
+        assert "Convergence off-ramp activated" in result["explanation"]
+
+    @pytest.mark.asyncio
+    async def test_convergence_offramp_does_not_trigger_with_structural_plan(self, tmp_path):
+        """Do not terminate early when a structural plan still exists."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 70,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 90, "reasoning": "core quality strong"},
+                    "T2": {"score": 88, "reasoning": "core quality strong"},
+                    "T3": {"score": 55, "reasoning": "remaining gaps exist"},
+                    "T4": {"score": 92, "reasoning": "deliverable strong"},
+                    "T5": {"score": 58, "reasoning": "novelty limited"},
+                },
+                improvements="Need one major architecture revision",
+                substantiveness={
+                    "transformative_count": 0,
+                    "structural_count": 1,
+                    "incremental_count": 0,
+                    "decision_space_exhausted": False,
+                    "notes": "A structural redesign remains feasible",
+                },
+            ),
+        )
+        assert result["verdict"] == "new_answer"
+        assert result["convergence_offramp_triggered"] is False
+
+    @pytest.mark.asyncio
+    async def test_changedoc_offramp_does_not_treat_t3_as_tail_failure(self, tmp_path):
+        """In changedoc mode, failing T3 (traceability) should block off-ramp termination."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 70,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+            "changedoc_mode": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 90, "reasoning": "decision coverage strong"},
+                    "T2": {"score": 88, "reasoning": "rationale strong"},
+                    "T3": {"score": 55, "reasoning": "traceability gaps remain"},
+                    "T4": {"score": 92, "reasoning": "deliverable strong"},
+                    "T5": {"score": 58, "reasoning": "novelty limited"},
+                },
+                improvements="Need to fix traceability mappings",
+                substantiveness={
+                    "transformative_count": 0,
+                    "structural_count": 0,
+                    "incremental_count": 1,
+                    "decision_space_exhausted": True,
+                    "notes": "No architectural changes left",
+                },
+            ),
+        )
+        assert result["verdict"] == "new_answer"
+        assert result["convergence_offramp_triggered"] is False
+
+    @pytest.mark.asyncio
+    async def test_changedoc_offramp_can_trigger_when_only_t5_fails(self, tmp_path):
+        """In changedoc mode, off-ramp may trigger only when T1-T4 pass and only T5 fails."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 70,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+            "changedoc_mode": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 90, "reasoning": "decision coverage strong"},
+                    "T2": {"score": 88, "reasoning": "rationale strong"},
+                    "T3": {"score": 89, "reasoning": "traceability is complete"},
+                    "T4": {"score": 92, "reasoning": "deliverable strong"},
+                    "T5": {"score": 58, "reasoning": "novelty limited"},
+                },
+                improvements="No substantive novelty paths remain",
+                substantiveness={
+                    "transformative_count": 0,
+                    "structural_count": 0,
+                    "incremental_count": 1,
+                    "decision_space_exhausted": True,
+                    "notes": "Only polish options remain",
+                },
+            ),
+        )
+        assert result["verdict"] == "vote"
+        assert result["convergence_offramp_triggered"] is True
+
+    @pytest.mark.asyncio
+    async def test_t5_novelty_guidance_when_exhausted(self, tmp_path):
+        """When T5 fails and decision space is exhausted, give specific novelty guidance."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 90,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 78, "reasoning": "decent coverage"},
+                    "T2": {"score": 76, "reasoning": "decent rationale"},
+                    "T3": {"score": 85, "reasoning": "good traceability"},
+                    "T4": {"score": 88, "reasoning": "polished output"},
+                    "T5": {"score": 38, "reasoning": "no genuine novelty"},
+                },
+                improvements="Add attribution and fallback UX",
+                substantiveness={
+                    "transformative_count": 0,
+                    "structural_count": 0,
+                    "incremental_count": 3,
+                    "decision_space_exhausted": True,
+                    "notes": "Only incremental polish remains",
+                },
+            ),
+        )
+        assert result["verdict"] == "new_answer"
+        # Should contain T5-specific novelty guidance, not just "T5 needs improvement"
+        assert "T5 (novelty) failed" in result["explanation"]
+        assert "genuinely NEW element" in result["explanation"]
+        assert "creative direction" in result["explanation"]
+
+    @pytest.mark.asyncio
+    async def test_t5_novelty_guidance_when_substantive_plan_exists(self, tmp_path):
+        """When T5 fails but structural work remains, give different novelty guidance."""
+        items = ["Check 1", "Check 2", "Check 3", "Check 4", "Check 5"]
+        state = {
+            "terminate_action": "vote",
+            "iterate_action": "new_answer",
+            "has_existing_answers": True,
+            "required": 5,
+            "cutoff": 90,
+            "require_gap_report": False,
+            "require_substantiveness": True,
+        }
+        handler = _build_handler(_make_specs_file(tmp_path, items, state))
+
+        result = json.loads(
+            await handler(
+                scores={
+                    "T1": {"score": 78, "reasoning": "decent coverage"},
+                    "T2": {"score": 76, "reasoning": "decent rationale"},
+                    "T3": {"score": 85, "reasoning": "good traceability"},
+                    "T4": {"score": 88, "reasoning": "polished output"},
+                    "T5": {"score": 38, "reasoning": "no genuine novelty"},
+                },
+                improvements="Add interactive timeline and fallback UX",
+                substantiveness={
+                    "transformative_count": 0,
+                    "structural_count": 1,
+                    "incremental_count": 2,
+                    "decision_space_exhausted": False,
+                    "notes": "Interactive timeline would be structural",
+                },
+            ),
+        )
+        assert result["verdict"] == "new_answer"
+        # Should still get novelty guidance but the non-exhausted variant
+        assert "T5 (novelty) failed" in result["explanation"]
+        assert "not synthesis" in result["explanation"]
 
 
 class TestBuildServerConfig:

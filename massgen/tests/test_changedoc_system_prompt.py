@@ -258,6 +258,7 @@ class TestChangedocChecklist:
         # Should contain changedoc checklist items, not generic ones
         assert "Decision Completeness" in content or "changedoc" in content.lower()
         assert "Decision Audit" in content
+        assert "substantiveness" in content.lower()
 
     def test_evaluation_section_uses_generic_items(self):
         """EvaluationSection(has_changedoc=False) produces original text."""
@@ -398,16 +399,14 @@ class TestChangedocAnalysisImprovements:
         assert "remove" in prompt.lower() or "merge" in prompt.lower()
         assert "deeply" in prompt.lower() or "depth" in prompt.lower()
 
-    def test_analysis_with_prior_answers_has_round_aware_t5(self):
-        """When has_prior_answers=True, analysis includes round-aware T5 guidance."""
-        analysis = _build_changedoc_checklist_analysis(has_prior_answers=True)
-        assert "substantive improvement" in analysis.lower() or "user would notice" in analysis.lower()
-
-    def test_analysis_without_prior_answers_omits_round_aware_t5(self):
-        """When has_prior_answers=False, analysis omits round-aware T5 guidance."""
-        analysis = _build_changedoc_checklist_analysis(has_prior_answers=False)
-        # Should NOT have the round-aware T5 note about cosmetic changes
-        assert "cosmetic" not in analysis.lower() or "feature adoption" not in analysis.lower()
+    def test_analysis_no_longer_takes_has_prior_answers(self):
+        """T5 guidance now lives in the checklist item itself, not the analysis."""
+        # The function should work with no arguments
+        analysis = _build_changedoc_checklist_analysis()
+        # Should still contain substantiveness classification
+        assert "TRANSFORMATIVE" in analysis
+        assert "STRUCTURAL" in analysis
+        assert "INCREMENTAL" in analysis
 
 
 # ---------------------------------------------------------------------------
@@ -418,35 +417,34 @@ class TestChangedocAnalysisImprovements:
 class TestQualityAssessmentInChangedoc:
     """Tests for Quality Assessment section in changedoc subsequent-round prompt."""
 
-    def test_subsequent_prompt_with_changedoc_mode_has_quality_assessment(self):
-        """gap_report_mode='changedoc' includes Quality Assessment in subsequent prompt."""
+    def test_subsequent_prompt_with_changedoc_mode_has_open_gaps(self):
+        """gap_report_mode='changedoc' includes Open Gaps in subsequent prompt."""
         prompt = _build_changedoc_subsequent_round_prompt(gap_report_mode="changedoc")
-        assert "Quality Assessment" in prompt
-        assert "User Experience Gaps" in prompt
-        assert "Remaining Gaps" in prompt
-        assert "Worth Another Iteration" in prompt
-        # "Already Strong" was removed to prevent glazing
+        assert "## Open Gaps" in prompt
+        assert "not a todo list" in prompt.lower() or "not directives" in prompt.lower()
+        # Quality Assessment was replaced by Open Gaps
         assert "Already Strong" not in prompt
+        assert "Worth Another Iteration" not in prompt
 
-    def test_subsequent_prompt_with_separate_mode_no_quality_assessment(self):
-        """gap_report_mode='separate' omits Quality Assessment from subsequent prompt."""
+    def test_subsequent_prompt_with_separate_mode_no_open_gaps(self):
+        """gap_report_mode='separate' omits Open Gaps from subsequent prompt."""
         prompt = _build_changedoc_subsequent_round_prompt(gap_report_mode="separate")
-        assert "Quality Assessment" not in prompt
+        assert "## Open Gaps" not in prompt
 
-    def test_subsequent_prompt_with_none_mode_no_quality_assessment(self):
-        """gap_report_mode='none' omits Quality Assessment from subsequent prompt."""
+    def test_subsequent_prompt_with_none_mode_no_open_gaps(self):
+        """gap_report_mode='none' omits Open Gaps from subsequent prompt."""
         prompt = _build_changedoc_subsequent_round_prompt(gap_report_mode="none")
-        assert "Quality Assessment" not in prompt
+        assert "## Open Gaps" not in prompt
 
     def test_changedoc_section_passes_gap_report_mode(self):
         """ChangedocSection uses gap_report_mode parameter for subsequent round."""
         section = ChangedocSection(has_prior_answers=True, gap_report_mode="changedoc")
         content = section.build_content()
-        assert "Quality Assessment" in content
+        assert "Open Gaps" in content
 
         section_separate = ChangedocSection(has_prior_answers=True, gap_report_mode="separate")
         content_separate = section_separate.build_content()
-        assert "Quality Assessment" not in content_separate
+        assert "Open Gaps" not in content_separate
 
 
 # ---------------------------------------------------------------------------
@@ -517,15 +515,17 @@ class TestAntiGlazingAndSynthesis:
         analysis = _build_changedoc_checklist_analysis()
         assert "do not pad with praise" in analysis
 
-    def test_quality_assessment_no_already_strong(self):
-        """Quality Assessment does NOT contain 'Already Strong' section."""
+    def test_open_gaps_replaces_quality_assessment(self):
+        """Open Gaps replaces Quality Assessment — no glazing sections remain."""
         prompt = _build_changedoc_subsequent_round_prompt(gap_report_mode="changedoc")
+        assert "## Open Gaps" in prompt
         assert "Already Strong" not in prompt
+        assert "Quality Assessment" not in prompt
 
-    def test_quality_assessment_has_iteration_gate(self):
-        """Quality Assessment includes 'Worth Another Iteration?' gate."""
+    def test_open_gaps_not_directives(self):
+        """Open Gaps section clarifies gaps are not a todo list for next agent."""
         prompt = _build_changedoc_subsequent_round_prompt(gap_report_mode="changedoc")
-        assert "Worth Another Iteration" in prompt
+        assert "not directives" in prompt.lower() or "not a todo list" in prompt.lower()
 
     def test_subsequent_prompt_uses_sources_reviewed(self):
         """Subsequent round template uses 'Sources reviewed' not 'Based on'."""
@@ -550,3 +550,22 @@ class TestAntiGlazingAndSynthesis:
         """Deliberation trail template shows multi-source synthesis."""
         prompt = _build_changedoc_subsequent_round_prompt()
         assert "synthesized from" in prompt
+
+    def test_open_gaps_not_novel(self):
+        """T5 checklist item clarifies that implementing open gaps is not novel."""
+        from massgen.system_prompt_sections import _CHECKLIST_ITEMS_CHANGEDOC
+
+        t5_text = _CHECKLIST_ITEMS_CHANGEDOC[4]  # 0-indexed, T5 is the 5th item
+        assert "open gap" in t5_text.lower() or "Open Gap" in t5_text
+
+    def test_subsequent_prompt_has_rationale_preservation_rule(self):
+        """Subsequent-round prompt must contain Rationale Preservation Rule."""
+        prompt = _build_changedoc_subsequent_round_prompt()
+        assert "Rationale Preservation Rule" in prompt
+        assert "Synthesis Note" in prompt
+        assert "FORBIDDEN" in prompt
+
+    def test_subsequent_prompt_forbids_meta_justification_in_why(self):
+        """Rationale Preservation Rule forbids replacing Why with meta-justification."""
+        prompt = _build_changedoc_subsequent_round_prompt()
+        assert "this was the best prior answer" in prompt
