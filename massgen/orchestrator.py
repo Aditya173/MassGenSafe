@@ -1463,6 +1463,11 @@ class Orchestrator(ChatAgent):
                 f"[Orchestrator] Adding --use-two-tier-workspace flag to planning MCP for {agent_id}",
             )
 
+        # Require verification fields when checklist-gated voting is active
+        require_verification = hasattr(self.config, "orchestrator_config") and getattr(self.config.orchestrator_config, "voting_sensitivity", None) == "checklist_gated"
+        if require_verification:
+            args.append("--require-verification")
+
         logger.info(f"[Orchestrator] Planning MCP args for {agent_id}: {args}")
 
         config = {

@@ -616,3 +616,139 @@ class TestMCPServerIntegration:
 
         with pytest.raises(ValueError, match="must reference earlier tasks"):
             _resolve_dependency_references(tasks)
+
+
+class TestVerificationEnforcement:
+    """Tests for task verification enforcement.
+
+    When tasks have verification criteria (verification, verification_method),
+    completing them should nudge the agent to verify before considering them done.
+    """
+
+    def _make_plan_with_verification_task(self):
+        """Helper: create a plan with a task that has verification metadata."""
+        plan = TaskPlan(agent_id="test_agent")
+        task = plan.add_task(
+            description="Build the API endpoint",
+            task_id="build_api",
+        )
+        task.metadata["verification"] = "Endpoint responds 200 with correct payload"
+        task.metadata["verification_method"] = "curl localhost:8000/api and check response JSON"
+        return plan
+
+    def test_completion_response_includes_verification_reminder(self):
+        """When marking a task 'completed' that has verification criteria,
+        response must include a verification_required hint."""
+        plan = self._make_plan_with_verification_task()
+        plan.update_task_status("build_api", "in_progress")
+        result = plan.update_task_status("build_api", "completed", "Wrote the endpoint code")
+
+        # The result should surface that verification is still needed
+        assert "verification_pending" in result
+        assert result["verification_pending"] is True
+        assert "verification" in result
+        assert result["verification"] == "Endpoint responds 200 with correct payload"
+        assert "verification_method" in result
+        assert result["verification_method"] == "curl localhost:8000/api and check response JSON"
+
+    def test_completion_response_no_verification_when_no_criteria(self):
+        """When marking a task 'completed' that has NO verification criteria,
+        response should NOT include verification_pending."""
+        plan = TaskPlan(agent_id="test_agent")
+        plan.add_task(description="Simple task", task_id="simple")
+        plan.update_task_status("simple", "in_progress")
+        result = plan.update_task_status("simple", "completed", "Done")
+
+        assert result.get("verification_pending") is not True
+
+    def test_verified_clears_verification_pending(self):
+        """After marking 'verified', the verification is considered complete."""
+        plan = self._make_plan_with_verification_task()
+        plan.update_task_status("build_api", "in_progress")
+        plan.update_task_status("build_api", "completed", "Wrote endpoint")
+        plan.update_task_status("build_api", "verified", "curl returns 200")
+
+        task = plan.get_task("build_api")
+        assert task.status == "verified"
+        assert task.verified_at is not None
+
+    def test_unverified_count_in_completion_response(self):
+        """Completion response should include count of completed-but-unverified tasks."""
+        plan = TaskPlan(agent_id="test_agent")
+
+        # Task with verification
+        t1 = plan.add_task(description="Task A", task_id="a")
+        t1.metadata["verification"] = "A works"
+        t1.metadata["verification_method"] = "Test A"
+
+        # Another task with verification
+        t2 = plan.add_task(description="Task B", task_id="b")
+        t2.metadata["verification"] = "B works"
+        t2.metadata["verification_method"] = "Test B"
+
+        # Complete both
+        plan.update_task_status("a", "in_progress")
+        plan.update_task_status("a", "completed", "done A")
+        plan.update_task_status("b", "in_progress")
+        result = plan.update_task_status("b", "completed", "done B")
+
+        assert result.get("unverified_count", 0) >= 2
+
+    def test_add_task_accepts_verification_fields(self):
+        """add_task should accept verification and verification_method
+        and store them in metadata."""
+        plan = TaskPlan(agent_id="test_agent")
+        task = plan.add_task(
+            description="Build feature X",
+            task_id="feature_x",
+            verification="Feature X renders correctly in browser",
+            verification_method="Screenshot and visual inspection via read_media",
+        )
+
+        assert task.metadata["verification"] == "Feature X renders correctly in browser"
+        assert task.metadata["verification_method"] == "Screenshot and visual inspection via read_media"
+
+    def test_add_task_rejects_missing_verification_when_required(self):
+        """When require_verification=True, add_task must reject tasks without verification."""
+        plan = TaskPlan(agent_id="test_agent", require_verification=True)
+        with pytest.raises(ValueError, match="verification"):
+            plan.add_task(
+                description="Build API endpoint",
+                task_id="build_api",
+            )
+
+    def test_add_task_accepts_with_verification_when_required(self):
+        """When require_verification=True, add_task succeeds with verification fields."""
+        plan = TaskPlan(agent_id="test_agent", require_verification=True)
+        task = plan.add_task(
+            description="Build API endpoint",
+            task_id="build_api",
+            verification="Endpoint returns 200",
+            verification_method="curl test",
+        )
+        assert task.metadata["verification"] == "Endpoint returns 200"
+
+    def test_add_task_no_requirement_by_default(self):
+        """By default (require_verification=False), tasks without verification are fine."""
+        plan = TaskPlan(agent_id="test_agent")
+        task = plan.add_task(description="Simple task", task_id="simple")
+        assert task.id == "simple"
+
+    def test_system_prompt_mentions_verified_status(self):
+        """System prompt task planning guidance must mention the 'verified' status."""
+        from massgen.system_prompt_sections import TaskPlanningSection
+
+        section = TaskPlanningSection(filesystem_mode=False)
+        content = section.build_content()
+        lower = content.lower()
+        assert "verified" in lower
+
+    def test_system_prompt_summary_format_shows_unverified(self):
+        """System prompt task execution summary format should distinguish
+        verified vs completed-but-unverified tasks."""
+        from massgen.system_prompt_sections import TaskPlanningSection
+
+        section = TaskPlanningSection(filesystem_mode=False)
+        content = section.build_content()
+        # Should show some symbol for unverified completion distinct from verified
+        assert "unverified" in content.lower() or "◐" in content or "⬡" in content

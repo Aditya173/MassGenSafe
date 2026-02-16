@@ -2527,8 +2527,8 @@ When working on multi-step tasks:
 - **create_task_plan** - Create a plan with tasks and dependencies
 - **get_ready_tasks** - Get tasks ready to start (dependencies satisfied)
 - **get_blocked_tasks** - See what's waiting on dependencies
-- **update_task_status** - Mark progress (pending/in_progress/completed)
-- **add_task** - Add new tasks (priority: low/medium/high)
+- **update_task_status** - Mark progress (pending/in_progress/completed/verified)
+- **add_task** - Add new tasks (priority: low/medium/high, optional verification criteria)
 - **get_task_plan** - View your complete task plan
 - **edit_task** - Update task descriptions
 - **delete_task** - Remove tasks no longer needed
@@ -2538,11 +2538,11 @@ Tool responses may include important reminders and guidance (e.g., when completi
 you'll receive reminders to save learnings to memory). Always read tool response messages carefully.
 
 **Recommended workflow:**
-1. **Create your task plan** with tasks like:
-   - `{"id": "research", "description": "Research OAuth providers"}`
-   - `{"id": "design", "description": "Design auth flow", "depends_on": ["research"]}`
-   - `{"id": "implement", "description": "Implement endpoints", "depends_on": ["design"]}`
-2. **Update task status** as you work: set task_id="research", status="in_progress", then "completed"
+1. **Create your task plan** with tasks including verification criteria:
+   - `{"id": "research", "description": "Research OAuth providers", "verification": "Comparison table with 3+ providers", "verification_method": "Review output table"}`
+   - `{"id": "design", "description": "Design auth flow", "depends_on": ["research"], "verification": "Flow diagram renders correctly", "verification_method": "Screenshot and visual check"}`
+   - `{"id": "implement", "description": "Implement endpoints", "depends_on": ["design"], "verification": "Endpoints return 200", "verification_method": "curl test each endpoint"}`
+2. **Update task status** as you work: set status="in_progress", then "completed", then "verified" after confirming
 3. **Add tasks** as you discover new requirements: description="Write integration tests", depends_on=["implement"]
 4. **Check ready tasks** to see what's unblocked next
 
@@ -2554,8 +2554,12 @@ Tasks support two dependency styles:
 **IMPORTANT - Including Task Plan in Your Answer:**
 If you created a task plan, include a summary at the end of your `new_answer` showing:
 1. Each task name
-2. Completion status (✓ or ✗)
+2. Status: ✓ (verified), ◐ (completed but unverified), ✗ (not done)
 3. Brief description of what you did
+
+**Verification is required.** When you mark a task `completed`, you must then verify it
+actually works (screenshots, tests, visual inspection) and mark it `verified`. Tasks left
+at `completed` without verification are unverified — they will show as ◐ in your summary.
 
 Example format:
 ```
@@ -2564,11 +2568,11 @@ Example format:
 ---
 **Task Execution Summary:**
 ✓ Research OAuth providers - Analyzed OAuth 2.0 spec and compared providers
-✓ Design auth flow - Created flow diagram with PKCE and token refresh
-✓ Implement endpoints - Built /auth/login, /auth/callback, /auth/refresh
-✓ Write tests - Added integration tests for auth flow
+✓ Design auth flow - Created flow diagram with PKCE and token refresh (verified: diagram renders correctly)
+◐ Implement endpoints - Built /auth/login, /auth/callback, /auth/refresh (unverified: no test run yet)
+✗ Write tests - Not started
 
-Status: 4/4 tasks completed
+Status: 2/4 verified, 1/4 completed (unverified), 1/4 not done
 ```
 
 This helps other agents understand your approach and evaluate your work."""
