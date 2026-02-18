@@ -2659,6 +2659,7 @@ class EvaluationSection(SystemPromptSection):
         checklist_require_gap_report: bool = True,
         gap_report_mode: str = "changedoc",
         has_changedoc: bool = False,
+        has_evaluator_subagent: bool = False,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -2675,6 +2676,7 @@ class EvaluationSection(SystemPromptSection):
         self.checklist_require_gap_report = checklist_require_gap_report
         self.gap_report_mode = gap_report_mode
         self.has_changedoc = has_changedoc
+        self.has_evaluator_subagent = has_evaluator_subagent
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -2797,9 +2799,18 @@ Your goal is to iteratively refine answers until they meet the quality bar.
                 require_gap_report=self.checklist_require_gap_report,
                 gap_report_mode=self.gap_report_mode,
             )
+            evaluator_directive = ""
+            if self.has_evaluator_subagent:
+                evaluator_directive = (
+                    "\n\n"
+                    "**Mandatory Evaluator Check:** BEFORE calling `submit_checklist`, spawn your evaluator "
+                    "subagent to verify your output. Do NOT serve websites, run test suites, or write "
+                    "verification scripts yourself — delegate that procedural work to the evaluator. Read "
+                    "its report, then factor the findings into your T1-T5 scores."
+                )
             evaluation_section = f"""{analysis}
 
-{decision}"""
+{decision}{evaluator_directive}"""
         elif effective_sensitivity == "adversarial":
             evaluation_section = """**ADVERSARIAL EVALUATION (INTERNAL RED-TEAMING)**
 
@@ -2974,12 +2985,21 @@ Both are terminal actions that end your round.
                     require_gap_report=self.checklist_require_gap_report,
                     gap_report_mode=self.gap_report_mode,
                 )
+                evaluator_directive = ""
+                if self.has_evaluator_subagent:
+                    evaluator_directive = (
+                        "\n\n"
+                        "**Mandatory Evaluator Check:** BEFORE calling `submit_checklist`, spawn your evaluator "
+                        "subagent to verify your output. Do NOT serve websites, run test suites, or write "
+                        "verification scripts yourself — delegate that procedural work to the evaluator. Read "
+                        "its report, then factor the findings into your T1-T5 scores."
+                    )
                 return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round.
 
 {analysis}
 
-{decision}"""
+{decision}{evaluator_directive}"""
             else:
                 # roi (default) and roi_* variants
                 roi_block = build_roi_decision_block(
@@ -3476,9 +3496,10 @@ class SubagentSection(SystemPromptSection):
     Args:
         workspace_path: Path to the agent's workspace (for subagent workspace location)
         max_concurrent: Maximum concurrent subagents allowed
+        specialized_subagents: List of discovered specialized subagent types
     """
 
-    def __init__(self, workspace_path: str, max_concurrent: int = 3):
+    def __init__(self, workspace_path: str, max_concurrent: int = 3, specialized_subagents=None):
         super().__init__(
             title="Subagent Delegation",
             priority=Priority.MEDIUM,
@@ -3486,9 +3507,32 @@ class SubagentSection(SystemPromptSection):
         )
         self.workspace_path = workspace_path
         self.max_concurrent = max_concurrent
+        self.specialized_subagents = specialized_subagents or []
+
+    def _build_attached_subagents_section(self) -> str:
+        """Build the ATTACHED SUBAGENTS section listing discovered types."""
+        if not self.specialized_subagents:
+            return ""
+
+        lines = [
+            "",
+            "## ATTACHED SUBAGENTS — USE THESE INSTEAD OF DOING THE WORK YOURSELF",
+            "",
+            "Prefer spawning these specialized subagents over doing the equivalent work inline — they save your token budget and come pre-equipped with the right tools.",
+            "",
+        ]
+
+        for t in self.specialized_subagents:
+            async_str = "True" if t.default_async else "False"
+            lines.append(f"**{t.name}** — {t.description}")
+            lines.append(f'`spawn_subagents(tasks=[{{"task": "...", "subagent_type": "{t.name}", "context_paths": []}}], async_={async_str})`')
+            lines.append("")
+
+        return "\n".join(lines)
 
     def build_content(self) -> str:
-        return f"""
+        attached = self._build_attached_subagents_section()
+        return f"""{attached}
 # Subagent Delegation
 
 You can spawn **subagents** to execute tasks with fresh context and isolated workspaces.
@@ -3559,7 +3603,11 @@ may run on a simpler model.
    - You can READ files from subagent workspaces
    - You CANNOT write directly to subagent workspaces
 2. **Fresh Context**: Subagents start with a clean slate (just the task you provide)
-3. **Context Files**: Pass `context_files` to give the subagent READ-ONLY access to files
+3. **Explicit Context Paths (REQUIRED)**: Every task must include `context_paths`
+   - Use `[]` for clean-slate research (no extra context beyond task text)
+   - Use `["./"]` for read-only access to the full parent workspace
+   - Use specific paths for least-privilege access (recommended when possible)
+   - `context_files` remains optional for copying files into subagent workspace
 4. **No Nesting**: Subagents cannot spawn their own subagents
 5. **No Human Broadcast**: Subagents cannot ask the human or request human input
 
@@ -3629,15 +3677,19 @@ All subagents start at the same time and cannot see each other's output. Design 
 **REQUIREMENTS:**
 1. **Maximum {self.max_concurrent} tasks per call** - requests for more will error
 2. **`CONTEXT.md` in workspace is REQUIRED** - subagents need to know the project/goal
-3. **Each task dict must have `"task"` field** (not "description" or "id")
+3. **Each task dict must have both `"task"` and `"context_paths"` fields**
+4. **`context_paths` must be explicit**:
+   - Use `[]` if you intentionally want no extra context
+   - Use `["./"]` for full parent workspace read-only access
+   - Use specific paths for least-privilege access
 
 ```python
 # CORRECT: Independent parallel tasks (each can complete without the others)
 spawn_subagents(
     tasks=[
-        {{"task": "Research and write Bob Dylan biography to bio.md", "subagent_id": "bio"}},
-        {{"task": "Create discography table in discography.md", "subagent_id": "discog"}},
-        {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs"}}
+        {{"task": "Research and write Bob Dylan biography to bio.md", "subagent_id": "bio", "context_paths": []}},
+        {{"task": "Create discography table in discography.md", "subagent_id": "discog", "context_paths": []}},
+        {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs", "context_paths": []}}
     ],
     async_=False,  # True if run asynchronously (you check later), False to block until done
     refine=False,  # True to allow subagents to refine their answers (more expensive and slower but better quality)
@@ -3645,8 +3697,8 @@ spawn_subagents(
 
 # WRONG - DO NOT DO THIS (task 2 depends on task 1's output):
 # spawn_subagents(tasks=[
-#     {{"task": "Research all content"}},
-#     {{"task": "Build website using the researched content"}}  # CAN'T ACCESS TASK 1!
+#     {{"task": "Research all content", "context_paths": []}},
+#     {{"task": "Build website using the researched content", "context_paths": []}}  # CAN'T ACCESS TASK 1!
 # ])
 ```
 
@@ -3664,6 +3716,7 @@ spawn_subagents(
 ## Available Tools
 
 - `spawn_subagents(tasks, async_?, refine?)` -- Max {self.max_concurrent} parallel tasks.
+  Each task must include `task` and explicit `context_paths` (can be `[]`).
 - `list_subagents()` - List all spawned subagents with status
 - `get_subagent_result(subagent_id)` - Get result from a completed subagent
 - `check_subagent_status(subagent_id)` - Check status of a subagent

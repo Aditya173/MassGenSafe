@@ -8,6 +8,123 @@ Tests for the async subagent execution feature (MAS-214):
 - async disabled in config falls back to blocking
 """
 
+import inspect
+import sys
+
+import pytest
+
+
+async def _build_spawn_subagents_handler(monkeypatch, tmp_path):
+    """Create the subagent MCP server and return (module, spawn_subagents handler)."""
+    from massgen.mcp_tools.subagent import _subagent_mcp_server as server
+
+    # Ensure clean global state per test.
+    server._manager = None
+    server._workspace_path = None
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "subagent-server",
+            "--agent-id",
+            "agent_a",
+            "--orchestrator-id",
+            "orch_1",
+            "--workspace-path",
+            str(tmp_path),
+        ],
+    )
+
+    mcp = await server.create_server()
+    for tool in mcp._tool_manager._tools.values():
+        if tool.name == "spawn_subagents":
+            return server, tool.fn
+    raise RuntimeError("spawn_subagents tool not found")
+
+
+async def _invoke_handler(handler, **kwargs):
+    """Invoke FastMCP handler regardless of sync/async function type."""
+    result = handler(**kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+class _FakeSubagentManager:
+    """Minimal fake manager for spawn_subagents MCP tests."""
+
+    def __init__(self):
+        self.background_calls = []
+
+    def spawn_subagent_background(self, **kwargs):
+        self.background_calls.append(kwargs)
+        subagent_id = kwargs.get("subagent_id") or "subagent_0"
+        return {
+            "subagent_id": subagent_id,
+            "status": "running",
+            "workspace": f"/tmp/{subagent_id}",
+            "status_file": f"/tmp/{subagent_id}/status.json",
+        }
+
+    def list_subagents(self):
+        return []
+
+
+class TestSpawnSubagentsContextPathsRequirement:
+    """Validation behavior for explicit context_paths requirement."""
+
+    @pytest.mark.asyncio
+    async def test_missing_context_paths_field_is_rejected(self, monkeypatch, tmp_path):
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[{"task": "Research OAuth patterns"}],
+            async_=True,
+            refine=False,
+        )
+
+        assert result["success"] is False
+        assert "context_paths" in result["error"]
+        assert "[]" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_context_paths_must_be_list(self, monkeypatch, tmp_path):
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[{"task": "Explore repo structure", "context_paths": "./"}],
+            async_=True,
+            refine=False,
+        )
+
+        assert result["success"] is False
+        assert "expected list" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_empty_context_paths_is_valid_explicit_choice(self, monkeypatch, tmp_path):
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[{"task": "Do clean research with no prior context", "context_paths": []}],
+            async_=True,
+            refine=False,
+        )
+
+        assert result["success"] is True
+        assert result["mode"] == "async"
+        assert len(fake_manager.background_calls) == 1
+        assert fake_manager.background_calls[0]["context_paths"] == []
+
 
 # =============================================================================
 # Async Parameter Tests

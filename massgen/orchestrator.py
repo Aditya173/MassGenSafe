@@ -412,10 +412,56 @@ class Orchestrator(ChatAgent):
                     False,
                 )
 
+        # Create dedicated subagent logs directory if subagents are enabled.
+        # This directory is mounted into Docker containers so the subagent MCP
+        # server (which runs inside Docker) can write logs. Using a dedicated
+        # directory avoids mounting the entire .massgen/massgen_logs tree.
+        self._subagent_logs_dir: Optional[Path] = None
+        if hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_subagents", False):
+            try:
+                log_session_dir = get_log_session_dir()
+                if log_session_dir:
+                    cwd = Path.cwd()
+                    subagent_logs_base = cwd / ".massgen" / "subagent_logs"
+                    subagent_logs_base.mkdir(parents=True, exist_ok=True)
+                    run_id = secrets.token_hex(4)
+                    self._subagent_logs_dir = subagent_logs_base / f"sa_{run_id}"
+                    self._subagent_logs_dir.mkdir(parents=True, exist_ok=True)
+                    subagent_entries_dir = self._subagent_logs_dir / "subagents"
+                    subagent_entries_dir.mkdir(parents=True, exist_ok=True)
+                    logger.info(
+                        f"[Orchestrator] Created subagent logs directory: {self._subagent_logs_dir}",
+                    )
+                    # Symlink from session log dir for discoverability
+                    symlink_path = log_session_dir / "subagents"
+                    try:
+                        if symlink_path.is_symlink():
+                            symlink_path.unlink()
+                        symlink_path.symlink_to(subagent_entries_dir)
+                    except OSError as e:
+                        logger.warning(
+                            f"[Orchestrator] Could not create subagent logs symlink: {e}",
+                        )
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Could not create subagent logs directory: {e}")
+
         def _setup_agent_orchestration(agent_id: str, agent) -> None:
             """Setup orchestration paths for a single agent (can run in parallel)."""
             if not agent.backend.filesystem_manager:
                 return
+
+            # Add Docker mount for subagent logs directory if needed
+            if self._subagent_logs_dir is not None:
+                fm = agent.backend.filesystem_manager
+                if hasattr(fm, "docker_manager") and fm.docker_manager is not None:
+                    resolved = str(self._subagent_logs_dir.resolve())
+                    fm.docker_manager.additional_mounts[resolved] = {
+                        "bind": resolved,
+                        "mode": "rw",
+                    }
+                    logger.info(
+                        f"[Orchestrator] Added Docker mount for subagent logs: {resolved}",
+                    )
 
             agent.backend.filesystem_manager.setup_orchestration_paths(
                 agent_id=agent_id,
@@ -1627,6 +1673,12 @@ class Orchestrator(ChatAgent):
         script_path = PathlibPath(subagent_module.__file__).resolve()
 
         workspace_path = str(agent.backend.filesystem_manager.cwd)
+        workspace_root = PathlibPath(workspace_path).resolve()
+        # Keep subagent MCP temp config files inside the mounted workspace so
+        # Docker-based Codex can read them. Host /tmp paths are not guaranteed
+        # to be mounted in the container.
+        mcp_temp_dir = workspace_root / ".massgen" / "subagent_mcp"
+        mcp_temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Build list of all parent agent configs to pass to subagent manager
         # This allows subagents to inherit the exact same agent setup by default
@@ -1647,6 +1699,7 @@ class Orchestrator(ChatAgent):
             suffix=".json",
             prefix="massgen_subagent_configs_",
             delete=False,  # Keep file until subagent reads it
+            dir=str(mcp_temp_dir),
         )
         json.dump(agent_configs, agent_configs_file)
         agent_configs_file.close()
@@ -1667,6 +1720,7 @@ class Orchestrator(ChatAgent):
                 suffix=".json",
                 prefix="massgen_subagent_context_paths_",
                 delete=False,
+                dir=str(mcp_temp_dir),
             )
             json.dump(parent_context_paths, context_paths_file)
             context_paths_file.close()
@@ -1702,6 +1756,7 @@ class Orchestrator(ChatAgent):
                     suffix=".json",
                     prefix="massgen_subagent_coordination_config_",
                     delete=False,
+                    dir=str(mcp_temp_dir),
                 )
                 json.dump(parent_coordination_config, coordination_config_file)
                 coordination_config_file.close()
@@ -1731,14 +1786,43 @@ class Orchestrator(ChatAgent):
                 if so_config:
                     subagent_orchestrator_config_json = json.dumps(so_config.to_dict())
 
-        # Get log directory for subagent logs
-        log_directory = ""
+        # Discover and serialize specialized subagent types for the MCP server
+        specialized_subagents_path = ""
         try:
-            log_dir = get_log_session_dir()
-            if log_dir:
-                log_directory = str(log_dir.resolve())
-        except Exception:
-            pass  # Log directory not configured
+            from massgen.subagent.type_scanner import scan_subagent_types
+
+            specialized_types = scan_subagent_types()
+            if specialized_types:
+                specialized_data = [t.to_dict() for t in specialized_types]
+                specialized_file = tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".json",
+                    prefix="massgen_subagent_specialized_types_",
+                    delete=False,
+                    dir=str(mcp_temp_dir),
+                )
+                json.dump(specialized_data, specialized_file)
+                specialized_file.close()
+                specialized_subagents_path = specialized_file.name
+                logger.info(
+                    f"[Orchestrator] Passing {len(specialized_types)} specialized subagent types to MCP",
+                )
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Failed to discover specialized subagent types: {e}")
+
+        # Get log directory for subagent logs.
+        # Use the dedicated subagent logs dir (Docker-mountable) if available,
+        # otherwise fall back to the session log dir.
+        log_directory = ""
+        if self._subagent_logs_dir is not None:
+            log_directory = str(self._subagent_logs_dir.resolve())
+        else:
+            try:
+                log_dir = get_log_session_dir()
+                if log_dir:
+                    log_directory = str(log_dir.resolve())
+            except Exception:
+                pass  # Log directory not configured
 
         args = [
             "run",
@@ -1768,16 +1852,28 @@ class Orchestrator(ChatAgent):
             context_paths_path,
             "--coordination-config-file",
             coordination_config_path,
+            "--specialized-subagents-file",
+            specialized_subagents_path,
         ]
 
-        config = {
+        # Build env for the MCP server process. Codex replaces (not merges)
+        # the process env with config.toml's "env" field, so we must explicitly
+        # include API keys the subagent subprocess needs. Reuse the backend's
+        # credential env builder if available (Codex backend), otherwise just
+        # suppress the FastMCP banner.
+        mcp_env: Dict[str, str] = {"FASTMCP_SHOW_CLI_BANNER": "false"}
+        if hasattr(agent.backend, "_build_custom_tools_mcp_env"):
+            mcp_env = agent.backend._build_custom_tools_mcp_env()
+
+        config: Dict[str, Any] = {
             "name": f"subagent_{agent_id}",
             "type": "stdio",
             "command": "fastmcp",
             "args": args,
-            "env": {
-                "FASTMCP_SHOW_CLI_BANNER": "false",
-            },
+            "env": mcp_env,
+            # Blocking spawn_subagents can run near subagent_default_timeout.
+            # Raise per-tool timeout so Codex MCP does not fail at 60s.
+            "tool_timeout_sec": int(default_timeout) + 60,
         }
 
         logger.info(

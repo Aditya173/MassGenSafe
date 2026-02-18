@@ -103,7 +103,7 @@ class SubagentManager:
         self.min_timeout = min_timeout
         self.max_timeout = max_timeout
         self._subagent_orchestrator_config = subagent_orchestrator_config
-        self._parent_context_paths = parent_context_paths or []
+        self._parent_context_paths = self._normalize_parent_context_paths(parent_context_paths)
         self._parent_coordination_config = parent_coordination_config or {}
         self._agent_temporary_workspace = Path(agent_temporary_workspace) if agent_temporary_workspace else None
 
@@ -111,7 +111,13 @@ class SubagentManager:
         self._log_directory = Path(log_directory) if log_directory else None
         if self._log_directory:
             self._subagent_logs_base = self._log_directory / "subagents"
-            self._subagent_logs_base.mkdir(parents=True, exist_ok=True)
+            try:
+                self._subagent_logs_base.mkdir(parents=True, exist_ok=True)
+            except PermissionError:
+                logger.warning(
+                    f"[SubagentManager] Cannot create log directory {self._subagent_logs_base} " f"(permission denied). Subagent log capture disabled.",
+                )
+                self._subagent_logs_base = None
         else:
             self._subagent_logs_base = None
 
@@ -149,6 +155,39 @@ class SubagentManager:
         """
         effective_timeout = timeout if timeout is not None else self.default_timeout
         return max(self.min_timeout, min(self.max_timeout, effective_timeout))
+
+    def _normalize_parent_context_paths(
+        self,
+        context_paths: Optional[List[Dict[str, Any]]],
+    ) -> List[Dict[str, str]]:
+        """
+        Normalize parent context paths to absolute, read-only entries and always include the parent workspace.
+        """
+        normalized: List[Dict[str, str]] = []
+        seen: set[str] = set()
+        workspace_path = str(self.parent_workspace.resolve())
+
+        if context_paths:
+            for entry in context_paths:
+                raw_path = None
+                if isinstance(entry, str):
+                    raw_path = entry
+                elif isinstance(entry, dict):
+                    raw_path = entry.get("path")
+                if not raw_path:
+                    continue
+                path_obj = Path(raw_path)
+                resolved_path = path_obj if path_obj.is_absolute() else (self.parent_workspace / path_obj)
+                resolved_str = str(resolved_path.resolve())
+                if resolved_str in seen:
+                    continue
+                seen.add(resolved_str)
+                normalized.append({"path": resolved_str, "permission": "read"})
+
+        if workspace_path not in seen:
+            normalized.insert(0, {"path": workspace_path, "permission": "read"})
+
+        return normalized
 
     def register_completion_callback(
         self,
@@ -1314,6 +1353,16 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "orchestrator": orchestrator_config,
         }
 
+        # If specialized subagent type has skills, enable skills for this subagent
+        skills_list = config.metadata.get("skills")
+        if skills_list:
+            coord_settings["use_skills"] = True
+            coord_settings["massgen_skills"] = skills_list
+            coord_settings["enabled_skill_names"] = skills_list
+            logger.info(
+                f"[SubagentManager] Enabling skills for subagent {config.id}: {skills_list}",
+            )
+
         # Configure per-round timeouts for subagents, with parent inheritance
         subagent_round_timeouts = self._parent_coordination_config.get("subagent_round_timeouts") or {}
         parent_round_timeouts = self._parent_coordination_config.get("parent_round_timeouts") or {}
@@ -1464,6 +1513,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         context_paths: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
         refine: bool = True,
+        skills: Optional[List[str]] = None,
     ) -> SubagentResult:
         """
         Spawn a single subagent to work on a task.
@@ -1480,12 +1530,16 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             system_prompt: Optional custom system prompt
             refine: If True (default), allow multi-round coordination and refinement.
                     If False, return first answer without iteration (faster).
+            skills: Optional list of skill names to pre-load for the subagent
 
         Returns:
             SubagentResult with execution outcome
         """
         # Create config with clamped timeout
         clamped_timeout = self._clamp_timeout(timeout_seconds)
+        metadata = {"refine": refine}
+        if skills:
+            metadata["skills"] = skills
         config = SubagentConfig.create(
             task=task,
             parent_agent_id=self.parent_agent_id,
@@ -1495,7 +1549,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             context_files=context_files or [],
             context_paths=context_paths or [],
             system_prompt=system_prompt,
-            metadata={"refine": refine},
+            metadata=metadata,
         )
 
         logger.info(f"[SubagentManager] Spawning subagent {config.id} for task: {task[:100]}...")
@@ -1651,6 +1705,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 context_paths=task_config.get("context_paths"),
                 system_prompt=task_config.get("system_prompt"),
                 refine=refine,
+                skills=task_config.get("skills"),
             )
             coroutines.append(coro)
 
@@ -1683,6 +1738,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         context_paths: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
         refine: bool = True,
+        skills: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Spawn a subagent in the background (non-blocking).
@@ -1699,12 +1755,16 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             context_files: Optional files to copy to subagent workspace
             context_paths: Optional paths to mount read-only (files/dirs, "./" = parent workspace)
             system_prompt: Optional custom system prompt
+            skills: Optional list of skill names to pre-load for the subagent
 
         Returns:
             Dictionary with subagent_id and status_file path
         """
         # Create config with clamped timeout
         clamped_timeout = self._clamp_timeout(timeout_seconds)
+        metadata = {"refine": refine}
+        if skills:
+            metadata["skills"] = skills
         config = SubagentConfig.create(
             task=task,
             parent_agent_id=self.parent_agent_id,
@@ -1714,7 +1774,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             context_files=context_files or [],
             context_paths=context_paths or [],
             system_prompt=system_prompt,
-            metadata={"refine": refine},
+            metadata=metadata,
         )
 
         logger.info(f"[SubagentManager] Spawning background subagent {config.id} for task: {task[:100]}...")

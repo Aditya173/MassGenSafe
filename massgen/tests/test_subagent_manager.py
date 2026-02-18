@@ -610,7 +610,7 @@ class TestSubagentContextPaths:
         assert resolved[0]["permission"] == "read"
 
     def test_context_paths_empty_by_default(self, tmp_path):
-        """No extra context_paths when parameter not provided."""
+        """Default context includes parent workspace as read-only mount."""
         parent_ws = tmp_path / "workspace"
         parent_ws.mkdir()
 
@@ -625,11 +625,15 @@ class TestSubagentContextPaths:
         resolved = self._resolve_context_paths(config, parent_ws)
         assert resolved == []
 
-        # Verify YAML config has no context_paths when none provided and no parent paths
+        # Parent workspace is inherited as a safe default read-only context.
         manager = self._make_manager(parent_ws)
         workspace = manager._create_workspace(config.id)
         yaml_config = manager._generate_subagent_yaml_config(config, workspace, resolved)
-        assert "context_paths" not in yaml_config["orchestrator"]
+        assert "context_paths" in yaml_config["orchestrator"]
+        orch_paths = yaml_config["orchestrator"]["context_paths"]
+        assert len(orch_paths) == 1
+        assert orch_paths[0]["path"] == str(parent_ws.resolve())
+        assert orch_paths[0]["permission"] == "read"
 
     def test_context_paths_deduplicates(self, tmp_path):
         """Same path listed twice appears only once."""
@@ -683,3 +687,47 @@ class TestSubagentContextPaths:
         # All read-only
         for p in orch_ctx:
             assert p["permission"] == "read"
+
+
+class TestSubagentManagerContextNormalization:
+    def test_parent_workspace_added_to_context_paths(self, tmp_path):
+        from massgen.subagent.manager import SubagentManager
+
+        parent_workspace = tmp_path / "workspace"
+        parent_workspace.mkdir()
+
+        manager = SubagentManager(
+            parent_workspace=str(parent_workspace),
+            parent_agent_id="parent-agent",
+            orchestrator_id="orch",
+            parent_agent_configs=[],
+        )
+
+        paths = manager._parent_context_paths
+        assert paths
+        assert paths[0]["path"] == str(parent_workspace.resolve())
+        assert paths[0]["permission"] == "read"
+        assert len([p for p in paths if p["path"] == str(parent_workspace.resolve())]) == 1
+
+    def test_relative_context_paths_resolved_and_read_only(self, tmp_path):
+        from massgen.subagent.manager import SubagentManager
+
+        parent_workspace = tmp_path / "workspace"
+        parent_workspace.mkdir()
+        relative_dir = parent_workspace / "data"
+        relative_dir.mkdir()
+
+        manager = SubagentManager(
+            parent_workspace=str(parent_workspace),
+            parent_agent_id="parent-agent",
+            orchestrator_id="orch",
+            parent_agent_configs=[],
+            parent_context_paths=[{"path": "data", "permission": "write"}],
+        )
+
+        resolved_paths = {entry["path"]: entry for entry in manager._parent_context_paths}
+        assert str(relative_dir.resolve()) in resolved_paths
+        assert resolved_paths[str(relative_dir.resolve())]["permission"] == "read"
+        workspace_path = str(parent_workspace.resolve())
+        assert workspace_path in resolved_paths
+        assert resolved_paths[workspace_path]["permission"] == "read"

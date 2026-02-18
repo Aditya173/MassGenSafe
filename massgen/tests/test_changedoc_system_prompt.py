@@ -761,3 +761,11 @@ class TestEvaluationDelegation:
         content = _subagent_content()
         lower = content.lower()
         assert "check_subagent_status" in lower or "poll" in lower
+
+    def test_subagent_section_requires_explicit_context_paths(self):
+        """Subagent guidance must require explicit context_paths (including [])."""
+        content = _subagent_content()
+        lower = content.lower()
+        assert "context_paths" in lower
+        assert "required" in lower
+        assert "[]" in content

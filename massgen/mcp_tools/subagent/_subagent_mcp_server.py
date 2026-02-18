@@ -48,6 +48,7 @@ _min_timeout: int = 60
 _max_timeout: int = 600
 _parent_context_paths: List[Dict[str, str]] = []
 _parent_coordination_config: Dict[str, Any] = {}
+_specialized_subagents: Dict[str, Dict[str, Any]] = {}  # name -> type config dict
 
 
 def _get_manager() -> SubagentManager:
@@ -101,7 +102,7 @@ async def create_server() -> fastmcp.FastMCP:
     global _workspace_path, _parent_agent_id, _orchestrator_id, _parent_agent_configs
     global _subagent_orchestrator_config, _log_directory, _parent_context_paths
     global _max_concurrent, _default_timeout, _min_timeout, _max_timeout
-    global _parent_coordination_config
+    global _parent_coordination_config, _specialized_subagents
 
     parser = argparse.ArgumentParser(description="Subagent MCP Server")
     parser.add_argument(
@@ -181,6 +182,13 @@ async def create_server() -> fastmcp.FastMCP:
         default="",
         help="Path to JSON file containing parent coordination config",
     )
+    parser.add_argument(
+        "--specialized-subagents-file",
+        type=str,
+        required=False,
+        default="",
+        help="Path to JSON file containing specialized subagent type configs",
+    )
     args = parser.parse_args()
 
     # Set global configuration
@@ -252,6 +260,27 @@ async def create_server() -> fastmcp.FastMCP:
             logger.warning(f"Failed to load coordination config from {args.coordination_config_file}: {e}")
             _parent_coordination_config = {}
 
+    # Parse specialized subagent types from file
+    _specialized_subagents = {}
+    if args.specialized_subagents_file:
+        try:
+            with open(args.specialized_subagents_file) as f:
+                types_data = json.load(f)
+            if isinstance(types_data, list):
+                for td in types_data:
+                    name = td.get("name", "")
+                    if name:
+                        _specialized_subagents[name.lower()] = td
+            # Clean up the temp file after reading
+            try:
+                os.unlink(args.specialized_subagents_file)
+            except OSError:
+                pass
+            logger.info(f"[SubagentMCP] Loaded {len(_specialized_subagents)} specialized subagent types")
+        except (json.JSONDecodeError, FileNotFoundError, OSError) as e:
+            logger.warning(f"Failed to load specialized subagent types from {args.specialized_subagents_file}: {e}")
+            _specialized_subagents = {}
+
     # Set concurrency and timeout limits
     _max_concurrent = args.max_concurrent
     _default_timeout = args.default_timeout
@@ -290,7 +319,9 @@ async def create_server() -> fastmcp.FastMCP:
         1. Maximum {_max_concurrent} tasks per call (will error if exceeded)
         2. CONTEXT.md file MUST exist in workspace before calling this tool
         3. Tasks run SIMULTANEOUSLY - do NOT design tasks that depend on each other
-        4. Each task dict MUST have a "task" field (not "description" or "id")
+        4. Each task dict MUST have BOTH "task" and "context_paths" fields
+        5. "context_paths" must be explicit: use [] for no extra context, ["./"] for parent workspace,
+           or specific files/directories for least-privilege access
 
         CONTEXT.MD REQUIREMENT:
         Before spawning subagents, you MUST create a CONTEXT.md file in the workspace describing
@@ -305,9 +336,12 @@ async def create_server() -> fastmcp.FastMCP:
         Args:
             tasks: List of task dicts (max {_max_concurrent}). Each MUST have:
                    - "task": (REQUIRED) string describing what to do
+                   - "context_paths": (REQUIRED) explicit list of paths to mount read-only.
+                     Use [] for no extra context (clean research),
+                     ["./"] for entire parent workspace,
+                     or specific paths for least-privilege access.
                    - "subagent_id": (optional) custom identifier
                    - "context_files": (optional) files to copy into subagent workspace
-                   - "context_paths": (optional) files/dirs to mount read-only. Use "./" for entire parent workspace
             async_: (optional) If True, spawn subagents in the background and return immediately.
                     Results will be automatically injected into your context when subagents complete.
                     Default is False (blocking - waits for all subagents to complete).
@@ -360,16 +394,16 @@ async def create_server() -> fastmcp.FastMCP:
             # BLOCKING: Independent parallel tasks (waits for completion)
             spawn_subagents(
                 tasks=[
-                    {{"task": "Research and write Bob Dylan biography to bio.md", "subagent_id": "bio"}},
-                    {{"task": "Create discography table in discography.md", "subagent_id": "discog"}},
-                    {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs"}}
+                    {{"task": "Research and write Bob Dylan biography to bio.md", "subagent_id": "bio", "context_paths": []}},
+                    {{"task": "Create discography table in discography.md", "subagent_id": "discog", "context_paths": []}},
+                    {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs", "context_paths": []}}
                 ]
             )
 
             # ASYNC: Spawn background subagent and continue working
             # FIRST: write_file("CONTEXT.md", "Building secure authentication system")
             spawn_subagents(
-                tasks=[{{"task": "Research OAuth 2.0 best practices", "subagent_id": "oauth-research"}}],
+                tasks=[{{"task": "Research OAuth 2.0 best practices", "subagent_id": "oauth-research", "context_paths": []}}],
                 async_=True  # Returns immediately, result injected later
             )
 
@@ -405,6 +439,23 @@ async def create_server() -> fastmcp.FastMCP:
                         "operation": "spawn_subagents",
                         "error": f"Task at index {i} missing required 'task' field",
                     }
+                if "context_paths" not in task_config:
+                    return {
+                        "success": False,
+                        "operation": "spawn_subagents",
+                        "error": (
+                            f"Task at index {i} missing required 'context_paths' field. "
+                            "Set it explicitly (e.g., [] for no extra context, ['./'] for parent workspace, "
+                            "or specific paths for least-privilege access)."
+                        ),
+                    }
+                if not isinstance(task_config.get("context_paths"), list):
+                    actual_type = type(task_config.get("context_paths")).__name__
+                    return {
+                        "success": False,
+                        "operation": "spawn_subagents",
+                        "error": (f"Task at index {i} has invalid 'context_paths' type: expected list, got {actual_type}. " "Use [] for no extra context or a list of path strings."),
+                    }
 
             # Normalize task IDs
             normalized_tasks = []
@@ -416,6 +467,22 @@ async def create_server() -> fastmcp.FastMCP:
                         "subagent_id": task_id,
                     },
                 )
+
+            # Resolve specialized subagent types
+            for t in normalized_tasks:
+                subagent_type = t.get("subagent_type", "")
+                if subagent_type and _specialized_subagents:
+                    type_config = _specialized_subagents.get(subagent_type.lower())
+                    if type_config:
+                        # Inject system_prompt from type definition
+                        if "system_prompt" not in t and type_config.get("system_prompt"):
+                            t["system_prompt"] = type_config["system_prompt"]
+                        # Inject skills list for the manager to configure
+                        if "skills" not in t and type_config.get("skills"):
+                            t["skills"] = type_config["skills"]
+                        logger.info(f"[SubagentMCP] Resolved subagent_type '{subagent_type}' for task {t['subagent_id']}")
+                    else:
+                        logger.warning(f"[SubagentMCP] Unknown subagent_type '{subagent_type}', proceeding with defaults")
 
             task_ids = [t["subagent_id"] for t in normalized_tasks]
             logger.info(f"[SubagentMCP] Spawning {len(normalized_tasks)} subagents: {task_ids}")
@@ -432,8 +499,10 @@ async def create_server() -> fastmcp.FastMCP:
                         subagent_id=task_config.get("subagent_id"),
                         context_files=task_config.get("context_files"),
                         context_paths=task_config.get("context_paths"),
+                        system_prompt=task_config.get("system_prompt"),
                         timeout_seconds=_default_timeout,
                         refine=refine,
+                        skills=task_config.get("skills"),
                     )
                     spawned.append(info)
 
