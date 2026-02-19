@@ -30,26 +30,42 @@ Note: For MVP, E2B would require the least amount of development work with littl
 
 ## Container Topology Recommendation
 Topology A: One Big Container
+
 ┌────────────────────────────────────┐
+
 │ Orchestrator Container             │
+
 │                                    │
+
 │  Agent 1 (subprocess)              │
+
 │  Agent 2 (subprocess)              │
+
 │  Agent 3 (subprocess)              │
+
 └────────────────────────────────────┘
 
 Topology B: Container Per Agent
 
 ┌────────────────────────────────────┐
+
 │ Orchestrator Container             │
+
 └──────────┬─────────────────────────┘
+
            │ 
+
     ┌──────┴──────┬──────────┐
+    
     ▼             ▼          ▼
 ┌─────────┐  ┌─────────┐  ┌─────────┐
+
 │Agent 1  │  │Agent 2  │  │Agent 3  │
+
 │         │  │         │  │         │
+
 │Sandbox  │  │Sandbox  │  │Sandbox  │
+
 └─────────┘  └─────────┘  └─────────┘
 
 Start with Topology A to test cloud setup for MVP. After successful, migrate to Topology B.
