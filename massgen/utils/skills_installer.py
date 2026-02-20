@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Skills installation utility for MassGen.
 
 This module provides cross-platform installation of skills including:
@@ -23,7 +22,7 @@ import urllib.request
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Color constants for terminal output
 RESET = "\033[0m"
@@ -180,9 +179,9 @@ def _run_command(
     command: list[str],
     check: bool = True,
     capture_output: bool = False,
-    input_text: Optional[str] = None,
-    env: Optional[dict[str, str]] = None,
-) -> Optional[subprocess.CompletedProcess]:
+    input_text: str | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess | None:
     """Run a shell command.
 
     Args:
@@ -210,7 +209,7 @@ def _run_command(
         return None
 
 
-def _get_npm_global_package_version(package: str) -> Optional[str]:
+def _get_npm_global_package_version(package: str) -> str | None:
     """Get the version of a globally installed npm package.
 
     Args:

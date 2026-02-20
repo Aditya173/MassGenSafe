@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Parity tests for background tool lifecycle exposure across API handlers."""
 
 from __future__ import annotations

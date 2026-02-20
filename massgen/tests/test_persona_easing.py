@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Unit tests for binary persona easing behavior."""
 
 from massgen.agent_config import AgentConfig

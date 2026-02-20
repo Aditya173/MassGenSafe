@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for plan-review refinement prompt composition."""
 
 from massgen.cli import build_plan_review_refinement_appendix

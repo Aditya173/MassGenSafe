@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tabbed Final Answer modal combining the answer presentation with optional
 Review Changes tab.
@@ -13,7 +12,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 try:
     from textual.app import ComposeResult
@@ -36,15 +35,15 @@ class FinalAnswerModalData:
     """Data passed to FinalAnswerModal for rendering."""
 
     answer_content: str
-    vote_results: Dict[str, Any] = field(default_factory=dict)
+    vote_results: dict[str, Any] = field(default_factory=dict)
     agent_id: str = ""
     model_name: str = ""
-    post_eval_content: Optional[str] = None
+    post_eval_content: str | None = None
     post_eval_status: str = "none"  # "none" | "verified"
-    changes: Optional[List[Dict[str, Any]]] = None  # None = no Review tab
-    context_paths: Optional[Dict] = None
-    prior_action: Optional[str] = None  # "approved" | "rejected" when re-opened
-    workspace_path: Optional[str] = None  # Agent workspace dir (no-git mode)
+    changes: list[dict[str, Any]] | None = None  # None = no Review tab
+    context_paths: dict | None = None
+    prior_action: str | None = None  # "approved" | "rejected" when re-opened
+    workspace_path: str | None = None  # Agent workspace dir (no-git mode)
 
 
 class AnswerTabContent(Vertical):
@@ -57,7 +56,7 @@ class AnswerTabContent(Vertical):
         data: FinalAnswerModalData,
         has_changes: bool = False,
         has_workspace: bool = False,
-        prior_action: Optional[str] = None,
+        prior_action: str | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -201,10 +200,10 @@ class WorkspaceTabContent(Vertical):
     def __init__(self, workspace_path: str, **kwargs):
         super().__init__(**kwargs)
         self._workspace_path = workspace_path
-        self._current_files: List[Dict[str, Any]] = []
-        self._tree_lines: List[tuple] = []
-        self._expanded_dirs: Set[str] = set()
-        self._dir_file_counts: Dict[str, int] = {}
+        self._current_files: list[dict[str, Any]] = []
+        self._tree_lines: list[tuple] = []
+        self._expanded_dirs: set[str] = set()
+        self._dir_file_counts: dict[str, int] = {}
         self._load_counter: int = 0
 
     def compose(self) -> ComposeResult:
@@ -228,7 +227,7 @@ class WorkspaceTabContent(Vertical):
     def _scan_files(self) -> tuple:
         from .browser_modals import _should_skip_dir
 
-        files: List[Dict[str, Any]] = []
+        files: list[dict[str, Any]] = []
         truncated = False
         workspace = self._workspace_path
         if not workspace or not os.path.isdir(workspace):
@@ -273,9 +272,9 @@ class WorkspaceTabContent(Vertical):
         else:
             return f"{size // (1024 * 1024)}MB"
 
-    def _build_file_tree(self, files: List[Dict[str, Any]]) -> List[tuple]:
-        dir_files: Dict[str, List[tuple]] = {}
-        root_files: List[tuple] = []
+    def _build_file_tree(self, files: list[dict[str, Any]]) -> list[tuple]:
+        dir_files: dict[str, list[tuple]] = {}
+        root_files: list[tuple] = []
 
         for idx, f in enumerate(files):
             rel_path = f["rel_path"]
@@ -498,7 +497,7 @@ class FinalAnswerModal(BaseModal):
         self._prior_action = data.prior_action  # None | "approved" | "rejected"
         self._ctrl_c_warned = False
         self._last_notify_time = 0.0
-        self._panel: Optional[ReviewChangesPanel] = None
+        self._panel: ReviewChangesPanel | None = None
         if data.changes:
             self._panel = ReviewChangesPanel(
                 changes=data.changes,

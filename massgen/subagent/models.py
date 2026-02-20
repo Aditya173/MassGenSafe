@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Subagent Data Models for MassGen
 
@@ -10,7 +9,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 # Subagent timeout defaults (in seconds)
 # These are defaults; actual min/max are configurable via YAML
@@ -31,46 +30,52 @@ class SpecializedSubagentConfig:
         name: Type identifier (e.g., "evaluator", "explorer")
         description: Short description of what this type does
         system_prompt: Full system prompt for the subagent (body of SUBAGENT.md)
-        default_background: Whether to spawn in background mode by default
-        default_refine: Whether to enable refinement by default
         skills: Skill names to pre-load for the subagent
-        mcp_servers: MCP server names to ensure are available
+        expected_input: Parent-task brief checklist for this subagent type
         source_path: Path to the SUBAGENT.md file for provenance
     """
 
     name: str
     description: str
     system_prompt: str = ""
-    default_background: bool = False
-    default_refine: bool = False
-    skills: List[str] = field(default_factory=list)
-    mcp_servers: List[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+    expected_input: list[str] = field(default_factory=list)
     source_path: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
             "description": self.description,
             "system_prompt": self.system_prompt,
-            "default_background": self.default_background,
-            "default_refine": self.default_refine,
             "skills": self.skills.copy(),
-            "mcp_servers": self.mcp_servers.copy(),
+            "expected_input": self.expected_input.copy(),
             "source_path": self.source_path,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SpecializedSubagentConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "SpecializedSubagentConfig":
         """Create from dictionary."""
+        allowed_keys = {"name", "description", "system_prompt", "skills", "expected_input", "source_path"}
+        unsupported_keys = sorted(set(data.keys()) - allowed_keys)
+        if unsupported_keys:
+            keys = ", ".join(unsupported_keys)
+            raise ValueError(
+                f"Unsupported specialized subagent config fields: {keys}. " "Allowed fields: name, description, system_prompt, skills, expected_input, source_path",
+            )
+
+        expected_input = data.get("expected_input", [])
+        if expected_input is None:
+            expected_input = []
+        if not isinstance(expected_input, list) or any(not isinstance(item, str) for item in expected_input):
+            raise ValueError("Invalid specialized subagent config field 'expected_input': expected list[str]")
+
         return cls(
             name=data["name"],
             description=data.get("description", ""),
             system_prompt=data.get("system_prompt", ""),
-            default_background=data.get("default_background", False),
-            default_refine=data.get("default_refine", False),
             skills=data.get("skills", []),
-            mcp_servers=data.get("mcp_servers", []),
+            expected_input=expected_input,
             source_path=data.get("source_path", ""),
         )
 
@@ -95,28 +100,28 @@ class SubagentConfig:
     id: str
     task: str
     parent_agent_id: str
-    model: Optional[str] = None
+    model: str | None = None
     timeout_seconds: int = 300
-    context_files: List[str] = field(default_factory=list)
-    context_paths: List[str] = field(default_factory=list)
+    context_files: list[str] = field(default_factory=list)
+    context_paths: list[str] = field(default_factory=list)
     use_docker: bool = True
-    system_prompt: Optional[str] = None
+    system_prompt: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(
         cls,
         task: str,
         parent_agent_id: str,
-        subagent_id: Optional[str] = None,
-        model: Optional[str] = None,
+        subagent_id: str | None = None,
+        model: str | None = None,
         timeout_seconds: int = SUBAGENT_DEFAULT_TIMEOUT,
-        context_files: Optional[List[str]] = None,
-        context_paths: Optional[List[str]] = None,
+        context_files: list[str] | None = None,
+        context_paths: list[str] | None = None,
         use_docker: bool = True,
-        system_prompt: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        system_prompt: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> "SubagentConfig":
         """
         Factory method to create a SubagentConfig with auto-generated ID.
@@ -150,7 +155,7 @@ class SubagentConfig:
             metadata=metadata or {},
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for serialization."""
         return {
             "id": self.id,
@@ -167,7 +172,7 @@ class SubagentConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SubagentConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "SubagentConfig":
         """Create config from dictionary."""
         # Note: timeout clamping is done at SubagentManager level with configurable min/max
         return cls(
@@ -207,10 +212,10 @@ class SubagentOrchestratorConfig:
     """
 
     enabled: bool = False
-    agents: List[Dict[str, Any]] = field(default_factory=list)
-    coordination: Dict[str, Any] = field(default_factory=dict)
+    agents: list[dict[str, Any]] = field(default_factory=list)
+    coordination: dict[str, Any] = field(default_factory=dict)
     max_new_answers: int = 3  # Conservative default for subagents
-    enable_web_search: Optional[bool] = None  # None = inherit from parent
+    enable_web_search: bool | None = None  # None = inherit from parent
 
     @property
     def num_agents(self) -> int:
@@ -222,7 +227,7 @@ class SubagentOrchestratorConfig:
         if self.agents and len(self.agents) > 10:
             raise ValueError("Cannot have more than 10 agents for subagents")
 
-    def get_agent_config(self, agent_index: int, subagent_id: str) -> Dict[str, Any]:
+    def get_agent_config(self, agent_index: int, subagent_id: str) -> dict[str, Any]:
         """
         Get the config for a specific agent index.
 
@@ -242,7 +247,7 @@ class SubagentOrchestratorConfig:
         return {}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SubagentOrchestratorConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "SubagentOrchestratorConfig":
         """Create config from dictionary (YAML parsing)."""
         # Note: 'blocking' key is ignored (kept for backwards compatibility)
         return cls(
@@ -253,7 +258,7 @@ class SubagentOrchestratorConfig:
             enable_web_search=data.get("enable_web_search"),
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for serialization."""
         result = {
             "enabled": self.enabled,
@@ -292,17 +297,17 @@ class SubagentResult:
     subagent_id: str
     status: Literal["completed", "completed_but_timeout", "partial", "timeout", "error"]
     success: bool
-    answer: Optional[str] = None
+    answer: str | None = None
     workspace_path: str = ""
     execution_time_seconds: float = 0.0
-    error: Optional[str] = None
-    token_usage: Dict[str, int] = field(default_factory=dict)
-    log_path: Optional[str] = None
-    completion_percentage: Optional[int] = None
-    warning: Optional[str] = None  # Warning messages (e.g., context truncation)
+    error: str | None = None
+    token_usage: dict[str, int] = field(default_factory=dict)
+    log_path: str | None = None
+    completion_percentage: int | None = None
+    warning: str | None = None  # Warning messages (e.g., context truncation)
 
     @staticmethod
-    def resolve_events_path(base_log_dir: Path) -> Optional[str]:
+    def resolve_events_path(base_log_dir: Path) -> str | None:
         """Resolve the path to events.jsonl from a base log directory.
 
         This method finds the exact events.jsonl file path from a subagent's
@@ -360,7 +365,7 @@ class SubagentResult:
 
         return None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary for tool return value."""
         result = {
             "subagent_id": self.subagent_id,
@@ -387,7 +392,7 @@ class SubagentResult:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SubagentResult":
+    def from_dict(cls, data: dict[str, Any]) -> "SubagentResult":
         """Create result from dictionary."""
         return cls(
             subagent_id=data["subagent_id"],
@@ -410,9 +415,9 @@ class SubagentResult:
         answer: str,
         workspace_path: str,
         execution_time_seconds: float,
-        token_usage: Optional[Dict[str, int]] = None,
-        log_path: Optional[str] = None,
-        warning: Optional[str] = None,
+        token_usage: dict[str, int] | None = None,
+        log_path: str | None = None,
+        warning: str | None = None,
     ) -> "SubagentResult":
         """Create a successful result."""
         return cls(
@@ -433,8 +438,8 @@ class SubagentResult:
         subagent_id: str,
         workspace_path: str,
         timeout_seconds: float,
-        log_path: Optional[str] = None,
-        warning: Optional[str] = None,
+        log_path: str | None = None,
+        warning: str | None = None,
     ) -> "SubagentResult":
         """Create a timeout result."""
         return cls(
@@ -456,8 +461,8 @@ class SubagentResult:
         error: str,
         workspace_path: str = "",
         execution_time_seconds: float = 0.0,
-        log_path: Optional[str] = None,
-        warning: Optional[str] = None,
+        log_path: str | None = None,
+        warning: str | None = None,
     ) -> "SubagentResult":
         """Create an error result."""
         return cls(
@@ -478,12 +483,12 @@ class SubagentResult:
         subagent_id: str,
         workspace_path: str,
         timeout_seconds: float,
-        recovered_answer: Optional[str] = None,
-        completion_percentage: Optional[int] = None,
-        token_usage: Optional[Dict[str, Any]] = None,
-        log_path: Optional[str] = None,
+        recovered_answer: str | None = None,
+        completion_percentage: int | None = None,
+        token_usage: dict[str, Any] | None = None,
+        log_path: str | None = None,
         is_partial: bool = False,
-        warning: Optional[str] = None,
+        warning: str | None = None,
     ) -> "SubagentResult":
         """
         Create a timeout result with recovered work from the workspace.
@@ -557,10 +562,10 @@ class SubagentPointer:
     workspace: str
     status: Literal["running", "completed", "failed", "timeout"]
     created_at: datetime = field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
-    result_summary: Optional[str] = None
+    completed_at: datetime | None = None
+    result_summary: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert pointer to dictionary for serialization."""
         return {
             "id": self.id,
@@ -573,7 +578,7 @@ class SubagentPointer:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SubagentPointer":
+    def from_dict(cls, data: dict[str, Any]) -> "SubagentPointer":
         """Create pointer from dictionary."""
         return cls(
             id=data["id"],
@@ -613,11 +618,11 @@ class SubagentState:
     config: SubagentConfig
     status: Literal["pending", "running", "completed", "completed_but_timeout", "partial", "failed", "timeout"] = "pending"
     workspace_path: str = ""
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    result: Optional[SubagentResult] = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    result: SubagentResult | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert state to dictionary."""
         return {
             "config": self.config.to_dict(),
@@ -660,11 +665,12 @@ class SubagentDisplayData:
     workspace_path: str
     workspace_file_count: int
     last_log_line: str
-    error: Optional[str] = None
-    answer_preview: Optional[str] = None
-    log_path: Optional[str] = None  # Path to log directory for log streaming
+    error: str | None = None
+    answer_preview: str | None = None
+    log_path: str | None = None  # Path to log directory for log streaming
+    context_paths: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
@@ -679,4 +685,5 @@ class SubagentDisplayData:
             "error": self.error,
             "answer_preview": self.answer_preview,
             "log_path": self.log_path,
+            "context_paths": self.context_paths.copy(),
         }

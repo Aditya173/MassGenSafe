@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Unit tests for background parameter on spawn_subagents MCP tool.
 
@@ -172,6 +171,119 @@ class TestSpawnSubagentsContextPathsRequirement:
         assert result["mode"] == "background"
         assert len(fake_manager.background_calls) == 1
         assert fake_manager.background_calls[0]["context_paths"] == []
+
+
+class TestSpawnSubagentsSpecializedTypeResolution:
+    """Validation and resolution behavior for `subagent_type` tasks."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_subagent_type_fails_fast(self, monkeypatch, tmp_path):
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+        monkeypatch.setattr(
+            server,
+            "_specialized_subagents",
+            {
+                "evaluator": {
+                    "name": "evaluator",
+                    "description": "Programmatic evaluator",
+                },
+            },
+        )
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[
+                {
+                    "task": "Run validation",
+                    "subagent_type": "evalutor",
+                    "context_paths": [],
+                },
+            ],
+            background=True,
+            refine=False,
+        )
+
+        assert result["success"] is False
+        assert "Unknown subagent_type" in result["error"]
+        assert "evalutor" in result["error"]
+        assert "evaluator" in result["error"]
+        assert fake_manager.background_calls == []
+
+    @pytest.mark.asyncio
+    async def test_known_subagent_type_injects_prompt_and_skills_for_background(self, monkeypatch, tmp_path):
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+        monkeypatch.setattr(
+            server,
+            "_specialized_subagents",
+            {
+                "explorer": {
+                    "name": "explorer",
+                    "description": "Repo explorer",
+                    "system_prompt": "You are an explorer.",
+                    "skills": ["file-search", "semtools"],
+                },
+            },
+        )
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[
+                {
+                    "task": "Map relevant files",
+                    "subagent_type": "explorer",
+                    "context_paths": [],
+                },
+            ],
+            background=True,
+            refine=False,
+        )
+
+        assert result["success"] is True
+        assert len(fake_manager.background_calls) == 1
+        call = fake_manager.background_calls[0]
+        assert call["system_prompt"] == "You are an explorer."
+        assert call["skills"] == ["file-search", "semtools"]
+
+    @pytest.mark.asyncio
+    async def test_known_subagent_type_injects_prompt_and_skills_for_blocking(self, monkeypatch, tmp_path):
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+        monkeypatch.setattr(
+            server,
+            "_specialized_subagents",
+            {
+                "evaluator": {
+                    "name": "evaluator",
+                    "description": "Programmatic evaluator",
+                    "system_prompt": "You are an evaluator.",
+                    "skills": ["webapp-testing", "agent-browser"],
+                },
+            },
+        )
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[
+                {
+                    "task": "Run tests",
+                    "subagent_type": "evaluator",
+                    "context_paths": [],
+                },
+            ],
+            background=False,
+            refine=False,
+        )
+
+        assert result["success"] is True
+        assert len(fake_manager.parallel_calls) == 1
+        task = fake_manager.parallel_calls[0]["tasks"][0]
+        assert task["system_prompt"] == "You are an evaluator."
+        assert task["skills"] == ["webapp-testing", "agent-browser"]
 
 
 # =============================================================================

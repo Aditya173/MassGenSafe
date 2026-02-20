@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Backend selector for multimodal tools.
 
@@ -15,7 +14,6 @@ with the agent's primary backend.
 
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 from massgen.logger_config import logger
 
@@ -35,7 +33,7 @@ class BackendConfig:
                 return True
         return False
 
-    def get_api_key(self) -> Optional[str]:
+    def get_api_key(self) -> str | None:
         """Get the first available API key."""
         for env_var in self.api_key_env_vars:
             key = os.getenv(env_var)
@@ -190,9 +188,9 @@ class MultimodalBackendSelector:
     def get_backend(
         self,
         media_type: str,
-        preferred_backend: Optional[str] = None,
-        preferred_model: Optional[str] = None,
-    ) -> Optional[BackendConfig]:
+        preferred_backend: str | None = None,
+        preferred_model: str | None = None,
+    ) -> BackendConfig | None:
         """
         Get the best available backend for a media type.
 
@@ -265,9 +263,9 @@ _selector = MultimodalBackendSelector()
 
 def get_backend(
     media_type: str,
-    preferred_backend: Optional[str] = None,
-    preferred_model: Optional[str] = None,
-) -> Optional[BackendConfig]:
+    preferred_backend: str | None = None,
+    preferred_model: str | None = None,
+) -> BackendConfig | None:
     """
     Convenience function to get the best available backend.
 

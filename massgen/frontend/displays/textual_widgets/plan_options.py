@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Plan Options Popover Widget for MassGen TUI.
 
@@ -13,7 +12,7 @@ Provides a dropdown popover for plan mode configuration:
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
@@ -29,7 +28,7 @@ if TYPE_CHECKING:
 class PlanSelected(Message):
     """Message emitted when a plan is selected."""
 
-    def __init__(self, plan_id: Optional[str], is_new: bool = False) -> None:
+    def __init__(self, plan_id: str | None, is_new: bool = False) -> None:
         """Initialize the message.
 
         Args:
@@ -57,7 +56,7 @@ class PlanDepthChanged(Message):
 class PlanStepTargetChanged(Message):
     """Message emitted when explicit task-count target is changed."""
 
-    def __init__(self, target_steps: Optional[int]) -> None:
+    def __init__(self, target_steps: int | None) -> None:
         self.target_steps = target_steps
         super().__init__()
 
@@ -65,7 +64,7 @@ class PlanStepTargetChanged(Message):
 class PlanChunkTargetChanged(Message):
     """Message emitted when explicit chunk-count target is changed."""
 
-    def __init__(self, target_chunks: Optional[int]) -> None:
+    def __init__(self, target_chunks: int | None) -> None:
         self.target_chunks = target_chunks
         super().__init__()
 
@@ -86,7 +85,7 @@ class BroadcastModeChanged(Message):
 class ViewPlanRequested(Message):
     """Message emitted when user wants to view the full plan."""
 
-    def __init__(self, plan_id: str, tasks: List[Any]) -> None:
+    def __init__(self, plan_id: str, tasks: list[Any]) -> None:
         """Initialize the message.
 
         Args:
@@ -141,7 +140,7 @@ class AnalysisProfileChanged(Message):
 class AnalysisTargetChanged(Message):
     """Message emitted when analysis log/turn target is changed."""
 
-    def __init__(self, log_dir: Optional[str], turn: Optional[int]) -> None:
+    def __init__(self, log_dir: str | None, turn: int | None) -> None:
         self.log_dir = log_dir
         self.turn = turn
         super().__init__()
@@ -166,19 +165,9 @@ class ViewAnalysisRequested(Message):
 
 def _popover_log(msg: str) -> None:
     """Log to TUI debug file."""
-    try:
-        import logging
+    from massgen.frontend.displays.shared.tui_debug import tui_log
 
-        log = logging.getLogger("massgen.tui.popover")
-        if not log.handlers:
-            handler = logging.FileHandler("/tmp/massgen_tui_debug.log", mode="a")
-            handler.setFormatter(logging.Formatter("%(asctime)s [POPOVER] %(message)s", datefmt="%H:%M:%S"))
-            log.addHandler(handler)
-            log.setLevel(logging.DEBUG)
-            log.propagate = False
-        log.debug(msg)
-    except Exception:
-        pass
+    tui_log(f"[POPOVER] {msg}")
 
 
 class PlanOptionsPopover(Widget):
@@ -323,24 +312,24 @@ class PlanOptionsPopover(Widget):
         self,
         *,
         plan_mode: str = "normal",
-        available_plans: Optional[List["PlanSession"]] = None,
-        current_plan_id: Optional[str] = None,
+        available_plans: list["PlanSession"] | None = None,
+        current_plan_id: str | None = None,
         current_depth: "PlanDepth" = "dynamic",
-        current_step_target: Optional[int] = None,
-        current_chunk_target: Optional[int] = None,
+        current_step_target: int | None = None,
+        current_chunk_target: int | None = None,
         current_execute_auto_continue: bool = True,
         current_execute_refinement_mode: str = "inherit",
         current_broadcast: Any = "human",
         analysis_target_type: str = "log",
         analysis_profile: str = "dev",
-        analysis_log_options: Optional[List[tuple[str, str]]] = None,
-        analysis_selected_log_dir: Optional[str] = None,
-        analysis_turn_options: Optional[List[tuple[str, str]]] = None,
-        analysis_selected_turn: Optional[int] = None,
+        analysis_log_options: list[tuple[str, str]] | None = None,
+        analysis_selected_log_dir: str | None = None,
+        analysis_turn_options: list[tuple[str, str]] | None = None,
+        analysis_selected_turn: int | None = None,
         analysis_preview_text: str = "",
         analysis_skill_lifecycle_mode: str = "create_or_update",
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         """Initialize the plan options popover.
 
@@ -375,14 +364,14 @@ class PlanOptionsPopover(Widget):
         self._analysis_selected_turn = analysis_selected_turn
         self._analysis_preview_text = analysis_preview_text
         self._analysis_skill_lifecycle_mode = analysis_skill_lifecycle_mode
-        self._plan_details_widget: Optional[Static] = None
-        self._chunk_button_values: Dict[str, str] = {}
-        self._chunk_range_options: List[Tuple[str, str]] = []
-        self._selected_chunk_range: Optional[str] = None
+        self._plan_details_widget: Static | None = None
+        self._chunk_button_values: dict[str, str] = {}
+        self._chunk_range_options: list[tuple[str, str]] = []
+        self._selected_chunk_range: str | None = None
         self._initialized = False  # Track if popover has been shown (to ignore events during recompose)
 
     @staticmethod
-    def _safe_select_value(options: List[tuple[str, str]], preferred: Optional[str]) -> Optional[str]:
+    def _safe_select_value(options: list[tuple[str, str]], preferred: str | None) -> str | None:
         """Return a safe select value from options, preferring the given value."""
         if not options:
             return None
@@ -698,7 +687,7 @@ class PlanOptionsPopover(Widget):
         return self._get_plan_by_id(plan_id)
 
     @staticmethod
-    def _load_plan_payload(plan: "PlanSession") -> Dict[str, Any]:
+    def _load_plan_payload(plan: "PlanSession") -> dict[str, Any]:
         """Load plan.json payload from a plan session workspace."""
         plan_file = plan.workspace_dir / "plan.json"
         if not plan_file.exists():
@@ -709,7 +698,7 @@ class PlanOptionsPopover(Widget):
         except Exception:
             return {}
 
-    def _build_chunk_browser_entries(self, plan: Optional["PlanSession"]) -> List[Dict[str, Any]]:
+    def _build_chunk_browser_entries(self, plan: Optional["PlanSession"]) -> list[dict[str, Any]]:
         """Build chunk status entries for execute popover chunk browser."""
         if not plan:
             return []
@@ -736,7 +725,7 @@ class PlanOptionsPopover(Widget):
         if not chunk_order:
             return []
 
-        chunk_counts: Dict[str, Dict[str, int]] = {}
+        chunk_counts: dict[str, dict[str, int]] = {}
         for chunk in chunk_order:
             chunk_counts[chunk] = {"total": 0, "completed": 0}
 
@@ -759,7 +748,7 @@ class PlanOptionsPopover(Widget):
                 next_chunk = chunk
                 break
 
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         for chunk in chunk_order:
             counts = chunk_counts.get(chunk, {"total": 0, "completed": 0})
             status = "pending"
@@ -787,9 +776,9 @@ class PlanOptionsPopover(Widget):
         return entries
 
     @staticmethod
-    def _build_chunk_range_options(chunk_names: List[str]) -> List[Tuple[str, str]]:
+    def _build_chunk_range_options(chunk_names: list[str]) -> list[tuple[str, str]]:
         """Build bounded range options for chunk prefill controls."""
-        options: List[Tuple[str, str]] = []
+        options: list[tuple[str, str]] = []
         max_options = 12
         for start_idx in range(len(chunk_names)):
             for end_idx in range(start_idx + 1, len(chunk_names)):

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Backward-compatibility tests for ReviewResult after adding action/feedback fields."""
 
 from massgen.filesystem_manager._change_applier import ReviewResult

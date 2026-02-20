@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 Broadcast toolkit for agent-to-agent and agent-to-human communication.
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BaseToolkit, ToolType
 
@@ -14,7 +13,7 @@ class BroadcastToolkit(BaseToolkit):
 
     def __init__(
         self,
-        orchestrator: Optional[Any] = None,
+        orchestrator: Any | None = None,
         broadcast_mode: str = "agents",
         wait_by_default: bool = True,
         sensitivity: str = "medium",
@@ -43,7 +42,7 @@ class BroadcastToolkit(BaseToolkit):
         """Type of this toolkit."""
         return ToolType.WORKFLOW
 
-    def is_enabled(self, config: Dict[str, Any]) -> bool:
+    def is_enabled(self, config: dict[str, Any]) -> bool:
         """
         Check if broadcasts are enabled in configuration.
 
@@ -78,7 +77,7 @@ class BroadcastToolkit(BaseToolkit):
         else:  # medium (default)
             return "Use this for significant decisions, design choices, or when confirmation would be valuable."
 
-    def get_tools(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_tools(self, config: dict[str, Any]) -> list[dict[str, Any]]:
         """
         Get broadcast tool definitions based on API format.
 

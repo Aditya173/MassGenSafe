@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Agent configuration for MassGen framework following input_cases_reference.md
 Simplified configuration focused on the proven binary decision approach.
@@ -10,7 +9,7 @@ deprecated patterns. Update to reflect current backend architecture.
 import logging
 import warnings
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .persona_generator import PersonaGeneratorConfig
 from .task_decomposer import TaskDecomposerConfig
@@ -36,8 +35,8 @@ class TimeoutConfig:
     """
 
     orchestrator_timeout_seconds: int = 1800  # 30 minutes
-    initial_round_timeout_seconds: Optional[int] = None  # None = disabled
-    subsequent_round_timeout_seconds: Optional[int] = None  # None = disabled
+    initial_round_timeout_seconds: int | None = None  # None = disabled
+    subsequent_round_timeout_seconds: int | None = None  # None = disabled
     round_timeout_grace_seconds: int = 120  # Grace period before hard block
 
 
@@ -146,9 +145,9 @@ class CoordinationConfig:
     planning_mode_instruction: str = (
         "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools."
     )
-    plan_depth: Optional[str] = None  # "dynamic" | "shallow" | "medium" | "deep" - Task planning mode depth
-    plan_target_steps: Optional[int] = None  # Optional explicit task-count target (None = dynamic)
-    plan_target_chunks: Optional[int] = None  # Optional explicit chunk-count target (None = dynamic)
+    plan_depth: str | None = None  # "dynamic" | "shallow" | "medium" | "deep" - Task planning mode depth
+    plan_target_steps: int | None = None  # Optional explicit task-count target (None = dynamic)
+    plan_target_chunks: int | None = None  # Optional explicit chunk-count target (None = dynamic)
     max_orchestration_restarts: int = 0
     enable_agent_task_planning: bool = False
     max_tasks_per_plan: int = 10
@@ -162,7 +161,7 @@ class CoordinationConfig:
     enable_memory_filesystem_mode: bool = False
     compression_target_ratio: float = 0.20  # Preserve 20% of messages on context overflow
     use_skills: bool = False
-    massgen_skills: List[str] = field(default_factory=list)
+    massgen_skills: list[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"
     load_previous_session_skills: bool = False
     persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
@@ -171,16 +170,16 @@ class CoordinationConfig:
     subagent_min_timeout: int = 60  # Minimum 1 minute
     subagent_max_timeout: int = 600  # Maximum 10 minutes
     subagent_max_concurrent: int = 3
-    subagent_round_timeouts: Optional[Dict[str, Any]] = None
+    subagent_round_timeouts: dict[str, Any] | None = None
     subagent_runtime_mode: str = "isolated"  # "isolated" | "inherited"
-    subagent_runtime_fallback_mode: Optional[str] = None  # None | "inherited"
-    subagent_host_launch_prefix: Optional[List[str]] = None  # Optional command prefix for containerized isolated launch
+    subagent_runtime_fallback_mode: str | None = None  # None | "inherited"
+    subagent_host_launch_prefix: list[str] | None = None  # Optional command prefix for containerized isolated launch
     subagent_orchestrator: Optional["SubagentOrchestratorConfig"] = None
     # Background subagent execution configuration
-    background_subagents: Optional[Dict[str, Any]] = None  # {enabled: bool, injection_strategy: str}
+    background_subagents: dict[str, Any] | None = None  # {enabled: bool, injection_strategy: str}
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
     task_decomposer: TaskDecomposerConfig = field(default_factory=TaskDecomposerConfig)
-    write_mode: Optional[str] = None  # "auto" | "worktree" | "isolated" | "legacy"
+    write_mode: str | None = None  # "auto" | "worktree" | "isolated" | "legacy"
     enable_changedoc: bool = True  # Write changedoc.md decision journal during coordination
     drift_conflict_policy: str = "skip"  # "skip" | "prefer_presenter" | "fail"
     novelty_injection: str = "none"  # "none" | "gentle" | "moderate" | "aggressive"
@@ -308,16 +307,16 @@ class AgentConfig:
     """
 
     # Core backend configuration (includes tool enablement)
-    backend_params: Dict[str, Any] = field(default_factory=dict)
+    backend_params: dict[str, Any] = field(default_factory=dict)
 
     # Framework configuration
     message_templates: Optional["MessageTemplates"] = None
 
     # Voting behavior configuration
     voting_sensitivity: str = "lenient"
-    voting_threshold: Optional[int] = None  # Numeric threshold for ROI-style voting (e.g., 15 = 15% improvement required)
-    max_new_answers_per_agent: Optional[int] = None
-    max_new_answers_global: Optional[int] = None
+    voting_threshold: int | None = None  # Numeric threshold for ROI-style voting (e.g., 15 = 15% improvement required)
+    max_new_answers_per_agent: int | None = None
+    max_new_answers_global: int | None = None
     checklist_require_gap_report: bool = True
     gap_report_mode: str = "changedoc"  # "changedoc" | "separate" | "none"
     answer_novelty_requirement: str = "lenient"
@@ -326,8 +325,8 @@ class AgentConfig:
     max_midstream_injections_per_round: int = 2
 
     # Agent customization
-    agent_id: Optional[str] = None
-    _custom_system_instruction: Optional[str] = field(default=None, init=False)
+    agent_id: str | None = None
+    _custom_system_instruction: str | None = field(default=None, init=False)
 
     # Timeout and resource limits
     timeout_config: TimeoutConfig = field(default_factory=TimeoutConfig)
@@ -360,18 +359,18 @@ class AgentConfig:
     # A presenter agent synthesizes the final output.
     coordination_mode: str = "voting"
     # Agent ID that presents the final synthesized output (decomposition mode)
-    presenter_agent: Optional[str] = None
+    presenter_agent: str | None = None
 
     # Debug mode for restart feature - override final answer on attempt 1 only
-    debug_final_answer: Optional[str] = None
+    debug_final_answer: str | None = None
 
     # NLIP (Natural Language Interaction Protocol) Configuration
     enable_nlip: bool = False
-    nlip_config: Optional[Dict[str, Any]] = None
+    nlip_config: dict[str, Any] | None = None
     _nlip_router: Any = field(default=None, init=False, repr=False)
 
     @property
-    def custom_system_instruction(self) -> Optional[str]:
+    def custom_system_instruction(self) -> str | None:
         """
         DEPRECATED: Use backend-specific system prompt parameters instead.
 
@@ -387,7 +386,7 @@ class AgentConfig:
         return self._custom_system_instruction
 
     @custom_system_instruction.setter
-    def custom_system_instruction(self, value: Optional[str]) -> None:
+    def custom_system_instruction(self, value: str | None) -> None:
         if value is not None:
             warnings.warn(
                 "custom_system_instruction is deprecated. Use backend-specific " "system prompt parameters instead (e.g., append_system_prompt for Claude Code)",
@@ -398,8 +397,8 @@ class AgentConfig:
 
     def init_nlip_router(
         self,
-        tool_manager: Optional[Any] = None,
-        mcp_executor: Optional[Any] = None,
+        tool_manager: Any | None = None,
+        mcp_executor: Any | None = None,
     ) -> None:
         """Initialize NLIP router if NLIP is enabled.
 
@@ -418,7 +417,7 @@ class AgentConfig:
             )
 
     @property
-    def nlip_router(self) -> Optional[Any]:
+    def nlip_router(self) -> Any | None:
         """Get NLIP router instance."""
         return self._nlip_router
 
@@ -622,8 +621,8 @@ class AgentConfig:
     def create_azure_openai_config(
         cls,
         deployment_name: str = "gpt-4",
-        endpoint: Optional[str] = None,
-        api_key: Optional[str] = None,
+        endpoint: str | None = None,
+        api_key: str | None = None,
         api_version: str = "2024-02-15-preview",
         **kwargs,
     ) -> "AgentConfig":
@@ -668,11 +667,11 @@ class AgentConfig:
     def create_claude_code_config(
         cls,
         model: str = "claude-sonnet-4-20250514",
-        system_prompt: Optional[str] = None,
-        allowed_tools: Optional[list] = None,  # Legacy support
-        disallowed_tools: Optional[list] = None,  # Preferred approach
+        system_prompt: str | None = None,
+        allowed_tools: list | None = None,  # Legacy support
+        disallowed_tools: list | None = None,  # Preferred approach
         max_thinking_tokens: int = 8000,
-        cwd: Optional[str] = None,
+        cwd: str | None = None,
         **kwargs,
     ) -> "AgentConfig":
         """Create Claude Code Stream configuration using claude-code-sdk.
@@ -859,9 +858,9 @@ class AgentConfig:
     def build_conversation(
         self,
         task: str,
-        agent_summaries: Optional[Dict[str, str]] = None,
-        session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        agent_summaries: dict[str, str] | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
         """Build conversation using the proven MassGen approach.
 
         Returns complete conversation configuration ready for backend.
@@ -915,7 +914,7 @@ class AgentConfig:
         additional_message: Any = None,
         additional_message_role: str = "user",
         enforce_tools: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Continue an existing conversation (Cases 3 & 4).
 
         Args:
@@ -960,7 +959,7 @@ class AgentConfig:
             "agent_id": self.agent_id,
         }
 
-    def handle_case3_enforcement(self, existing_messages: list) -> Dict[str, Any]:
+    def handle_case3_enforcement(self, existing_messages: list) -> dict[str, Any]:
         """Handle Case 3: Non-workflow response requiring enforcement.
 
         Args:
@@ -971,7 +970,7 @@ class AgentConfig:
         """
         return self.continue_conversation(existing_messages=existing_messages, enforce_tools=True)
 
-    def add_tool_result(self, existing_messages: list, tool_call_id: str, result: str) -> Dict[str, Any]:
+    def add_tool_result(self, existing_messages: list, tool_call_id: str, result: str) -> dict[str, Any]:
         """Add tool result to conversation.
 
         Args:
@@ -986,7 +985,7 @@ class AgentConfig:
 
         return self.continue_conversation(existing_messages=existing_messages, additional_message=tool_message)
 
-    def handle_case4_error_recovery(self, existing_messages: list, clarification: Optional[str] = None) -> Dict[str, Any]:
+    def handle_case4_error_recovery(self, existing_messages: list, clarification: str | None = None) -> dict[str, Any]:
         """Handle Case 4: Error recovery after tool failure.
 
         Args:
@@ -1003,7 +1002,7 @@ class AgentConfig:
             enforce_tools=False,  # Agent should retry naturally
         )
 
-    def get_backend_params(self) -> Dict[str, Any]:
+    def get_backend_params(self) -> dict[str, Any]:
         """Get backend parameters (already includes tool enablement)."""
         return self.backend_params.copy()
 
@@ -1011,7 +1010,7 @@ class AgentConfig:
     # SERIALIZATION
     # =============================================================================
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         result = {
             "backend_params": self.backend_params,
@@ -1063,7 +1062,7 @@ class AgentConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AgentConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "AgentConfig":
         """Create from dictionary (for deserialization)."""
         # Extract basic fields
         backend_params = data.get("backend_params", {})

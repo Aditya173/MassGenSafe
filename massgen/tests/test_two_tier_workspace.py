@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for two-tier workspace (scratch/deliverable) functionality."""
 
 import subprocess

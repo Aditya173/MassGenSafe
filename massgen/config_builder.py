@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MassGen Interactive Configuration Builder
 
@@ -14,7 +13,7 @@ Usage:
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import questionary
 import yaml
@@ -33,7 +32,7 @@ from massgen.backend.capabilities import (
 from massgen.utils.model_matcher import get_all_models_for_provider
 
 
-def _get_provider_capabilities(provider_id: str) -> Dict[str, bool]:
+def _get_provider_capabilities(provider_id: str) -> dict[str, bool]:
     """Get capability flags for a provider for quickstart UI.
 
     Args:
@@ -73,9 +72,9 @@ class ConfigBuilder:
 
     @staticmethod
     def get_quickstart_reasoning_profile(
-        backend_type: Optional[str],
-        model: Optional[str],
-    ) -> Optional[Dict[str, Any]]:
+        backend_type: str | None,
+        model: str | None,
+    ) -> dict[str, Any] | None:
         """Return quickstart reasoning options for GPT-5x models.
 
         Returns None when no quickstart reasoning selector should be shown.
@@ -115,7 +114,7 @@ class ConfigBuilder:
         }
 
     @property
-    def PROVIDERS(self) -> Dict[str, Dict]:
+    def PROVIDERS(self) -> dict[str, dict]:
         """Generate provider configurations from the capabilities registry (single source of truth).
 
         This dynamically builds the PROVIDERS dict from massgen/backend/capabilities.py,
@@ -306,10 +305,10 @@ class ConfigBuilder:
     def select_model_smart(
         self,
         backend_type: str,
-        models: List[str],
-        current_model: Optional[str] = None,
+        models: list[str],
+        current_model: str | None = None,
         prompt: str = "Select model:",
-    ) -> Optional[str]:
+    ) -> str | None:
         """Smart model selection with autocomplete for providers with many models.
 
         For providers with custom/many models (OpenRouter, Nebius, POE), offers text input with fuzzy matching.
@@ -502,7 +501,7 @@ class ConfigBuilder:
             # Re-raise to be handled by caller
             raise
 
-    def detect_api_keys(self) -> Dict[str, bool]:
+    def detect_api_keys(self) -> dict[str, bool]:
         """Detect available API keys from environment with error handling."""
         api_keys = {}
         try:
@@ -529,7 +528,7 @@ class ConfigBuilder:
             # Return empty dict to allow continue with manual input
             return {provider_id: False for provider_id in self.PROVIDERS.keys()}
 
-    def interactive_api_key_setup(self) -> Dict[str, bool]:
+    def interactive_api_key_setup(self) -> dict[str, bool]:
         """Interactive API key setup wizard.
 
         Prompts user to enter API keys for providers and saves them to .env file.
@@ -716,7 +715,7 @@ class ConfigBuilder:
 
                 # Parse existing .env file
                 try:
-                    with open(env_path, "r") as f:
+                    with open(env_path) as f:
                         for line in f:
                             line = line.strip()
                             if line and not line.startswith("#") and "=" in line:
@@ -791,7 +790,7 @@ class ConfigBuilder:
 
     def show_available_providers(
         self,
-        api_keys: Dict[str, bool],
+        api_keys: dict[str, bool],
     ) -> None:
         """Display providers in a clean Rich table."""
         try:
@@ -1036,7 +1035,7 @@ class ConfigBuilder:
             console.print("[info]Defaulting to 'qa' use case[/info]\n")
             return "qa"  # Safe default
 
-    def add_custom_mcp_server(self) -> Optional[Dict]:
+    def add_custom_mcp_server(self) -> dict | None:
         """Interactive flow to configure a custom MCP server.
 
         Returns:
@@ -1144,7 +1143,7 @@ class ConfigBuilder:
         count: int,
         provider_id: str,
         start_index: int = 0,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Create multiple agents with the same provider.
 
         Args:
@@ -1184,10 +1183,10 @@ class ConfigBuilder:
 
     def clone_agent(
         self,
-        source_agent: Dict,
+        source_agent: dict,
         new_id: str,
         target_backend_type: str = None,
-    ) -> Dict:
+    ) -> dict:
         """Clone an agent's configuration with a new ID, optionally preserving target backend.
 
         Args:
@@ -1311,7 +1310,7 @@ class ConfigBuilder:
 
         return cloned
 
-    def modify_cloned_agent(self, agent: Dict, agent_num: int) -> Dict:
+    def modify_cloned_agent(self, agent: dict, agent_num: int) -> dict:
         """Allow selective modification of a cloned agent.
 
         Args:
@@ -1539,10 +1538,10 @@ class ConfigBuilder:
 
     def apply_preset_to_agent(
         self,
-        agent: Dict,
+        agent: dict,
         use_case: str,
         agent_index: int = 1,
-    ) -> Dict:
+    ) -> dict:
         """Auto-apply preset configuration to an agent.
 
         Args:
@@ -1614,11 +1613,11 @@ class ConfigBuilder:
 
     def customize_agent(
         self,
-        agent: Dict,
+        agent: dict,
         agent_num: int,
         total_agents: int,
-        use_case: Optional[str] = None,
-    ) -> Dict:
+        use_case: str | None = None,
+    ) -> dict:
         """Customize a single agent with Panel UI.
 
         Args:
@@ -2236,7 +2235,7 @@ class ConfigBuilder:
             console.print(f"[error]❌ Error customizing agent: {e}[/error]")
             return agent
 
-    def configure_agents(self, use_case: str, api_keys: Dict[str, bool]) -> List[Dict]:
+    def configure_agents(self, use_case: str, api_keys: dict[str, bool]) -> list[dict]:
         """Configure agents with batch creation and individual customization."""
         try:
             # Step header
@@ -3094,8 +3093,8 @@ class ConfigBuilder:
     def configure_tools(
         self,
         use_case: str,
-        agents: List[Dict],
-    ) -> Tuple[List[Dict], Dict]:
+        agents: list[dict],
+    ) -> tuple[list[dict], dict]:
         """Configure orchestrator-level settings (tools are configured per-agent)."""
         try:
             # Step header
@@ -3498,9 +3497,9 @@ class ConfigBuilder:
 
     def review_and_save(
         self,
-        agents: List[Dict],
-        orchestrator_config: Dict,
-    ) -> Optional[str]:
+        agents: list[dict],
+        orchestrator_config: dict,
+    ) -> str | None:
         """Review configuration and save to file with error handling."""
         try:
             # Review header
@@ -3697,7 +3696,7 @@ class ConfigBuilder:
             console.print(f"[error]❌ Error in review and save: {e}[/error]")
             return None
 
-    def run(self) -> Optional[tuple]:
+    def run(self) -> tuple | None:
         """Run the interactive configuration builder with comprehensive error handling."""
         try:
             self.show_banner()
@@ -3884,7 +3883,7 @@ class ConfigBuilder:
         backend_type: str = None,
         model: str = None,
         use_docker: bool = False,
-        context_path: Optional[str] = None,
+        context_path: str | None = None,
     ) -> bool:
         """Generate config file programmatically without user interaction.
 
@@ -3956,7 +3955,7 @@ class ConfigBuilder:
 
         return True
 
-    def run_quickstart(self) -> Optional[tuple]:
+    def run_quickstart(self) -> tuple | None:
         """Run simplified quickstart flow - just agents count and backend/model for each.
 
         This creates a full-featured config with code-based tools, Docker execution,
@@ -3987,9 +3986,9 @@ class ConfigBuilder:
             console.print("[dim]You just need to specify your models.[/dim]\n")
 
             # Initialize tracking for per-agent settings
-            agent_tools: Dict[str, Dict] = {}
-            agent_system_messages: Dict[str, str] = {}
-            coordination_settings: Dict[str, Any] = {}
+            agent_tools: dict[str, dict] = {}
+            agent_system_messages: dict[str, str] = {}
+            coordination_settings: dict[str, Any] = {}
 
             # Step 1: How many agents?
             num_choices = [
@@ -4172,7 +4171,7 @@ class ConfigBuilder:
                     raise KeyboardInterrupt
 
                 # Collect system messages based on mode
-                per_agent_system_msgs: Dict[str, str] = {}
+                per_agent_system_msgs: dict[str, str] = {}
 
                 if sys_msg_mode == "same":
                     system_msg = questionary.text(
@@ -4925,14 +4924,14 @@ class ConfigBuilder:
 
     def _generate_quickstart_config(
         self,
-        agents_config: List[Dict],
-        context_path: Optional[str] = None,
-        context_paths: Optional[List[Dict]] = None,
+        agents_config: list[dict],
+        context_path: str | None = None,
+        context_paths: list[dict] | None = None,
         use_docker: bool = True,
-        agent_tools: Optional[Dict[str, Dict]] = None,
-        agent_system_messages: Optional[Dict[str, str]] = None,
-        coordination_settings: Optional[Dict] = None,
-    ) -> Dict:
+        agent_tools: dict[str, dict] | None = None,
+        agent_system_messages: dict[str, str] | None = None,
+        coordination_settings: dict | None = None,
+    ) -> dict:
         """Generate a full-featured config from the quickstart agent specifications.
 
         Args:
@@ -4963,9 +4962,9 @@ class ConfigBuilder:
         def create_agent_backend(
             agent_type: str,
             model: str,
-            reasoning_effort: Optional[str] = None,
-            tools: Optional[Dict] = None,
-        ) -> Dict:
+            reasoning_effort: str | None = None,
+            tools: dict | None = None,
+        ) -> dict:
             tools = tools or {}
             if use_docker:
                 # Full Docker mode with code-based tools, command execution, skills

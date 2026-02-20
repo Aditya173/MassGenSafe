@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MassGen Command Line Interface
 
@@ -31,18 +30,13 @@ import shutil
 import sys
 import threading
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
-    List,
     Literal,
-    Optional,
-    Tuple,
-    Union,
 )
 
 if TYPE_CHECKING:
@@ -66,6 +60,7 @@ from .backend.chat_completions import ChatCompletionsBackend
 from .backend.claude import ClaudeBackend
 from .backend.claude_code import ClaudeCodeBackend
 from .backend.codex import CodexBackend
+from .backend.copilot import CopilotBackend
 from .backend.gemini import GeminiBackend
 from .backend.grok import GrokBackend
 from .backend.inference import InferenceBackend
@@ -112,13 +107,13 @@ def load_env_file():
 load_env_file()
 
 
-def _quickstart_config_uses_skills(config_path: Optional[str]) -> bool:
+def _quickstart_config_uses_skills(config_path: str | None) -> bool:
     """Return True when a config enables coordination skills."""
     if not config_path:
         return False
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
     except Exception as e:
         logger.debug(f"[Quickstart] Failed to read config for skill check ({config_path}): {e}")
@@ -139,7 +134,7 @@ def _quickstart_config_uses_skills(config_path: Optional[str]) -> bool:
 
 
 def _ensure_quickstart_skills_ready(
-    config_path: Optional[str],
+    config_path: str | None,
     install_requested: bool = True,
 ) -> bool:
     """Install quickstart skill packages when generated config enables skills."""
@@ -205,7 +200,7 @@ def _automation_print(msg: str) -> None:
     print(msg, file=sys.stderr if _stream_events_active else sys.stdout)
 
 
-def _has_evolving_skills_enabled(agents: Optional[Dict[str, Any]]) -> bool:
+def _has_evolving_skills_enabled(agents: dict[str, Any] | None) -> bool:
     """Return True when any active agent has evolving skills enabled."""
     if not agents:
         return False
@@ -222,9 +217,9 @@ def _has_evolving_skills_enabled(agents: Optional[Dict[str, Any]]) -> bool:
 
 
 def _should_use_conversation_history_for_turn(
-    conversation_history: List[Dict[str, Any]],
+    conversation_history: list[dict[str, Any]],
     mode_state: Any,
-    agents: Optional[Dict[str, Any]],
+    agents: dict[str, Any] | None,
 ) -> bool:
     """Determine whether prior conversation history should be injected this turn."""
     if not conversation_history:
@@ -338,7 +333,7 @@ MASSGEN_QUESTIONARY_STYLE = Style(
 )
 
 
-def _build_coordination_ui(ui_config: Dict[str, Any]) -> CoordinationUI:
+def _build_coordination_ui(ui_config: dict[str, Any]) -> CoordinationUI:
     """Create a CoordinationUI with display_kwargs passthrough (incl. theme)."""
     display_kwargs = dict(ui_config.get("display_kwargs", {}) or {})
     theme = ui_config.get("theme")
@@ -385,10 +380,10 @@ def _restore_terminal_for_input() -> None:
 
 def get_task_planning_prompt_prefix(
     plan_depth: str = "dynamic",
-    target_steps: Optional[int] = None,
-    target_chunks: Optional[int] = None,
+    target_steps: int | None = None,
+    target_chunks: int | None = None,
     enable_subagents: bool = False,
-    broadcast_mode: Union[Literal["human", "agents"], bool] = "human",
+    broadcast_mode: Literal["human", "agents"] | bool = "human",
 ) -> str:
     """Generate the user prompt prefix for task planning mode.
 
@@ -775,7 +770,7 @@ def build_plan_review_refinement_appendix(
     Avoids duplicating feedback blocks when the current question already embeds
     plan-review feedback text (common when users include it directly).
     """
-    sections: List[str] = []
+    sections: list[str] = []
 
     feedback = (planning_feedback or "").strip()
     normalized_question = " ".join((question or "").lower().split())
@@ -811,7 +806,7 @@ def _load_skill_creator_reference() -> str:
         return "---\nname: descriptive-skill-name\n" "description: Clear explanation of what this workflow does\n---\n" "# Skill Name\n\n## Purpose\n## Workflow\n"
 
 
-def _get_log_session_original_query(log_dir: Optional[str]) -> Optional[str]:
+def _get_log_session_original_query(log_dir: str | None) -> str | None:
     """Extract the original user query from a log session's status.json.
 
     Args:
@@ -837,8 +832,8 @@ def _get_log_session_original_query(log_dir: Optional[str]) -> Optional[str]:
 
 
 def get_log_analysis_prompt_prefix(
-    log_dir: Optional[str],
-    turn: Optional[int],
+    log_dir: str | None,
+    turn: int | None,
     profile: str = "dev",
     skill_lifecycle_mode: str = "create_or_update",
 ) -> str:
@@ -1027,7 +1022,7 @@ USER'S ORGANIZATION REQUEST:
 
 
 # Global PromptSession instance (reused across prompts for better terminal handling)
-_prompt_session: Optional[PromptSession] = None
+_prompt_session: PromptSession | None = None
 
 
 def _get_prompt_session() -> PromptSession:
@@ -1195,7 +1190,7 @@ class ConfigurationError(Exception):
     """Configuration error for CLI."""
 
 
-def _substitute_variables(obj: Any, variables: Dict[str, str]) -> Any:
+def _substitute_variables(obj: Any, variables: dict[str, str]) -> Any:
     """Recursively substitute ${var} references in config with actual values.
 
     Args:
@@ -1219,7 +1214,7 @@ def _substitute_variables(obj: Any, variables: Dict[str, str]) -> Any:
         return obj
 
 
-def resolve_config_path(config_arg: Optional[str]) -> Optional[Path]:
+def resolve_config_path(config_arg: str | None) -> Path | None:
     """Resolve config file with flexible syntax.
 
     Priority order:
@@ -1310,7 +1305,7 @@ def resolve_config_path(config_arg: Optional[str]) -> Optional[Path]:
     )
 
 
-def load_config_file(config_path: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
+def load_config_file(config_path: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load configuration from YAML or JSON file.
 
     Search order:
@@ -1353,7 +1348,7 @@ def load_config_file(config_path: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
             )
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             if path.suffix.lower() in [".yaml", ".yml"]:
                 raw_config = yaml.safe_load(f)
             elif path.suffix.lower() == ".json":
@@ -1397,7 +1392,7 @@ def _expand_env_vars(config: Any) -> Any:
 def _api_key_error_message(
     provider_name: str,
     env_var: str,
-    config_path: Optional[str] = None,
+    config_path: str | None = None,
 ) -> str:
     """Generate standard API key error message."""
     msg = (
@@ -1484,6 +1479,10 @@ def create_backend(backend_type: str, **kwargs) -> Any:
                 _api_key_error_message("Gemini", "GOOGLE_API_KEY", config_path),
             )
         return GeminiBackend(api_key=api_key, **kwargs)
+
+    elif backend_type == "copilot":
+        # Copilot uses local auth via SDK, no API key required here
+        return CopilotBackend(api_key="copilot-local", **kwargs)
 
     elif backend_type == "chatcompletion":
         api_key = kwargs.get("api_key")
@@ -1743,16 +1742,16 @@ def create_backend(backend_type: str, **kwargs) -> Any:
 
 
 def create_agents_from_config(
-    config: Dict[str, Any],
-    orchestrator_config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any],
+    orchestrator_config: dict[str, Any] | None = None,
     enable_rate_limit: bool = False,
-    config_path: Optional[str] = None,
-    memory_session_id: Optional[str] = None,
+    config_path: str | None = None,
+    memory_session_id: str | None = None,
     debug: bool = False,
-    filesystem_session_id: Optional[str] = None,
-    session_storage_base: Optional[str] = None,
-    progress_callback: Optional[Callable[[str, str], None]] = None,
-) -> Dict[str, ConfigurableAgent]:
+    filesystem_session_id: str | None = None,
+    session_storage_base: str | None = None,
+    progress_callback: Callable[[str, str], None] | None = None,
+) -> dict[str, ConfigurableAgent]:
     """Create agents from configuration.
 
     TIMING: This function is instrumented for performance analysis.
@@ -1982,6 +1981,10 @@ def create_agents_from_config(
             agent_config = AgentConfig.create_sglang_config(**backend_params)
         elif backend_type_lower == "claude_code":
             agent_config = AgentConfig.create_claude_code_config(**backend_params)
+        elif backend_type_lower == "copilot":
+            # Copilot maps to standard Config with minimal params?
+            # Or dedicated config if needed. For now standard.
+            agent_config = AgentConfig(backend_params=backend_params)
         elif backend_type_lower == "azure_openai":
             agent_config = AgentConfig.create_azure_openai_config(**backend_params)
         else:
@@ -2249,10 +2252,10 @@ def create_agents_from_config(
 
 
 def create_dspy_paraphraser_from_config(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     *,
-    config_path: Optional[str] = None,
-) -> Optional[QuestionParaphraser]:
+    config_path: str | None = None,
+) -> QuestionParaphraser | None:
     """Instantiate DSPy paraphraser from orchestrator configuration.
 
     Returns:
@@ -2284,7 +2287,7 @@ def create_dspy_paraphraser_from_config(
         )
         return None
 
-    paraphraser_kwargs: Dict[str, Any] = {}
+    paraphraser_kwargs: dict[str, Any] = {}
 
     # Simple pass-through configuration values
     for key in [
@@ -2333,10 +2336,10 @@ def create_dspy_paraphraser_from_config(
 def create_simple_config(
     backend_type: str,
     model: str,
-    system_message: Optional[str] = None,
-    base_url: Optional[str] = None,
-    ui_config: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    system_message: str | None = None,
+    base_url: str | None = None,
+    ui_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create a simple single-agent configuration."""
     backend_config = {"type": backend_type, "model": model}
     if base_url:
@@ -2371,8 +2374,8 @@ def create_simple_config(
 
 
 def apply_cli_cwd_context_path(
-    config: Dict[str, Any],
-    cwd_context_mode: Optional[str],
+    config: dict[str, Any],
+    cwd_context_mode: str | None,
 ) -> None:
     """Apply --cwd-context flag by injecting CWD into orchestrator context paths.
 
@@ -2433,7 +2436,7 @@ def apply_cli_cwd_context_path(
     )
 
 
-def validate_context_paths(config: Dict[str, Any]) -> None:
+def validate_context_paths(config: dict[str, Any]) -> None:
     """Validate that all context paths in the config exist.
 
     Context paths can be either files or directories.
@@ -2465,7 +2468,7 @@ def validate_context_paths(config: Dict[str, Any]) -> None:
         raise ConfigurationError("\n".join(errors))
 
 
-def _parse_coordination_config(coord_cfg: Dict[str, Any]) -> "CoordinationConfig":
+def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig":
     """Parse a coordination config dict into a CoordinationConfig object.
 
     Centralizes the parsing logic used by run_question_with_history,
@@ -2546,8 +2549,8 @@ def _parse_coordination_config(coord_cfg: Dict[str, Any]) -> "CoordinationConfig
 
 def inject_prompt_context_paths(
     prompt: str,
-    config: Dict[str, Any],
-) -> Tuple[str, Dict[str, Any]]:
+    config: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
     """Parse @references from prompt and inject into config.
 
     Extracts @path and @path:w references from the prompt, validates that
@@ -2609,7 +2612,7 @@ def inject_prompt_context_paths(
     return parsed.cleaned_prompt, config
 
 
-def relocate_filesystem_paths(config: Dict[str, Any]) -> None:
+def relocate_filesystem_paths(config: dict[str, Any]) -> None:
     """Relocate filesystem paths (orchestrator paths and agent workspaces) to be under .massgen/ directory.
 
     Modifies the config in-place to ensure all MassGen state is organized
@@ -2652,12 +2655,12 @@ def relocate_filesystem_paths(config: Dict[str, Any]) -> None:
 async def handle_session_persistence(
     orchestrator,
     question: str,
-    session_info: Dict[str, Any],
-    config_path: Optional[str] = None,
-    model: Optional[str] = None,
-    log_directory: Optional[str] = None,
-    models_dict: Optional[Dict[str, str]] = None,
-) -> tuple[Optional[str], int, Optional[str]]:
+    session_info: dict[str, Any],
+    config_path: str | None = None,
+    model: str | None = None,
+    log_directory: str | None = None,
+    models_dict: dict[str, str] | None = None,
+) -> tuple[str | None, int, str | None]:
     """
     Handle session persistence after orchestrator completes.
 
@@ -2783,12 +2786,12 @@ async def handle_session_persistence(
 
 async def run_question_with_history(
     question: str,
-    agents: Dict[str, SingleAgent],
-    ui_config: Dict[str, Any],
-    history: List[Dict[str, Any]],
-    session_info: Dict[str, Any],
+    agents: dict[str, SingleAgent],
+    ui_config: dict[str, Any],
+    history: list[dict[str, Any]],
+    session_info: dict[str, Any],
     **kwargs,
-) -> tuple[str, Optional[str], int, bool]:
+) -> tuple[str, str | None, int, bool]:
     """Run MassGen with a question and conversation history.
 
     Returns:
@@ -3297,9 +3300,9 @@ async def run_question_with_history(
 
 async def run_single_question(
     question: str,
-    agents: Dict[str, SingleAgent],
-    ui_config: Dict[str, Any],
-    session_id: Optional[str] = None,
+    agents: dict[str, SingleAgent],
+    ui_config: dict[str, Any],
+    session_id: str | None = None,
     restore_session_if_exists: bool = False,
     return_metadata: bool = False,
     **kwargs,
@@ -3791,8 +3794,8 @@ async def run_single_question(
 
 
 def prompt_for_context_paths(
-    original_config: Dict[str, Any],
-    orchestrator_cfg: Dict[str, Any],
+    original_config: dict[str, Any],
+    orchestrator_cfg: dict[str, Any],
 ) -> bool:
     """Prompt user to add context paths in interactive mode.
 
@@ -4081,7 +4084,7 @@ def print_example_config(name: str):
         # Try to resolve the config
         resolved = resolve_config_path(f"@examples/{name}")
         if resolved:
-            with open(resolved, "r") as f:
+            with open(resolved) as f:
                 print(f.read())
         else:
             print(f"Error: Could not find example '{name}'", file=sys.stderr)
@@ -4096,7 +4099,7 @@ def print_example_config(name: str):
         sys.exit(1)
 
 
-def discover_available_configs() -> Dict[str, List[Tuple[str, Path]]]:
+def discover_available_configs() -> dict[str, list[tuple[str, Path]]]:
     """Discover all available configuration files.
 
     Returns:
@@ -4173,7 +4176,7 @@ def discover_available_configs() -> Dict[str, List[Tuple[str, Path]]]:
     return configs
 
 
-def interactive_config_selector() -> Optional[str]:
+def interactive_config_selector() -> str | None:
     """Interactively select a configuration file.
 
     Shows user/project/current directory configs directly in a flat list.
@@ -4325,9 +4328,9 @@ def interactive_config_selector() -> Optional[str]:
 
 
 def _select_package_example(
-    examples: List[Tuple[str, Path]],
+    examples: list[tuple[str, Path]],
     console: Console,
-) -> Optional[str]:
+) -> str | None:
     """Show hierarchical navigation for package examples.
 
     Args:
@@ -5059,7 +5062,7 @@ CMD ["/start.sh"]
             pass
 
 
-def show_example_prompts() -> Optional[str]:
+def show_example_prompts() -> str | None:
     """Show example prompts that work with default quickstart config.
 
     These prompts work out-of-the-box with code execution, multimodal tools,
@@ -5132,7 +5135,7 @@ def should_run_builder() -> bool:
 
 
 def _list_all_turns(
-    session_id: Optional[str],
+    session_id: str | None,
     current_turn: int,
     console: Console,
 ) -> None:
@@ -5173,7 +5176,7 @@ def _list_all_turns(
     console.print("\n[dim]Use /inspect <turn_number> to view details[/dim]")
 
 
-def _find_log_dir_for_session(session_id: str, turn_number: int) -> Optional[Path]:
+def _find_log_dir_for_session(session_id: str, turn_number: int) -> Path | None:
     """Find the log directory for a given session and turn.
 
     Searches through log directories to find one that matches the session_id
@@ -5215,7 +5218,7 @@ def _find_log_dir_for_session(session_id: str, turn_number: int) -> Optional[Pat
 def _show_turn_inspection(
     session_id: str,
     turn_number: int,
-    agents: Dict[str, Any],
+    agents: dict[str, Any],
 ) -> None:
     """Show inspection menu for a specific turn's outputs.
 
@@ -5548,13 +5551,13 @@ def print_help_messages():
 
 
 async def run_textual_interactive_mode(
-    agents: Dict[str, SingleAgent],
-    ui_config: Dict[str, Any],
-    original_config: Dict[str, Any] = None,
-    orchestrator_cfg: Dict[str, Any] = None,
-    config_path: Optional[str] = None,
-    memory_session_id: Optional[str] = None,
-    initial_question: Optional[str] = None,
+    agents: dict[str, SingleAgent],
+    ui_config: dict[str, Any],
+    original_config: dict[str, Any] = None,
+    orchestrator_cfg: dict[str, Any] = None,
+    config_path: str | None = None,
+    memory_session_id: str | None = None,
+    initial_question: str | None = None,
     restore_session_if_exists: bool = False,
     debug: bool = False,
     **kwargs,
@@ -5735,8 +5738,8 @@ async def run_textual_interactive_mode(
     # Define turn runner that uses CoordinationUI
     async def run_turn(
         question: str,
-        agents: Dict[str, Any],
-        ui_config: Dict[str, Any],
+        agents: dict[str, Any],
+        ui_config: dict[str, Any],
         conversation_history: list,
         session_info: dict,
         **turn_kwargs,
@@ -5749,7 +5752,7 @@ async def run_textual_interactive_mode(
             sess_id = session_info.get("session_id")
             mode_state = display.get_mode_state()
 
-            def _merge_readonly_context_path(config_dict: Dict[str, Any], path_str: str, description: str) -> bool:
+            def _merge_readonly_context_path(config_dict: dict[str, Any], path_str: str, description: str) -> bool:
                 """Add a read-only orchestrator context path if missing."""
                 if not path_str:
                     return False
@@ -5784,7 +5787,7 @@ async def run_textual_interactive_mode(
                 orchestrator_section["context_paths"] = existing
                 return True
 
-            def _agents_have_context_path(current_agents: Optional[Dict[str, Any]], path_str: str) -> bool:
+            def _agents_have_context_path(current_agents: dict[str, Any] | None, path_str: str) -> bool:
                 """Check whether all active agents already have a specific context path."""
                 if not current_agents:
                     return False
@@ -5813,7 +5816,7 @@ async def run_textual_interactive_mode(
                         return False
                 return True
 
-            analysis_context_path: Optional[str] = None
+            analysis_context_path: str | None = None
             if mode_state and mode_state.plan_mode == "analysis" and getattr(mode_state.analysis_config, "target", "log") == "log":
                 selected_log_dir = getattr(mode_state.analysis_config, "selected_log_dir", None)
                 if selected_log_dir:
@@ -6225,7 +6228,7 @@ async def run_textual_interactive_mode(
                         if hasattr(orchestrator_config.coordination_config, key):
                             setattr(orchestrator_config.coordination_config, key, value)
 
-                planning_turn_mode: Optional[str] = None
+                planning_turn_mode: str | None = None
                 if mode_state.plan_mode == "plan" and mode_state.pending_planning_mode in {"multi", "single"}:
                     planning_turn_mode = mode_state.pending_planning_mode
                     # One-shot override set by planning review modal.
@@ -6707,19 +6710,19 @@ async def run_textual_interactive_mode(
 
 
 async def run_interactive_mode(
-    agents: Optional[Dict[str, SingleAgent]],
-    ui_config: Dict[str, Any],
-    original_config: Dict[str, Any] = None,
-    orchestrator_cfg: Dict[str, Any] = None,
-    config_path: Optional[str] = None,
-    memory_session_id: Optional[str] = None,
-    initial_question: Optional[str] = None,
+    agents: dict[str, SingleAgent] | None,
+    ui_config: dict[str, Any],
+    original_config: dict[str, Any] = None,
+    orchestrator_cfg: dict[str, Any] = None,
+    config_path: str | None = None,
+    memory_session_id: str | None = None,
+    initial_question: str | None = None,
     restore_session_if_exists: bool = False,
     debug: bool = False,
-    raw_config_for_metadata: Dict[str, Any] = None,
+    raw_config_for_metadata: dict[str, Any] = None,
     # Parameters for deferred agent creation
     enable_rate_limit: bool = True,
-    session_storage_base: Optional[str] = None,
+    session_storage_base: str | None = None,
     **kwargs,
 ):
     """Run MassGen in interactive mode with conversation history.
@@ -7028,7 +7031,7 @@ async def run_interactive_mode(
                                 def cleanup_agent_fs(
                                     agent_id: str,
                                     agent,
-                                ) -> tuple[str, Optional[Exception]]:
+                                ) -> tuple[str, Exception | None]:
                                     """Cleanup a single agent's filesystem manager (Docker container)."""
                                     try:
                                         agent.backend.filesystem_manager.cleanup()
@@ -7631,11 +7634,11 @@ def resolve_plan_path(plan_path: str) -> "PlanSession":
 
 
 async def _execute_plan_phase(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     plan_session: "PlanSession",
     question: str,
     automation: bool = False,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """
     Internal: Execute a plan (Phase 2) and collect results (Phase 3).
 
@@ -7731,7 +7734,7 @@ async def _execute_plan_phase(
     working_plan_file = plan_session.workspace_dir / "plan.json"
     working_plan_file.write_text(json.dumps(working_plan_data, indent=2))
 
-    def _read_chunk_plan_from_agent(agent_obj: Any) -> Optional[Dict[str, Any]]:
+    def _read_chunk_plan_from_agent(agent_obj: Any) -> dict[str, Any] | None:
         """Read the operational tasks/plan.json produced by an execution turn."""
         if not (hasattr(agent_obj.backend, "filesystem_manager") and agent_obj.backend.filesystem_manager):
             return None
@@ -7748,7 +7751,7 @@ async def _execute_plan_phase(
                 return payload
         return None
 
-    def _merge_chunk_updates(full_plan: Dict[str, Any], chunk_tasks: List[Dict[str, Any]]) -> None:
+    def _merge_chunk_updates(full_plan: dict[str, Any], chunk_tasks: list[dict[str, Any]]) -> None:
         """Merge chunk task updates into the full working plan by task id."""
         by_id = {str(task.get("id", "")).strip(): task for task in full_plan.get("tasks", []) if isinstance(task, dict)}
         for updated_task in chunk_tasks:
@@ -7760,7 +7763,7 @@ async def _execute_plan_phase(
             by_id[task_id].update(updated_task)
 
     retry_budget_per_chunk = 2
-    retry_counts: Dict[str, int] = {}
+    retry_counts: dict[str, int] = {}
     if isinstance(chunk_metadata.resumable_state, dict):
         saved_retry_counts = chunk_metadata.resumable_state.get("retry_counts", {})
         if isinstance(saved_retry_counts, dict):
@@ -7771,7 +7774,7 @@ async def _execute_plan_phase(
                     continue
 
     final_answer = ""
-    coordination_result: Dict[str, Any] = {}
+    coordination_result: dict[str, Any] = {}
 
     try:
         while True:
@@ -7831,7 +7834,7 @@ async def _execute_plan_phase(
             coordination_result = result.get("coordination_result", {}) or {}
 
             winner_id = coordination_result.get("selected_agent")
-            chunk_plan_data: Optional[Dict[str, Any]] = None
+            chunk_plan_data: dict[str, Any] | None = None
             if winner_id and winner_id in agents:
                 chunk_plan_data = _read_chunk_plan_from_agent(agents[winner_id])
             if chunk_plan_data is None:
@@ -7987,11 +7990,11 @@ async def _execute_plan_phase(
 
 
 async def run_execute_plan(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     plan_path: str,
-    question: Optional[str] = None,
+    question: str | None = None,
     automation: bool = False,
-) -> Tuple[str, Any]:
+) -> tuple[str, Any]:
     """
     Execute an existing plan (skips planning phase).
 
@@ -8050,16 +8053,16 @@ async def run_execute_plan(
 
 
 async def run_plan_and_execute(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     question: str,
     plan_depth: str = "dynamic",
-    plan_target_steps: Optional[int] = None,
-    plan_target_chunks: Optional[int] = None,
+    plan_target_steps: int | None = None,
+    plan_target_chunks: int | None = None,
     broadcast_mode: str = "human",
     automation: bool = False,
     debug: bool = False,
-    config_path: Optional[str] = None,
-) -> Tuple[str, Any]:
+    config_path: str | None = None,
+) -> tuple[str, Any]:
     """
     Run full plan-and-execute workflow:
     1. Phase 1: Run planning subprocess to create task plan
@@ -8299,7 +8302,7 @@ async def main(args):
 
     def _save_prompt_metadata_failure_fallback(
         failure_stage: str,
-        failure_error: Optional[Exception] = None,
+        failure_error: Exception | None = None,
     ) -> None:
         """Persist prompt metadata even when execution stops early."""
         nonlocal _metadata_saved_for_failure
@@ -9043,7 +9046,7 @@ async def main(args):
                     def cleanup_agent(
                         agent_id: str,
                         agent,
-                    ) -> tuple[str, Optional[Exception]]:
+                    ) -> tuple[str, Exception | None]:
                         """Cleanup a single agent's Docker container."""
                         try:
                             agent.backend.filesystem_manager.cleanup()
@@ -9128,7 +9131,7 @@ async def main(args):
                 def cleanup_agent(
                     agent_id: str,
                     agent,
-                ) -> tuple[str, Optional[Exception]]:
+                ) -> tuple[str, Exception | None]:
                     try:
                         agent.backend.filesystem_manager.cleanup()
                         return (agent_id, None)
@@ -9538,6 +9541,7 @@ Environment Variables:
             "grok",
             "openai",
             "azure_openai",
+            "copilot",
             "claude_code",
             "zai",
             "lmstudio",

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Read media files and analyze them using understand_* tools.
 
@@ -13,7 +12,7 @@ multi-image prompts where multiple images are sent to the model together.
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from massgen.logger_config import logger
 from massgen.tool._decorators import context_params
@@ -39,7 +38,7 @@ MEDIA_TYPE_EXTENSIONS = {
 }
 
 
-def _detect_media_type(file_path: str) -> Optional[str]:
+def _detect_media_type(file_path: str) -> str | None:
     """Detect media type from file extension.
 
     Args:
@@ -55,7 +54,7 @@ def _detect_media_type(file_path: str) -> Optional[str]:
     return None
 
 
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -> None:
     """Validate that a path is within allowed directories.
 
     Args:
@@ -87,16 +86,16 @@ def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None
     "task_context",
 )
 async def read_media(
-    file_path: Optional[str] = None,
-    prompt: Optional[str] = None,
-    inputs: Optional[List[Dict[str, Any]]] = None,
+    file_path: str | None = None,
+    prompt: str | None = None,
+    inputs: list[dict[str, Any]] | None = None,
     max_concurrent: int = 4,
-    agent_cwd: Optional[str] = None,
-    allowed_paths: Optional[List[str]] = None,
-    backend_type: Optional[str] = None,
-    model: Optional[str] = None,
-    multimodal_config: Optional[Dict[str, Any]] = None,
-    task_context: Optional[str] = None,
+    agent_cwd: str | None = None,
+    allowed_paths: list[str] | None = None,
+    backend_type: str | None = None,
+    model: str | None = None,
+    multimodal_config: dict[str, Any] | None = None,
+    task_context: str | None = None,
 ) -> ExecutionResult:
     """
     Read and analyze media file(s) using external API calls.
@@ -204,7 +203,7 @@ async def read_media(
             )
 
         # Helper to add context warning to result dict if present
-        def _add_warning(result_dict: Dict[str, Any]) -> Dict[str, Any]:
+        def _add_warning(result_dict: dict[str, Any]) -> dict[str, Any]:
             if context_warning:
                 result_dict["warning"] = context_warning
             return result_dict
@@ -246,7 +245,7 @@ async def read_media(
                     understand_image,
                 )
 
-                image_kwargs: Dict[str, Any] = {
+                image_kwargs: dict[str, Any] = {
                     "image_path": str(media_path),
                     "prompt": default_prompt,
                     "agent_cwd": agent_cwd,
@@ -322,11 +321,11 @@ async def read_media(
         # ------------------------------------------------------------------
         # BATCH MODE with multi-image support
         # ------------------------------------------------------------------
-        async def _process_one_input(idx: int, inp: Dict[str, Any], semaphore: asyncio.Semaphore) -> Dict[str, Any]:
+        async def _process_one_input(idx: int, inp: dict[str, Any], semaphore: asyncio.Semaphore) -> dict[str, Any]:
             """Process a single input spec with concurrency control."""
             async with semaphore:
                 try:
-                    files_dict: Dict[str, str] = inp["files"]
+                    files_dict: dict[str, str] = inp["files"]
                     input_prompt = inp.get("prompt") or prompt or "Please analyze and describe what you see."
 
                     # Determine media type from first file
@@ -347,7 +346,7 @@ async def read_media(
                             understand_image,
                         )
 
-                        image_kwargs: Dict[str, Any] = {
+                        image_kwargs: dict[str, Any] = {
                             "images": files_dict,
                             "prompt": input_prompt,
                             "agent_cwd": agent_cwd,

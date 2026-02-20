@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task decomposer for MassGen decomposition mode.
 
@@ -11,9 +10,10 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class TaskDecomposerConfig:
     """
 
     enabled: bool = True
-    decomposition_guidelines: Optional[str] = None
+    decomposition_guidelines: str | None = None
     timeout_seconds: int = 300
 
 
@@ -45,7 +45,7 @@ class TaskDecomposer:
         self.last_generation_source: str = "unknown"
 
     @staticmethod
-    def _build_agent_alias_map(agent_ids: List[str]) -> Dict[str, str]:
+    def _build_agent_alias_map(agent_ids: list[str]) -> dict[str, str]:
         """Build stable anonymous aliases (agent1, agent2, ...) for real agent IDs."""
         return {aid: f"agent{i + 1}" for i, aid in enumerate(agent_ids)}
 
@@ -57,8 +57,8 @@ class TaskDecomposer:
     def _build_decomposition_prompt(
         self,
         task: str,
-        agent_descriptions: List[str],
-        agent_ids: List[str],
+        agent_descriptions: list[str],
+        agent_ids: list[str],
         guidelines_section: str = "",
     ) -> str:
         """Build the decomposition prompt passed to the subagent."""
@@ -94,14 +94,14 @@ Requirements:
     async def generate_decomposition_via_subagent(
         self,
         task: str,
-        agent_ids: List[str],
-        existing_system_messages: Dict[str, Optional[str]],
-        parent_agent_configs: List[Dict[str, Any]],
+        agent_ids: list[str],
+        existing_system_messages: dict[str, str | None],
+        parent_agent_configs: list[dict[str, Any]],
         parent_workspace: str,
         orchestrator_id: str,
-        log_directory: Optional[str] = None,
-        on_subagent_started: Optional[Callable[[str, str, int, Callable[[str], Optional[Any]], Optional[str]], None]] = None,
-    ) -> Dict[str, str]:
+        log_directory: str | None = None,
+        on_subagent_started: Callable[[str, str, int, Callable[[str], Any | None], str | None], None] | None = None,
+    ) -> dict[str, str]:
         """Generate subtask assignments via a MassGen subagent call.
 
         Uses SubagentManager to spawn a full MassGen subagent with simplified config.
@@ -149,7 +149,7 @@ Requirements:
         )
 
         # Normalize parent configs to [{id, backend}, ...]
-        normalized_parent_configs: List[Dict[str, Any]] = []
+        normalized_parent_configs: list[dict[str, Any]] = []
         for idx, aid in enumerate(agent_ids):
             raw = parent_agent_configs[idx] if idx < len(parent_agent_configs) else {}
             if isinstance(raw, dict) and "backend" in raw:
@@ -161,10 +161,10 @@ Requirements:
                 normalized_parent_configs.append({"id": aid, "backend": {}})
 
         # Build simplified configs using same models, but strip tools.
-        simplified_configs: List[Dict[str, Any]] = []
+        simplified_configs: list[dict[str, Any]] = []
         for idx, aid in enumerate(agent_ids):
             backend = normalized_parent_configs[idx].get("backend", {}) if idx < len(normalized_parent_configs) else {}
-            simplified_backend: Dict[str, Any] = {
+            simplified_backend: dict[str, Any] = {
                 "type": backend.get("type", "openai"),
                 "model": backend.get("model") or "gpt-4o-mini",
                 "enable_mcp_command_line": False,
@@ -209,7 +209,7 @@ Requirements:
                 log_directory=log_directory,
             )
 
-            def _status_callback(subagent_id: str) -> Optional[Any]:
+            def _status_callback(subagent_id: str) -> Any | None:
                 try:
                     return manager.get_subagent_display_data(subagent_id)
                 except Exception:
@@ -240,7 +240,7 @@ Requirements:
                 refine=True,
             )
 
-            subtasks: Dict[str, str] = {}
+            subtasks: dict[str, str] = {}
             if result.answer:
                 subtasks = self._parse_subtasks_from_text(result.answer, agent_ids)
 
@@ -264,7 +264,7 @@ Requirements:
         self.last_generation_source = "fallback"
         return self._generate_fallback_subtasks(task, agent_ids, existing_system_messages)
 
-    def _parse_subtasks_from_text(self, text: str, agent_ids: List[str]) -> Dict[str, str]:
+    def _parse_subtasks_from_text(self, text: str, agent_ids: list[str]) -> dict[str, str]:
         """Parse decomposition JSON from model text output."""
         candidates = [text.strip()]
 
@@ -295,7 +295,7 @@ Requirements:
 
         return {}
 
-    def _parse_subtasks_from_workspace(self, workspace_path: str, agent_ids: List[str]) -> Dict[str, str]:
+    def _parse_subtasks_from_workspace(self, workspace_path: str, agent_ids: list[str]) -> dict[str, str]:
         """Parse decomposition JSON artifacts from subagent workspace.
 
         Searches three locations in order:
@@ -307,7 +307,7 @@ Requirements:
         if not workspace.exists():
             return {}
 
-        candidate_files: List[Path] = [
+        candidate_files: list[Path] = [
             workspace / "decomposition.json",
             workspace / "subtasks.json",
         ]
@@ -352,9 +352,9 @@ Requirements:
 
         return {}
 
-    def _normalize_subtasks(self, subtasks: Dict[str, Any], agent_ids: List[str]) -> Dict[str, str]:
+    def _normalize_subtasks(self, subtasks: dict[str, Any], agent_ids: list[str]) -> dict[str, str]:
         """Normalize parsed subtask map and ensure all agent IDs are covered."""
-        cleaned: Dict[str, str] = {}
+        cleaned: dict[str, str] = {}
 
         for aid in agent_ids:
             value = subtasks.get(aid)
@@ -373,9 +373,9 @@ Requirements:
     def _generate_fallback_subtasks(
         self,
         task: str,
-        agent_ids: List[str],
-        system_messages: Dict[str, Optional[str]],
-    ) -> Dict[str, str]:
+        agent_ids: list[str],
+        system_messages: dict[str, str | None],
+    ) -> dict[str, str]:
         """Generate generic subtask assignments when auto-decomposition fails.
 
         Uses agent system messages to infer subtask roles.

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Plan storage and session management for plan-and-execute workflow."""
 
 import json
@@ -6,7 +5,7 @@ import shutil
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .logger_config import logger
 
@@ -21,24 +20,24 @@ class PlanMetadata:
     created_at: str
     planning_session_id: str
     planning_log_dir: str
-    planning_prompt: Optional[str] = None  # Original user query that initiated planning
-    planning_turn: Optional[int] = None  # Turn number when planning was initiated
-    execution_session_id: Optional[str] = None
-    execution_log_dir: Optional[str] = None
+    planning_prompt: str | None = None  # Original user query that initiated planning
+    planning_turn: int | None = None  # Turn number when planning was initiated
+    execution_session_id: str | None = None
+    execution_log_dir: str | None = None
     status: str = "planning"  # planning, ready, executing, resumable, completed, failed
-    context_paths: Optional[List[Dict[str, Any]]] = None  # Context paths from planning phase
+    context_paths: list[dict[str, Any]] | None = None  # Context paths from planning phase
     # Planning review loop metadata
     plan_revision: int = 1
     planning_iteration_count: int = 1
-    planning_feedback_history: Optional[List[str]] = None
-    last_planning_mode: Optional[str] = None  # "multi" | "single"
+    planning_feedback_history: list[str] | None = None
+    last_planning_mode: str | None = None  # "multi" | "single"
     # Chunk execution metadata
-    execution_mode: Optional[str] = None  # "chunked_by_planner_v1"
-    chunk_order: Optional[List[str]] = None
-    current_chunk: Optional[str] = None
-    completed_chunks: Optional[List[str]] = None
-    chunk_history: Optional[List[Dict[str, Any]]] = None
-    resumable_state: Optional[Dict[str, Any]] = None
+    execution_mode: str | None = None  # "chunked_by_planner_v1"
+    chunk_order: list[str] | None = None
+    current_chunk: str | None = None
+    completed_chunks: list[str] | None = None
+    chunk_history: list[dict[str, Any]] | None = None
+    resumable_state: dict[str, Any] | None = None
 
 
 class PlanSession:
@@ -73,7 +72,7 @@ class PlanSession:
         """Save plan metadata to disk."""
         self.metadata_file.write_text(json.dumps(asdict(metadata), indent=2))
 
-    def log_event(self, event_type: str, data: Dict[str, Any]):
+    def log_event(self, event_type: str, data: dict[str, Any]):
         """Append event to execution log."""
         event = {"timestamp": datetime.now().isoformat(), "event_type": event_type, "data": data}
         with self.execution_log_file.open("a") as f:
@@ -86,7 +85,7 @@ class PlanSession:
         shutil.copytree(self.workspace_dir, self.frozen_dir)
         logger.info(f"[PlanStorage] Froze workspace snapshot: {self.frozen_dir}")
 
-    def compute_plan_diff(self) -> Dict[str, Any]:
+    def compute_plan_diff(self) -> dict[str, Any]:
         """Compare workspace/ and frozen/ to detect plan drift."""
         # Plan is stored as plan.json in workspace root (renamed from project_plan.json during finalize)
         workspace_plan = self.workspace_dir / "plan.json"
@@ -138,8 +137,8 @@ class PlanStorage:
         self,
         planning_session_id: str,
         planning_log_dir: str,
-        planning_prompt: Optional[str] = None,
-        planning_turn: Optional[int] = None,
+        planning_prompt: str | None = None,
+        planning_turn: int | None = None,
     ) -> PlanSession:
         """Create a new plan session.
 
@@ -172,7 +171,7 @@ class PlanStorage:
         logger.info(f"[PlanStorage] Created plan session: {plan_id}")
         return session
 
-    def get_latest_plan(self) -> Optional[PlanSession]:
+    def get_latest_plan(self) -> PlanSession | None:
         """Get most recent plan session."""
         if not PLANS_DIR.exists():
             return None
@@ -184,7 +183,7 @@ class PlanStorage:
         plan_id = plan_dirs[0].name.replace("plan_", "")
         return PlanSession(plan_id)
 
-    def get_latest_resumable_plan(self) -> Optional[PlanSession]:
+    def get_latest_resumable_plan(self) -> PlanSession | None:
         """Get the most recent resumable plan session, if any."""
         if not PLANS_DIR.exists():
             return None
@@ -205,7 +204,7 @@ class PlanStorage:
                 return session
         return None
 
-    def get_all_plans(self, limit: int = 10) -> List[PlanSession]:
+    def get_all_plans(self, limit: int = 10) -> list[PlanSession]:
         """Get all plan sessions sorted by creation date (newest first).
 
         Args:
@@ -238,7 +237,7 @@ class PlanStorage:
 
         return sessions
 
-    def get_plan_by_id(self, plan_id: str) -> Optional[PlanSession]:
+    def get_plan_by_id(self, plan_id: str) -> PlanSession | None:
         """Get a specific plan session by its ID.
 
         Args:
@@ -256,7 +255,7 @@ class PlanStorage:
         self,
         session: PlanSession,
         workspace_source: Path,
-        context_paths: Optional[List[Dict[str, Any]]] = None,
+        context_paths: list[dict[str, Any]] | None = None,
     ):
         """Copy planning workspace to plan storage and freeze it.
 

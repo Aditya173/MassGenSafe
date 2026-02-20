@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Planning MCP Server for MassGen
 
@@ -22,7 +21,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import fastmcp
 
@@ -32,13 +31,13 @@ from massgen.mcp_tools.planning.planning_dataclasses import Task, TaskPlan
 logger = logging.getLogger(__name__)
 
 
-def _has_extended_task_fields(task_spec: Dict[str, Any]) -> bool:
+def _has_extended_task_fields(task_spec: dict[str, Any]) -> bool:
     """Check if task dict has extended fields beyond basic add_task parameters."""
     extended_fields = {"status", "metadata", "verification_group", "completed_at", "verified_at", "created_at"}
     return bool(extended_fields & set(task_spec.keys()))
 
 
-def _create_task_from_dict(task_spec: Dict[str, Any]) -> Task:
+def _create_task_from_dict(task_spec: dict[str, Any]) -> Task:
     """Create a Task object from a dict, preserving all fields including extended ones."""
     from datetime import datetime
 
@@ -85,16 +84,16 @@ def _create_task_from_dict(task_spec: Dict[str, Any]) -> Task:
 
 
 # Global storage for task plans (keyed by agent_id)
-_task_plans: Dict[str, TaskPlan] = {}
+_task_plans: dict[str, TaskPlan] = {}
 
 # Optional workspace path for filesystem-based task storage
-_workspace_path: Optional[Path] = None
+_workspace_path: Path | None = None
 
 # Whether two-tier workspace with git versioning is enabled
 _use_two_tier_workspace: bool = False
 
 
-def _git_commit_on_task_completion(task_id: str, completion_notes: Optional[str]) -> bool:
+def _git_commit_on_task_completion(task_id: str, completion_notes: str | None) -> bool:
     """
     Create a git commit when a task is completed (if two-tier workspace is enabled).
 
@@ -147,7 +146,7 @@ def _save_plan_to_filesystem(plan: TaskPlan) -> None:
     plan_file.write_text(json.dumps(plan.to_dict(), indent=2))
 
 
-def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
+def _load_plan_from_filesystem(agent_id: str) -> TaskPlan | None:
     """
     Load task plan from filesystem if it exists.
 
@@ -260,8 +259,8 @@ def _get_or_create_plan(agent_id: str, orchestrator_id: str, require_verificatio
 
 
 def _resolve_dependency_references(
-    task_list: List[Union[str, Dict[str, Any]]],
-) -> List[Dict[str, Any]]:
+    task_list: list[str | dict[str, Any]],
+) -> list[dict[str, Any]]:
     """
     Resolve dependency references (indices -> IDs) in task list.
 
@@ -404,7 +403,7 @@ async def create_server() -> fastmcp.FastMCP:
     logger.debug(f"[PlanningMCP] Server configured - skills={args.skills_enabled}, auto_discovery={args.auto_discovery_enabled}, memory={args.memory_enabled}")
 
     @mcp.tool()
-    def create_task_plan(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def create_task_plan(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Create a new task plan with a list of tasks.
 
@@ -582,7 +581,7 @@ async def create_server() -> fastmcp.FastMCP:
             }
 
     @mcp.tool()
-    def clear_task_plan() -> Dict[str, Any]:
+    def clear_task_plan() -> dict[str, Any]:
         """
         Clear the current task plan to start fresh.
 
@@ -608,12 +607,12 @@ async def create_server() -> fastmcp.FastMCP:
     @mcp.tool()
     def add_task(
         description: str,
-        after_task_id: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        after_task_id: str | None = None,
+        depends_on: list[str] | None = None,
         priority: str = "medium",
-        verification: Optional[str] = None,
-        verification_method: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        verification: str | None = None,
+        verification_method: str | None = None,
+    ) -> dict[str, Any]:
         """
         Add a new task to the plan.
 
@@ -679,8 +678,8 @@ async def create_server() -> fastmcp.FastMCP:
     def update_task_status(
         task_id: str,
         status: str,  # Will be validated as Literal in the function
-        completion_notes: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        completion_notes: str | None = None,
+    ) -> dict[str, Any]:
         """
         Update the status of a task.
 
@@ -745,8 +744,8 @@ async def create_server() -> fastmcp.FastMCP:
     @mcp.tool()
     def edit_task(
         task_id: str,
-        description: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        description: str | None = None,
+    ) -> dict[str, Any]:
         """
         Edit a task's description.
 
@@ -781,7 +780,7 @@ async def create_server() -> fastmcp.FastMCP:
             }
 
     @mcp.tool()
-    def get_task_plan() -> Dict[str, Any]:
+    def get_task_plan() -> dict[str, Any]:
         """
         Get the current task plan for this agent.
 
@@ -825,7 +824,7 @@ async def create_server() -> fastmcp.FastMCP:
             }
 
     @mcp.tool()
-    def delete_task(task_id: str) -> Dict[str, Any]:
+    def delete_task(task_id: str) -> dict[str, Any]:
         """
         Remove a task from the plan.
 
@@ -862,7 +861,7 @@ async def create_server() -> fastmcp.FastMCP:
             }
 
     @mcp.tool()
-    def get_ready_tasks() -> Dict[str, Any]:
+    def get_ready_tasks() -> dict[str, Any]:
         """
         Get all tasks that are ready to start (dependencies satisfied).
 
@@ -899,7 +898,7 @@ async def create_server() -> fastmcp.FastMCP:
             }
 
     @mcp.tool()
-    def get_blocked_tasks() -> Dict[str, Any]:
+    def get_blocked_tasks() -> dict[str, Any]:
         """
         Get all tasks that are blocked by incomplete dependencies.
 

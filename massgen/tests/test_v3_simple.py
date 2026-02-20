@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Simple test script for MassGen basic functionality.
 Tests single agent and basic orchestrator functionality.

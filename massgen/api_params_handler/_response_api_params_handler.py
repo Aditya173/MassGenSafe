@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Response API parameters handler.
 Handles parameter building for OpenAI Response API format.
@@ -6,7 +5,7 @@ Handles parameter building for OpenAI Response API format.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Set
+from typing import Any
 
 from ..logger_config import logger
 from ._api_params_handler_base import APIParamsHandlerBase
@@ -15,7 +14,7 @@ from ._api_params_handler_base import APIParamsHandlerBase
 class ResponseAPIParamsHandler(APIParamsHandlerBase):
     """Handler for Response API parameters."""
 
-    def get_excluded_params(self) -> Set[str]:
+    def get_excluded_params(self) -> set[str]:
         """Get parameters to exclude from Response API calls."""
         return self.get_base_excluded_params().union(
             {
@@ -33,7 +32,7 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
             },
         )
 
-    def get_provider_tools(self, all_params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_provider_tools(self, all_params: dict[str, Any]) -> list[dict[str, Any]]:
         """Get provider tools for Response API format."""
         provider_tools = []
 
@@ -50,7 +49,7 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
 
         return provider_tools
 
-    def _convert_mcp_tools_to_openai_format(self) -> List[Dict[str, Any]]:
+    def _convert_mcp_tools_to_openai_format(self) -> list[dict[str, Any]]:
         """Convert MCP tools to OpenAI function format for Response API."""
         if not hasattr(self.backend, "_mcp_functions") or not self.backend._mcp_functions:
             return []
@@ -63,10 +62,10 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
 
     async def build_api_params(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        all_params: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        all_params: dict[str, Any],
+    ) -> dict[str, Any]:
         """Build Response API parameters."""
         # Convert messages to Response API format
         converted_messages = self.formatter.format_messages(messages)

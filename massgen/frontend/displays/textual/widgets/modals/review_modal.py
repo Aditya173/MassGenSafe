@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Git diff review modal for approving/rejecting changes before applying.
 
@@ -7,7 +6,7 @@ modal screen behavior (BINDINGS, dismiss) while the panel handles all
 diff parsing, rendering, file selection, and approval state.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 try:
     from textual.app import ComposeResult
@@ -41,9 +40,9 @@ class FileEditorModal(ModalScreen[Optional[str]]):
         self,
         file_path: str,
         initial_content: str,
-        name: Optional[str] = None,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
         self._file_path = file_path
@@ -139,7 +138,7 @@ class GitDiffReviewModal(BaseModal):
     REWORK_CONTINUE_BTN_ID = ReviewChangesPanel.REWORK_CONTINUE_BTN_ID
     REWORK_QUICK_EDIT_BTN_ID = ReviewChangesPanel.REWORK_QUICK_EDIT_BTN_ID
 
-    def __init__(self, changes: List[Dict[str, Any]], **kwargs):
+    def __init__(self, changes: list[dict[str, Any]], **kwargs):
         super().__init__(**kwargs)
         self._changes = changes
         self._panel = ReviewChangesPanel(changes=changes, id="review_panel")
@@ -150,51 +149,51 @@ class GitDiffReviewModal(BaseModal):
     # ------------------------------------------------------------------
 
     @property
-    def changes(self) -> List[Dict[str, Any]]:
+    def changes(self) -> list[dict[str, Any]]:
         return self._panel.changes
 
     @property
-    def file_approvals(self) -> Dict[str, bool]:
+    def file_approvals(self) -> dict[str, bool]:
         return self._panel.file_approvals
 
     @property
-    def _file_key_to_context(self) -> Dict[str, str]:
+    def _file_key_to_context(self) -> dict[str, str]:
         return self._panel._file_key_to_context
 
     @property
-    def _file_key_to_path(self) -> Dict[str, str]:
+    def _file_key_to_path(self) -> dict[str, str]:
         return self._panel._file_key_to_path
 
     @property
-    def _context_to_isolated(self) -> Dict[str, str]:
+    def _context_to_isolated(self) -> dict[str, str]:
         return self._panel._context_to_isolated
 
     @property
-    def _all_file_paths(self) -> List[str]:
+    def _all_file_paths(self) -> list[str]:
         return self._panel._all_file_paths
 
     @property
-    def _per_file_diffs(self) -> Dict[str, str]:
+    def _per_file_diffs(self) -> dict[str, str]:
         return self._panel._per_file_diffs
 
     @property
-    def _selected_file(self) -> Optional[str]:
+    def _selected_file(self) -> str | None:
         return self._panel._selected_file
 
     @_selected_file.setter
-    def _selected_file(self, value: Optional[str]) -> None:
+    def _selected_file(self, value: str | None) -> None:
         self._panel._selected_file = value
 
     @property
-    def _hunks_by_file(self) -> Dict[str, List[Dict[str, Any]]]:
+    def _hunks_by_file(self) -> dict[str, list[dict[str, Any]]]:
         return self._panel._hunks_by_file
 
     @property
-    def _hunk_approvals(self) -> Dict[str, Dict[int, bool]]:
+    def _hunk_approvals(self) -> dict[str, dict[int, bool]]:
         return self._panel._hunk_approvals
 
     @property
-    def _selected_hunk_index_by_file(self) -> Dict[str, int]:
+    def _selected_hunk_index_by_file(self) -> dict[str, int]:
         return self._panel._selected_hunk_index_by_file
 
     @property
@@ -340,16 +339,16 @@ class GitDiffReviewModal(BaseModal):
         return ReviewChangesPanel._make_file_key(context_path, file_path)
 
     @staticmethod
-    def _parse_hunks(file_diff: str) -> List[Dict[str, Any]]:
+    def _parse_hunks(file_diff: str) -> list[dict[str, Any]]:
         return ReviewChangesPanel._parse_hunks(file_diff)
 
-    def _render_diff_markup(self, file_path: Optional[str]) -> str:
+    def _render_diff_markup(self, file_path: str | None) -> str:
         return self._panel._render_diff_markup(file_path)
 
-    def _render_diff_sections(self, file_path: Optional[str]) -> List[tuple]:
+    def _render_diff_sections(self, file_path: str | None) -> list[tuple]:
         return self._panel._render_diff_sections(file_path)
 
-    def _get_scroll_target_id(self, file_path: Optional[str]) -> Optional[str]:
+    def _get_scroll_target_id(self, file_path: str | None) -> str | None:
         return self._panel._get_scroll_target_id(file_path)
 
     def _get_status_badge(self, status: str) -> str:
@@ -357,7 +356,7 @@ class GitDiffReviewModal(BaseModal):
 
     def _build_summary_markup(
         self,
-        parts: List[str],
+        parts: list[str],
         total_contexts: int,
         total_files: int,
     ) -> str:

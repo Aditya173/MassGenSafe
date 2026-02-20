@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Reusable two-panel diff review widget (file list + diff viewer).
 
@@ -9,7 +8,7 @@ standalone review modal and the tabbed FinalAnswerModal.
 import re
 from hashlib import sha1
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from textual.app import ComposeResult
@@ -86,7 +85,7 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
 
     def __init__(
         self,
-        changes: List[Dict[str, Any]],
+        changes: list[dict[str, Any]],
         show_footer: bool = True,
         show_rework: bool = True,
         show_all_keyboard_hints: bool = True,
@@ -97,18 +96,18 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
         self._show_footer = show_footer
         self._show_rework = show_rework
         self._show_all_keyboard_hints = show_all_keyboard_hints
-        self.file_approvals: Dict[str, bool] = {}
-        self._file_key_to_context: Dict[str, str] = {}
-        self._file_key_to_path: Dict[str, str] = {}
-        self._context_to_isolated: Dict[str, str] = {}
-        self._checkbox_to_path: Dict[str, str] = {}
-        self._file_key_to_checkbox: Dict[str, str] = {}
-        self._all_file_paths: List[str] = []
-        self._per_file_diffs: Dict[str, str] = {}
-        self._selected_file: Optional[str] = None
-        self._hunks_by_file: Dict[str, List[Dict[str, Any]]] = {}
-        self._hunk_approvals: Dict[str, Dict[int, bool]] = {}
-        self._selected_hunk_index_by_file: Dict[str, int] = {}
+        self.file_approvals: dict[str, bool] = {}
+        self._file_key_to_context: dict[str, str] = {}
+        self._file_key_to_path: dict[str, str] = {}
+        self._context_to_isolated: dict[str, str] = {}
+        self._checkbox_to_path: dict[str, str] = {}
+        self._file_key_to_checkbox: dict[str, str] = {}
+        self._all_file_paths: list[str] = []
+        self._per_file_diffs: dict[str, str] = {}
+        self._selected_file: str | None = None
+        self._hunks_by_file: dict[str, list[dict[str, Any]]] = {}
+        self._hunk_approvals: dict[str, dict[int, bool]] = {}
+        self._selected_hunk_index_by_file: dict[str, int] = {}
 
         # Build file list, approval map, and per-file diffs
         for ctx in changes:
@@ -300,12 +299,12 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
     # Diff parsing and rendering
     # =========================================================================
 
-    def _parse_per_file_diffs(self, combined_diff: str) -> Dict[str, str]:
+    def _parse_per_file_diffs(self, combined_diff: str) -> dict[str, str]:
         """Parse a combined diff string into per-file diff sections."""
         if not combined_diff or not combined_diff.strip():
             return {}
 
-        result: Dict[str, str] = {}
+        result: dict[str, str] = {}
         sections = re.split(r"(?=^diff --git )", combined_diff, flags=re.MULTILINE)
 
         for section in sections:
@@ -326,8 +325,8 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
     def _find_file_diff(
         self,
         file_path: str,
-        parsed_diffs: Dict[str, str],
-    ) -> Optional[str]:
+        parsed_diffs: dict[str, str],
+    ) -> str | None:
         """Find a file's diff from parsed diffs, trying various path forms."""
         if file_path in parsed_diffs:
             return parsed_diffs[file_path]
@@ -344,13 +343,13 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
         return None
 
     @staticmethod
-    def _parse_hunks(file_diff: str) -> List[Dict[str, Any]]:
+    def _parse_hunks(file_diff: str) -> list[dict[str, Any]]:
         """Parse unified diff hunks for a single file."""
         if not file_diff:
             return []
 
-        hunks: List[Dict[str, Any]] = []
-        current: Optional[Dict[str, Any]] = None
+        hunks: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
 
         for line in file_diff.splitlines(keepends=True):
             if line.startswith("@@"):
@@ -399,7 +398,7 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
         new_start = int(match2.group(1)) if match2 else 1
         return old_start, new_start
 
-    def _render_diff_markup(self, file_path: Optional[str]) -> str:
+    def _render_diff_markup(self, file_path: str | None) -> str:
         """Render a file's diff as Rich-markup-formatted text."""
         if not file_path:
             return "[dim]Select a file to view its diff[/]"
@@ -409,7 +408,7 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
             return "[dim]No diff available for this file[/]"
 
         lines = raw_diff.split("\n")
-        rendered: List[str] = []
+        rendered: list[str] = []
         hunk_index = -1
         selected_hunk = self._selected_hunk_index_by_file.get(file_path, 0)
         hunk_approvals = self._hunk_approvals.get(file_path, {})
@@ -460,7 +459,7 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
 
         return "\n".join(rendered)
 
-    def _render_diff_sections(self, file_path: Optional[str]) -> List[tuple]:
+    def _render_diff_sections(self, file_path: str | None) -> list[tuple]:
         """Render a file's diff as a list of (section_id, markup) tuples."""
         if not file_path:
             return [("no_file", "[dim]Select a file to view its diff[/]")]
@@ -474,9 +473,9 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
         selected_hunk = self._selected_hunk_index_by_file.get(file_path, 0)
         hunk_approvals = self._hunk_approvals.get(file_path, {})
 
-        meta_lines: List[str] = []
-        hunk_sections: List[tuple] = []
-        current_hunk_lines: List[str] = []
+        meta_lines: list[str] = []
+        hunk_sections: list[tuple] = []
+        current_hunk_lines: list[str] = []
         hunk_index = -1
         current_hunk_approved = True
         old_line = 0
@@ -544,14 +543,14 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
             section_id = f"hunk_{file_hash}_{hunk_index}"
             hunk_sections.append((section_id, "\n".join(current_hunk_lines)))
 
-        result: List[tuple] = []
+        result: list[tuple] = []
         if meta_lines:
             result.append((f"meta_{file_hash}", "\n".join(meta_lines)))
         result.extend(hunk_sections)
 
         return result if result else [("empty", "[dim]No content[/]")]
 
-    def _get_scroll_target_id(self, file_path: Optional[str]) -> Optional[str]:
+    def _get_scroll_target_id(self, file_path: str | None) -> str | None:
         """Get the widget ID for the currently selected hunk in a file."""
         if not file_path:
             return None
@@ -582,7 +581,7 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
 
     def _build_summary_markup(
         self,
-        parts: List[str],
+        parts: list[str],
         total_contexts: int,
         total_files: int,
     ) -> str:
@@ -664,7 +663,7 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
         digest = sha1(file_path.encode("utf-8")).hexdigest()[:12]
         return f"file_cb_{digest}"
 
-    def _path_from_checkbox_id(self, checkbox_id: str) -> Optional[str]:
+    def _path_from_checkbox_id(self, checkbox_id: str) -> str | None:
         """Look up the original file path from a checkbox ID."""
         return self._checkbox_to_path.get(checkbox_id)
 
@@ -887,8 +886,8 @@ class ReviewChangesPanel(ReworkControlsMixin, Vertical):
 
         # "approve" — build per-context file/hunk selection
         approved_files = [path for path, approved in self.file_approvals.items() if approved]
-        approved_files_by_context: Dict[str, List[str]] = {}
-        approved_hunks_by_context: Dict[str, Dict[str, List[int]]] = {}
+        approved_files_by_context: dict[str, list[str]] = {}
+        approved_hunks_by_context: dict[str, dict[str, list[int]]] = {}
         for file_key in approved_files:
             context_path = self._file_key_to_context.get(file_key)
             file_path = self._file_key_to_path.get(file_key)

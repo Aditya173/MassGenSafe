@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Regression tests for subagent screen live-status wiring in Textual TUI."""
 
 from types import SimpleNamespace
@@ -35,6 +34,7 @@ def test_on_subagent_card_open_modal_passes_status_callback(monkeypatch):
     app.coordination_display = SimpleNamespace(agent_ids=[])
     app.agent_widgets = {}
     app.notify = lambda *args, **kwargs: None
+    app._subagent_message_callback = None
 
     captured: dict = {}
 
@@ -73,6 +73,7 @@ def test_on_subagent_card_open_modal_without_card_attr_uses_fallback_snapshot(mo
     app.coordination_display = SimpleNamespace(agent_ids=[])
     app.agent_widgets = {}
     app.notify = lambda *args, **kwargs: None
+    app._subagent_message_callback = None
 
     captured: dict = {}
 
@@ -103,6 +104,7 @@ def test_action_show_subagents_passes_status_callback(monkeypatch):
     app_cls = textual_display_module.TextualApp
     app = app_cls.__new__(app_cls)
     app.coordination_display = SimpleNamespace(agent_ids=["agent_a"])
+    app._subagent_message_callback = None
 
     running = _make_subagent("sub_1", status="running")
     card = SimpleNamespace(subagents=[running])

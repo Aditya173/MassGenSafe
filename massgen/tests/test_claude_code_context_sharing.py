@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Regression tests for orchestrator workspace snapshot context sharing."""
 
 import shutil

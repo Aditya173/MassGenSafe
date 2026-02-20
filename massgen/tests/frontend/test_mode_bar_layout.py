@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Layout regression tests for the bottom input/mode bar area."""
 
 from __future__ import annotations
@@ -12,6 +11,9 @@ from textual.geometry import Size
 from massgen.frontend.displays import textual_terminal_display as textual_display_module
 from massgen.frontend.displays.textual_terminal_display import TextualTerminalDisplay
 from massgen.frontend.displays.textual_widgets.mode_bar import ModeBar, ModeToggle
+from massgen.frontend.displays.textual_widgets.queued_input_banner import (
+    QueuedInputBanner,
+)
 
 
 def _widget_text(widget: object) -> str:
@@ -1082,3 +1084,107 @@ async def test_ctrl_p_blocked_in_execute_mode(monkeypatch, tmp_path: Path) -> No
 
         assert app._cwd_context_mode == "off"
         assert "Cannot change CWD context in execute mode." in toasts[-1]
+
+
+@pytest.mark.asyncio
+async def test_inject_button_is_embedded_inside_input_bar(monkeypatch, tmp_path: Path) -> None:
+    """Inject target control should be structurally embedded in the input bar."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a", "agent_b"],
+        agent_models={"agent_a": "gpt-5.3-codex", "agent_b": "claude-opus-4-6"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(120, 26)) as pilot:
+        await pilot.pause()
+        await pilot.pause()
+
+        mode_bar = app.query_one("#mode_bar")
+        question_input_row = app.query_one("#question_input_row")
+        question_input = app.query_one("#question_input")
+        inject_button = app.query_one("#inject_target_button")
+
+        assert inject_button.region.x >= question_input.region.right - 1
+        assert inject_button.region.right <= question_input_row.region.right
+        assert inject_button.region.y >= question_input_row.region.y
+        assert inject_button.region.y > mode_bar.region.y
+
+
+@pytest.mark.asyncio
+async def test_queue_action_buttons_share_row_with_queue_summary(monkeypatch, tmp_path: Path) -> None:
+    """Queue action buttons should align to the right of the queue summary row."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a", "agent_b"],
+        agent_models={"agent_a": "gpt-5.3-codex", "agent_b": "claude-opus-4-6"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(130, 34)) as pilot:
+        await pilot.pause()
+        await pilot.pause()
+
+        banner = app._queued_input_banner
+        assert isinstance(banner, QueuedInputBanner)
+        banner.set_messages(
+            [
+                {
+                    "id": 11,
+                    "content": "Please include edge-case handling in your revised answer.",
+                    "target_label": "all agents",
+                    "pending_agents": ["agent_b"],
+                },
+                {
+                    "id": 12,
+                    "content": "Also add one adversarial test case for malformed input.",
+                    "target_label": "all agents",
+                    "pending_agents": ["agent_b"],
+                },
+            ],
+        )
+        banner.set_pending_counts({"agent_b": 2})
+        app._set_queued_input_region_visible(True)
+        await pilot.pause()
+
+        mode_bar = app.query_one("#mode_bar")
+        cancel_button = app.query_one("#queue_cancel_latest_button")
+        clear_button = app.query_one("#queue_clear_button")
+
+        assert cancel_button.region.y == banner.region.y
+        assert clear_button.region.y == banner.region.y
+        assert cancel_button.region.x >= banner.region.right
+        assert clear_button.region.x > cancel_button.region.x
+        assert mode_bar.region.y - clear_button.region.bottom <= 1

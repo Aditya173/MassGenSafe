@@ -8,7 +8,7 @@ What is MassGen?
 
 MassGen is a **multi-agent coordination system** that assigns tasks to multiple AI agents who work in parallel, share observations, vote for solutions, and converge on the best answer through natural consensus.
 
-Think of it as a "parallel study group" for AI - agents learn from each other to produce better results than any single agent could achieve alone.
+Agents observe, critique, and build on each other's work across cycles of refinement and restarts. When they believe they have a strong enough answer, they vote — and the best collectively validated answer wins.
 
 Configuration-Driven Architecture
 ----------------------------------

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Regression tests for subagent card completion wiring in Textual TUI."""
 
 from __future__ import annotations
@@ -224,6 +223,55 @@ def test_show_subagent_card_from_spawn_uses_current_round_and_keeps_existing_car
     assert card.id is not None
     assert ":" not in card.id
     assert "." not in card.id
+
+
+def test_show_subagent_card_from_spawn_carries_context_paths(monkeypatch) -> None:
+    """Spawn callback cards should keep task context paths for subagent top-bar display."""
+    timeline = _SpawnTimeline(existing_cards=[])
+    panel = _SpawnPanel(timeline, current_round=2)
+
+    app_cls = textual_display_module.TextualApp
+    app = app_cls.__new__(app_cls)
+    app.agent_widgets = {"agent_a": panel}
+    app._build_spawn_status_callback = lambda agent_id, seed_subagents: None
+
+    monkeypatch.setattr(textual_display_module, "get_log_session_dir", lambda: None)
+
+    app.show_subagent_card_from_spawn(
+        agent_id="agent_a",
+        args={
+            "tasks": [
+                {
+                    "subagent_id": "evaluator",
+                    "task": "Evaluate current website behavior",
+                    "context_paths": ["docs/brief.md", "src/components"],
+                },
+            ],
+        },
+        call_id="call:ctx.1",
+    )
+
+    assert len(timeline.added_cards) == 1
+    card = timeline.added_cards[0]
+    assert isinstance(card, SubagentCard)
+    assert getattr(card.subagents[0], "context_paths", None) == ["docs/brief.md", "src/components"]
+
+
+def test_build_subagent_display_data_preserves_existing_context_paths() -> None:
+    """Status refreshes should not drop previously-known subagent context paths."""
+    existing = _make_subagent("evaluator_beatles_site", status="running")
+    existing.context_paths = ["docs/brief.md"]
+
+    updated = textual_display_module._build_subagent_display_data(
+        {
+            "subagent_id": "evaluator_beatles_site",
+            "status": "running",
+            "execution_time_seconds": 1.5,
+        },
+        existing,
+    )
+
+    assert getattr(updated, "context_paths", None) == ["docs/brief.md"]
 
 
 def test_show_subagent_card_from_args_respects_round_number() -> None:

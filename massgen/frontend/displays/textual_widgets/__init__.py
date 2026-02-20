@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Textual widgets for the MassGen TUI.
 

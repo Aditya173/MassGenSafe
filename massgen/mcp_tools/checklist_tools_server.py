@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Standalone MCP server that exposes the MassGen submit_checklist tool.
 
 This allows CLI-based backends (Codex) to use the checklist-gated voting
@@ -19,14 +18,41 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import fastmcp
 
 logger = logging.getLogger(__name__)
 
 SERVER_NAME = "massgen_checklist"
+
+
+def _resolve_hook_middleware() -> Any:
+    """Return hook middleware class in both package and file-path launch modes."""
+    try:
+        from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+        return MassGenHookMiddleware
+    except ImportError:
+        pass
+
+    try:
+        from .hook_middleware import MassGenHookMiddleware
+
+        return MassGenHookMiddleware
+    except ImportError:
+        pass
+
+    # fastmcp file-path launches can drop package context; add repo root explicitly.
+    project_root = str(Path(__file__).resolve().parents[2])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+    return MassGenHookMiddleware
 
 
 async def create_server() -> fastmcp.FastMCP:
@@ -38,9 +64,21 @@ async def create_server() -> fastmcp.FastMCP:
         required=True,
         help="Path to JSON file containing checklist specs and state",
     )
+    parser.add_argument(
+        "--hook-dir",
+        type=str,
+        default=None,
+        help="Optional path to directory for hook IPC files (PostToolUse injection).",
+    )
     args = parser.parse_args()
 
     mcp = fastmcp.FastMCP(SERVER_NAME)
+
+    # Attach hook middleware for PostToolUse injection if hook_dir is configured
+    if args.hook_dir:
+        MassGenHookMiddleware = _resolve_hook_middleware()
+        mcp.add_middleware(MassGenHookMiddleware(Path(args.hook_dir)))
+        logger.info("Hook middleware attached (hook_dir=%s)", args.hook_dir)
     specs_path = Path(args.specs)
 
     _register_checklist_tool(mcp, specs_path)
@@ -49,7 +87,7 @@ async def create_server() -> fastmcp.FastMCP:
     return mcp
 
 
-def _read_specs(specs_path: Path) -> Dict[str, Any]:
+def _read_specs(specs_path: Path) -> dict[str, Any]:
     """Read specs file, returning empty dict on error."""
     try:
         with open(specs_path) as f:
@@ -78,8 +116,8 @@ def _as_non_negative_int(value: Any, default: int = 0) -> int:
 
 def _normalize_substantiveness(
     substantiveness: Any,
-    state: Dict[str, Any],
-) -> Dict[str, Any]:
+    state: dict[str, Any],
+) -> dict[str, Any]:
     """Normalize structured substantiveness payload for checklist gating.
 
     Accepts two payload formats:
@@ -106,7 +144,7 @@ def _normalize_substantiveness(
     Counts are derived via len() for list format.
     """
     require_substantiveness = bool(state.get("require_substantiveness", False))
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "required": require_substantiveness,
         "provided": substantiveness is not None,
         "valid": True,
@@ -181,7 +219,7 @@ def _normalize_substantiveness(
     return result
 
 
-def _resolve_report_file(report_path: str, state: Dict[str, Any]) -> tuple[Path | None, str | None]:
+def _resolve_report_file(report_path: str, state: dict[str, Any]) -> tuple[Path | None, str | None]:
     """Resolve report path to a workspace-local absolute path."""
     raw_path = (report_path or "").strip()
     if not raw_path:
@@ -203,14 +241,14 @@ def _resolve_report_file(report_path: str, state: Dict[str, Any]) -> tuple[Path 
     return candidate, None
 
 
-def _evaluate_gap_report(report_path: str, state: Dict[str, Any]) -> Dict[str, Any]:
+def _evaluate_gap_report(report_path: str, state: dict[str, Any]) -> dict[str, Any]:
     """Check gap report file existence for diagnostics (no gate logic).
 
     The gap report is informational only — it never overrides the checklist verdict.
     Basic file existence and non-empty checks are retained for transparency in the
     explanation, but no heuristic scoring or keyword matching is performed.
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "provided": bool((report_path or "").strip()),
         "path": (report_path or "").strip(),
         "passed": True,  # Always passes — no gate
@@ -251,13 +289,13 @@ def _evaluate_gap_report(report_path: str, state: Dict[str, Any]) -> Dict[str, A
 
 
 def evaluate_checklist_submission(
-    scores: Dict[str, Any],
+    scores: dict[str, Any],
     improvements: str,
     report_path: str,
     items: list,
-    state: Dict[str, Any],
-    substantiveness: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+    state: dict[str, Any],
+    substantiveness: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Evaluate checklist submission and return verdict payload used by stdio + SDK."""
     if not isinstance(scores, dict):
         scores = {}
@@ -518,7 +556,7 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
 
 def write_checklist_specs(
     items: list,
-    state: Dict[str, Any],
+    state: dict[str, Any],
     output_path: Path,
 ) -> Path:
     """Write checklist specs + state to a JSON file.
@@ -537,21 +575,28 @@ def write_checklist_specs(
     return output_path
 
 
-def build_server_config(specs_path: Path) -> Dict[str, Any]:
+def build_server_config(
+    specs_path: Path,
+    hook_dir: Path | None = None,
+) -> dict[str, Any]:
     """Build a stdio MCP server config dict for the checklist server."""
     script_path = Path(__file__).resolve()
+
+    cmd_args = [
+        "run",
+        f"{script_path}:create_server",
+        "--",
+        "--specs",
+        str(specs_path),
+    ]
+    if hook_dir is not None:
+        cmd_args.extend(["--hook-dir", str(hook_dir)])
 
     return {
         "name": SERVER_NAME,
         "type": "stdio",
         "command": "fastmcp",
-        "args": [
-            "run",
-            f"{script_path}:create_server",
-            "--",
-            "--specs",
-            str(specs_path),
-        ],
+        "args": cmd_args,
         "env": {"FASTMCP_SHOW_CLI_BANNER": "false"},
         "tool_timeout_sec": 120,
     }

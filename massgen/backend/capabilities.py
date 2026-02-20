@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Single source of truth for backend capabilities.
 All documentation and UI should pull from this registry.
@@ -55,7 +54,6 @@ This will verify:
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Set
 
 
 class Capability(Enum):
@@ -84,19 +82,19 @@ class BackendCapabilities:
 
     backend_type: str
     provider_name: str
-    supported_capabilities: Set[str]  # Set of capability strings (e.g., "web_search")
-    builtin_tools: List[str]  # Tools native to the backend
+    supported_capabilities: set[str]  # Set of capability strings (e.g., "web_search")
+    builtin_tools: list[str]  # Tools native to the backend
     filesystem_support: str  # "none", "native", or "mcp"
-    models: List[str]  # Available models
+    models: list[str]  # Available models
     default_model: str  # Default model for this backend
-    env_var: Optional[str] = None  # Required environment variable (e.g., "OPENAI_API_KEY")
+    env_var: str | None = None  # Required environment variable (e.g., "OPENAI_API_KEY")
     notes: str = ""  # Additional notes about the backend
-    model_release_dates: Optional[Dict[str, str]] = None  # Model -> "YYYY-MM" release date mapping
-    base_url: Optional[str] = None  # API base URL for OpenAI-compatible providers
+    model_release_dates: dict[str, str] | None = None  # Model -> "YYYY-MM" release date mapping
+    base_url: str | None = None  # API base URL for OpenAI-compatible providers
 
 
 # THE REGISTRY - Single source of truth for all backend capabilities
-BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
+BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
     "openai": BackendCapabilities(
         backend_type="openai",
         provider_name="OpenAI",
@@ -310,6 +308,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["google_search_retrieval", "code_execution"],
         filesystem_support="mcp",
         models=[
+            "gemini-3.1-pro-preview",
             "gemini-3-flash-preview",
             "gemini-3-pro-preview",
             "gemini-2.5-flash",
@@ -319,6 +318,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         env_var="GEMINI_API_KEY",
         notes="Google Search Retrieval provides web search. Image understanding. Image generation via Imagen 3. Video generation via Veo 2.",
         model_release_dates={
+            "gemini-3.1-pro-preview": "2026-02",
             "gemini-3-flash-preview": "2025-12",
             "gemini-3-pro-preview": "2025-11",
             "gemini-2.5-flash": "2025-06",
@@ -625,10 +625,29 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         env_var="UI_TARS_API_KEY",
         notes="OpenAI-compatible API via HuggingFace Inference Endpoints. UI-TARS-1.5-7B model for GUI automation with vision and reasoning. Requires UI_TARS_ENDPOINT environment variable.",
     ),
+    "copilot": BackendCapabilities(
+        backend_type="copilot",
+        provider_name="GitHub Copilot",
+        supported_capabilities={
+            "mcp",
+            "web_search",
+        },
+        builtin_tools=[],
+        filesystem_support="mcp",
+        models=[
+            "gpt-4.1",
+            "gpt-5-mini",
+            "claude-sonnet-4",
+            "gemini-2.5-pro",
+        ],
+        default_model="gpt-5-mini",
+        env_var=None,
+        notes="GitHub Copilot SDK integration. Requires 'copilot' package installed. Auth via GitHub subscription.",
+    ),
 }
 
 
-def get_capabilities(backend_type: str) -> Optional[BackendCapabilities]:
+def get_capabilities(backend_type: str) -> BackendCapabilities | None:
     """Get capabilities for a backend type.
 
     Args:
@@ -654,7 +673,7 @@ def has_capability(backend_type: str, capability: str) -> bool:
     return capability in caps.supported_capabilities if caps else False
 
 
-def get_all_backend_types() -> List[str]:
+def get_all_backend_types() -> list[str]:
     """Get list of all registered backend types.
 
     Returns:
@@ -663,7 +682,7 @@ def get_all_backend_types() -> List[str]:
     return list(BACKEND_CAPABILITIES.keys())
 
 
-def get_backends_with_capability(capability: str) -> List[str]:
+def get_backends_with_capability(capability: str) -> list[str]:
     """Get all backends that support a given capability.
 
     Args:
@@ -675,7 +694,7 @@ def get_backends_with_capability(capability: str) -> List[str]:
     return [backend_type for backend_type, caps in BACKEND_CAPABILITIES.items() if capability in caps.supported_capabilities]
 
 
-def validate_backend_config(backend_type: str, config: Dict) -> List[str]:
+def validate_backend_config(backend_type: str, config: dict) -> list[str]:
     """Validate a backend configuration against its capabilities.
 
     Args:

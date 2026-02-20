@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Unified TUI event pipeline adapter.
 
@@ -8,7 +7,8 @@ using ContentProcessor as the single source of truth for parsing.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from massgen.events import MassGenEvent
 
@@ -28,15 +28,15 @@ class TimelineEventAdapter:
         self,
         panel: Any,
         *,
-        agent_id: Optional[str] = None,
-        on_output_applied: Optional[Callable[[ContentOutput], None]] = None,
+        agent_id: str | None = None,
+        on_output_applied: Callable[[ContentOutput], None] | None = None,
     ) -> None:
         self._panel = panel
         self._agent_id = agent_id or getattr(panel, "agent_id", None)
         self._processor = ContentProcessor()
         self._round_number = 1
         self._tool_count = 0
-        self._final_answer: Optional[str] = None
+        self._final_answer: str | None = None
         self._final_answer_received = False  # Track when definitive final_answer event received
         self._last_separator_round = 0
         self._on_output_applied = on_output_applied
@@ -46,7 +46,7 @@ class TimelineEventAdapter:
         return self._round_number
 
     @property
-    def final_answer(self) -> Optional[str]:
+    def final_answer(self) -> str | None:
         return self._final_answer
 
     def reset(self) -> None:
@@ -88,7 +88,7 @@ class TimelineEventAdapter:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _get_timeline(self) -> Optional[Any]:
+    def _get_timeline(self) -> Any | None:
         if hasattr(self._panel, "_get_timeline"):
             return self._panel._get_timeline()
         return None

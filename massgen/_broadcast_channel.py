@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 """Broadcast channel for agent-to-agent and agent-to-human communication."""
 
 import asyncio
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -49,15 +48,15 @@ class BroadcastChannel:
             orchestrator: The orchestrator managing agents
         """
         self.orchestrator = orchestrator
-        self.active_broadcasts: Dict[str, BroadcastRequest] = {}
-        self.broadcast_responses: Dict[str, List[BroadcastResponse]] = {}
-        self.response_events: Dict[str, asyncio.Event] = {}
+        self.active_broadcasts: dict[str, BroadcastRequest] = {}
+        self.broadcast_responses: dict[str, list[BroadcastResponse]] = {}
+        self.response_events: dict[str, asyncio.Event] = {}
         self._lock = asyncio.Lock()
         self._human_input_lock = asyncio.Lock()  # Serialize human input prompts
         self._human_ask_others_lock = asyncio.Lock()  # Serialize entire ask_others flow in human mode
-        self._human_qa_history: List[Dict[str, str]] = []  # Human Q&A pairs for this turn
+        self._human_qa_history: list[dict[str, str]] = []  # Human Q&A pairs for this turn
 
-    def get_human_qa_history(self) -> List[Dict[str, str]]:
+    def get_human_qa_history(self) -> list[dict[str, str]]:
         """Get all human Q&A pairs from this turn.
 
         Returns:
@@ -68,8 +67,8 @@ class BroadcastChannel:
     async def create_broadcast(
         self,
         sender_agent_id: str,
-        question: Union[str, List[StructuredQuestion]],
-        timeout: Optional[int] = None,
+        question: str | list[StructuredQuestion],
+        timeout: int | None = None,
     ) -> str:
         """Create a new broadcast request.
 
@@ -229,8 +228,8 @@ class BroadcastChannel:
     async def wait_for_responses(
         self,
         request_id: str,
-        timeout: Optional[int] = None,
-    ) -> Dict[str, any]:
+        timeout: int | None = None,
+    ) -> dict[str, any]:
         """Wait for responses to be collected (blocking mode).
 
         Args:
@@ -256,7 +255,7 @@ class BroadcastChannel:
                 self.response_events[request_id].wait(),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             async with self._lock:
                 broadcast.status = BroadcastStatus.TIMEOUT
 
@@ -266,7 +265,7 @@ class BroadcastChannel:
         self,
         request_id: str,
         responder_id: str,
-        content: Union[str, List[StructuredResponse]],
+        content: str | list[StructuredResponse],
         is_human: bool = False,
     ) -> None:
         """Collect a response from an agent or human.
@@ -305,7 +304,7 @@ class BroadcastChannel:
                 broadcast.status = BroadcastStatus.COMPLETE
                 self.response_events[request_id].set()
 
-    def get_broadcast_status(self, request_id: str) -> Dict[str, any]:
+    def get_broadcast_status(self, request_id: str) -> dict[str, any]:
         """Get the current status of a broadcast request.
 
         Args:
@@ -335,7 +334,7 @@ class BroadcastChannel:
             "waiting_for": waiting_for,
         }
 
-    def get_broadcast_responses(self, request_id: str) -> Dict[str, any]:
+    def get_broadcast_responses(self, request_id: str) -> dict[str, any]:
         """Get responses for a broadcast request.
 
         Args:
@@ -433,7 +432,7 @@ class BroadcastChannel:
                         logger.info(f"📢 [Human] Stored Q&A (total: {len(self._human_qa_history)})")
                     else:
                         logger.info("📢 [Human] No response provided (skipped)")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.info("📢 [Human] Timeout - no response received")
                 except Exception as e:
                     logger.error(f"📢 [Human] Error prompting for response: {e}")

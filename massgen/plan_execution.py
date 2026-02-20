@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Shared plan execution setup logic for CLI and TUI.
 
@@ -13,7 +12,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .plan_storage import PlanMetadata, PlanSession
@@ -33,7 +32,7 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _normalize_dependency_ids(task: Dict[str, Any]) -> List[str]:
+def _normalize_dependency_ids(task: dict[str, Any]) -> list[str]:
     """Return normalized dependency IDs from either depends_on or dependencies."""
     raw = task.get("depends_on")
     if raw is None:
@@ -42,7 +41,7 @@ def _normalize_dependency_ids(task: Dict[str, Any]) -> List[str]:
     if not isinstance(raw, list):
         return []
 
-    deps: List[str] = []
+    deps: list[str] = []
     for dep in raw:
         if dep is None:
             continue
@@ -52,7 +51,7 @@ def _normalize_dependency_ids(task: Dict[str, Any]) -> List[str]:
     return deps
 
 
-def _get_task_chunk(task: Dict[str, Any]) -> str:
+def _get_task_chunk(task: dict[str, Any]) -> str:
     chunk = task.get("chunk", "")
     if chunk is None:
         return ""
@@ -74,7 +73,7 @@ def _chunk_archive_filename(chunk_label: str) -> str:
 
 def _archive_existing_operational_plan(
     tasks_dir: Path,
-    next_chunk: Optional[str],
+    next_chunk: str | None,
 ) -> None:
     """
     Archive existing tasks/plan.json before writing the next chunk plan.
@@ -123,7 +122,7 @@ def _archive_existing_operational_plan(
     )
 
 
-def load_frozen_plan(plan_session: "PlanSession") -> Dict[str, Any]:
+def load_frozen_plan(plan_session: "PlanSession") -> dict[str, Any]:
     """Load frozen plan data from disk."""
     frozen_plan_file = plan_session.frozen_dir / "plan.json"
     if not frozen_plan_file.exists():
@@ -141,8 +140,8 @@ def load_frozen_plan(plan_session: "PlanSession") -> Dict[str, Any]:
 
 
 def validate_chunked_plan(
-    plan_data: Dict[str, Any],
-) -> Tuple[List[str], Dict[str, List[Dict[str, Any]]]]:
+    plan_data: dict[str, Any],
+) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
     """
     Validate plan data for planner-defined chunked execution.
 
@@ -153,11 +152,11 @@ def validate_chunked_plan(
     if not isinstance(tasks, list) or not tasks:
         raise PlanValidationError("Plan must contain a non-empty 'tasks' list")
 
-    errors: List[str] = []
-    task_ids: Dict[str, int] = {}
-    task_chunk_by_id: Dict[str, str] = {}
-    chunk_order: List[str] = []
-    tasks_by_chunk: Dict[str, List[Dict[str, Any]]] = {}
+    errors: list[str] = []
+    task_ids: dict[str, int] = {}
+    task_chunk_by_id: dict[str, str] = {}
+    chunk_order: list[str] = []
+    tasks_by_chunk: dict[str, list[dict[str, Any]]] = {}
 
     # Pass 1: per-task shape + chunk presence + deterministic chunk order.
     for idx, task in enumerate(tasks, start=1):
@@ -222,7 +221,7 @@ def validate_chunked_plan(
     return chunk_order, tasks_by_chunk
 
 
-def get_next_pending_chunk(metadata: "PlanMetadata") -> Optional[str]:
+def get_next_pending_chunk(metadata: "PlanMetadata") -> str | None:
     """Return the next pending chunk from metadata."""
     chunk_order = metadata.chunk_order or []
     completed = set(metadata.completed_chunks or [])
@@ -267,8 +266,8 @@ def initialize_chunk_execution_state(plan_session: "PlanSession") -> "PlanMetada
 
 def resolve_active_chunk(
     plan_session: "PlanSession",
-    requested_chunk: Optional[str] = None,
-) -> Tuple["PlanMetadata", List[str]]:
+    requested_chunk: str | None = None,
+) -> tuple["PlanMetadata", list[str]]:
     """Resolve and persist the active chunk, optionally overriding with user selection."""
     metadata = initialize_chunk_execution_state(plan_session)
     chunk_order = metadata.chunk_order or []
@@ -291,12 +290,12 @@ def resolve_active_chunk(
 
 
 def evaluate_chunk_progress(
-    chunk_tasks: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    chunk_tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Compute completion/progress statistics for a chunk."""
     total = len(chunk_tasks)
-    completed_ids: List[str] = []
-    progressed_ids: List[str] = []
+    completed_ids: list[str] = []
+    progressed_ids: list[str] = []
 
     for task in chunk_tasks:
         task_id = str(task.get("id", "")).strip()
@@ -328,15 +327,15 @@ def record_chunk_checkpoint(
     chunk: str,
     status: str,
     attempt: int,
-    progress: Optional[Dict[str, Any]] = None,
-    error_message: Optional[str] = None,
+    progress: dict[str, Any] | None = None,
+    error_message: str | None = None,
 ) -> "PlanMetadata":
     """Persist chunk checkpoint metadata and append chunk history entry."""
     metadata = plan_session.load_metadata()
     metadata.chunk_history = metadata.chunk_history or []
     metadata.completed_chunks = metadata.completed_chunks or []
 
-    entry: Dict[str, Any] = {
+    entry: dict[str, Any] = {
         "chunk": chunk,
         "status": status,
         "attempt": attempt,
@@ -379,9 +378,9 @@ def record_chunk_checkpoint(
 def mark_session_resumable(
     plan_session: "PlanSession",
     *,
-    current_chunk: Optional[str],
+    current_chunk: str | None,
     reason: str,
-    retry_counts: Optional[Dict[str, int]] = None,
+    retry_counts: dict[str, int] | None = None,
 ) -> "PlanMetadata":
     """Mark the plan session as resumable with the latest checkpoint pointer."""
     metadata = plan_session.load_metadata()
@@ -499,9 +498,9 @@ If no agent is fully complete with quality work, continue your own implementatio
 
 
 def prepare_plan_execution_config(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     plan_session: "PlanSession",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Prepare config for plan execution (used by both CLI and TUI).
 
@@ -561,9 +560,9 @@ def prepare_plan_execution_config(
 
 
 def setup_agent_workspaces_for_execution(
-    agents: Dict[str, Any],
+    agents: dict[str, Any],
     plan_session: "PlanSession",
-    active_chunk: Optional[str] = None,
+    active_chunk: str | None = None,
 ) -> int:
     """
     Copy plan and supporting docs to each agent's workspace.
@@ -640,8 +639,8 @@ def setup_agent_workspaces_for_execution(
 
 def build_execution_prompt(
     question: str,
-    active_chunk: Optional[str] = None,
-    chunk_order: Optional[List[str]] = None,
+    active_chunk: str | None = None,
+    chunk_order: list[str] | None = None,
 ) -> str:
     """
     Build the execution prompt that guides agents through plan-based work.

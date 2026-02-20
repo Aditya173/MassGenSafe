@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Unit tests for the general hook framework.
 
@@ -22,6 +21,8 @@ from massgen.mcp_tools.hooks import (
     HookEvent,
     HookResult,
     HookType,
+    HumanInputHook,
+    InjectionDeliveryStatus,
     MidStreamInjectionHook,
     PatternHook,
     PythonCallableHook,
@@ -552,6 +553,138 @@ class TestGeneralHookManager:
 # =============================================================================
 # Built-in Hook Tests
 # =============================================================================
+
+
+class TestHumanInputHook:
+    """Tests for HumanInputHook targeted runtime delivery semantics."""
+
+    @pytest.mark.asyncio
+    async def test_targeted_message_only_injects_to_selected_agent(self):
+        hook = HumanInputHook()
+        hook.set_pending_input("Only agent_b should receive this.", target_agents=["agent_b"])
+
+        result_a = await hook.execute("tool_x", "{}", context={"agent_id": "agent_a"})
+        assert result_a.inject is None
+        assert not hook.has_pending_input_for_agent("agent_a")
+        assert hook.has_pending_input_for_agent("agent_b")
+
+        result_b = await hook.execute("tool_x", "{}", context={"agent_id": "agent_b"})
+        assert result_b.inject is not None
+        assert "Only agent_b should receive this." in result_b.inject["content"]
+        assert not hook.has_pending_input_for_agent("agent_b")
+        assert not hook.has_pending_input()
+
+    @pytest.mark.asyncio
+    async def test_group_target_lingers_per_agent_until_each_receives(self):
+        hook = HumanInputHook()
+        hook.set_pending_input(
+            "Broadcast to both agents.",
+            target_agents=["agent_a", "agent_b"],
+        )
+
+        result_a = await hook.execute("tool_x", "{}", context={"agent_id": "agent_a"})
+        assert result_a.inject is not None
+        assert hook.get_pending_count_for_agent("agent_a") == 0
+        assert hook.get_pending_count_for_agent("agent_b") == 1
+        assert hook.has_pending_input()
+
+        result_b = await hook.execute("tool_x", "{}", context={"agent_id": "agent_b"})
+        assert result_b.inject is not None
+        assert hook.get_pending_count_for_agent("agent_b") == 0
+        assert not hook.has_pending_input()
+
+    @pytest.mark.asyncio
+    async def test_inject_callback_receives_agent_id(self):
+        hook = HumanInputHook()
+        captured: list[tuple[str, str]] = []
+
+        hook.set_inject_callback(lambda content, agent_id: captured.append((content, agent_id)))
+        hook.set_pending_input("Callback payload", target_agents=["agent_a"])
+
+        await hook.execute("tool_x", "{}", context={"agent_id": "agent_a"})
+        assert captured == [("Callback payload", "agent_a")]
+
+    def test_queue_callback_receives_target_agents_and_message_id(self):
+        hook = HumanInputHook()
+        captured: list[tuple[str, list[str] | None, int | None]] = []
+
+        hook.set_queue_callback(
+            lambda content, target_agents, message_id: captured.append(
+                (content, target_agents, message_id),
+            ),
+        )
+        message_id = hook.set_pending_input(
+            "Queued callback payload",
+            target_agents=["agent_b", "agent_a"],
+        )
+
+        assert captured == [
+            (
+                "Queued callback payload",
+                ["agent_a", "agent_b"],
+                message_id,
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_pending_messages_snapshot_and_pop_latest(self):
+        hook = HumanInputHook()
+        first_id = hook.set_pending_input(
+            "First queued message",
+            target_agents=["agent_a", "agent_b"],
+        )
+        second_id = hook.set_pending_input(
+            "Second queued message",
+            target_agents=["agent_b"],
+        )
+
+        pending = hook.get_pending_messages(agent_ids=["agent_a", "agent_b"])
+        assert [entry["id"] for entry in pending] == [first_id, second_id]
+        assert pending[0]["pending_agents"] == ["agent_a", "agent_b"]
+        assert pending[1]["pending_agents"] == ["agent_b"]
+
+        removed = hook.pop_latest_pending_input()
+        assert removed is not None
+        assert removed["id"] == second_id
+        assert removed["content"] == "Second queued message"
+
+        pending_after = hook.get_pending_messages(agent_ids=["agent_a", "agent_b"])
+        assert [entry["id"] for entry in pending_after] == [first_id]
+
+    @pytest.mark.asyncio
+    async def test_inject_callback_receives_per_message_delivery_metadata(self):
+        hook = HumanInputHook()
+        captured: list[tuple[str, str, list[dict]]] = []
+
+        hook.set_inject_callback(
+            lambda content, agent_id, delivered: captured.append((content, agent_id, delivered)),
+        )
+        first_id = hook.set_pending_input("Message one", target_agents=["agent_a"])
+        second_id = hook.set_pending_input("Message two", target_agents=["agent_a"])
+
+        await hook.execute("tool_x", "{}", context={"agent_id": "agent_a"})
+
+        assert captured
+        combined_content, delivered_agent, delivered_items = captured[0]
+        assert delivered_agent == "agent_a"
+        assert "Message one" in combined_content
+        assert "Message two" in combined_content
+        assert [item["id"] for item in delivered_items] == [first_id, second_id]
+        assert [item["content"] for item in delivered_items] == ["Message one", "Message two"]
+
+    @pytest.mark.asyncio
+    async def test_delivered_message_history_persists_after_pending_queue_drains(self):
+        hook = HumanInputHook()
+        message_id = hook.set_pending_input("Persist this runtime instruction.", target_agents=["agent_a"])
+
+        result = await hook.execute("tool_x", "{}", context={"agent_id": "agent_a"})
+        assert result.inject is not None
+        assert message_id is not None
+        assert not hook.has_pending_input()
+
+        delivered = hook.get_delivered_messages_for_agent("agent_a")
+        assert [entry["id"] for entry in delivered] == [message_id]
+        assert [entry["content"] for entry in delivered] == ["Persist this runtime instruction."]
 
 
 class TestMidStreamInjectionHook:
@@ -1500,3 +1633,181 @@ class TestBackgroundToolCompleteHook:
         assert "bgtool_2" in result.inject["content"]
         assert "custom_tool__generate_media" in result.inject["content"]
         assert "mcp__command_line__execute_command" in result.inject["content"]
+
+
+# =============================================================================
+# InjectionDeliveryStatus Tests
+# =============================================================================
+
+
+class TestInjectionDeliveryStatus:
+    """Tests for the InjectionDeliveryStatus enum."""
+
+    def test_has_required_members(self):
+        assert InjectionDeliveryStatus.QUEUED.value == "queued"
+        assert InjectionDeliveryStatus.DELIVERED.value == "delivered"
+        assert InjectionDeliveryStatus.DEFERRED.value == "deferred"
+        assert InjectionDeliveryStatus.FAILED.value == "failed"
+
+    def test_has_exactly_four_members(self):
+        assert len(InjectionDeliveryStatus) == 4
+
+
+# =============================================================================
+# HumanInputHook suppress_inject_callback Tests
+# =============================================================================
+
+
+class TestHumanInputHookSuppressCallback:
+    """Codex flush path suppresses the inject callback so TUI doesn't show
+    'Delivered' before the model actually consumes the hook file."""
+
+    @pytest.mark.asyncio
+    async def test_suppress_inject_callback_prevents_callback(self):
+        hook = HumanInputHook()
+        hook.set_pending_input("test message")
+
+        callback_fired = []
+        hook.set_inject_callback(lambda content, agent_id, *a: callback_fired.append(agent_id))
+
+        result = await hook.execute(
+            "_flush",
+            "{}",
+            context={"agent_id": "agent_a", "suppress_inject_callback": True},
+        )
+
+        assert result.inject is not None
+        assert "test message" in result.inject["content"]
+        assert callback_fired == [], "Callback must NOT fire when suppress_inject_callback=True"
+
+    @pytest.mark.asyncio
+    async def test_callback_fires_without_suppress_flag(self):
+        hook = HumanInputHook()
+        hook.set_pending_input("test message")
+
+        callback_fired = []
+        hook.set_inject_callback(lambda content, agent_id, *a: callback_fired.append(agent_id))
+
+        result = await hook.execute(
+            "some_tool",
+            "{}",
+            context={"agent_id": "agent_a"},
+        )
+
+        assert result.inject is not None
+        assert callback_fired == ["agent_a"], "Callback must fire without suppress flag"
+
+
+# =============================================================================
+# RuntimeInboxPoller Tests
+# =============================================================================
+
+
+class TestRuntimeInboxPoller:
+    """Tests for RuntimeInboxPoller file-based inbox polling."""
+
+    def test_poll_returns_messages_in_order(self, tmp_path):
+        """Write 3 message files, verify poll returns them sorted by timestamp."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+
+        # Create 3 messages with different timestamps in name
+        for i, ts in enumerate(["1740000001", "1740000003", "1740000002"]):
+            msg = {"content": f"message {ts}", "source": "parent", "timestamp": "2025-01-01T00:00:00Z"}
+            (inbox / f"msg_{ts}_{i}.json").write_text(json.dumps(msg))
+
+        poller = RuntimeInboxPoller(inbox_dir=inbox, min_poll_interval=0.0)
+        messages = poller.poll()
+
+        assert len(messages) == 3
+        assert messages[0]["content"] == "message 1740000001"
+        assert messages[1]["content"] == "message 1740000002"
+        assert messages[2]["content"] == "message 1740000003"
+
+    def test_poll_deletes_consumed_files(self, tmp_path):
+        """Verify files are removed after reading."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+
+        msg = {"content": "delete me", "source": "parent", "timestamp": "2025-01-01T00:00:00Z"}
+        (inbox / "msg_1740000000_0.json").write_text(json.dumps(msg))
+
+        poller = RuntimeInboxPoller(inbox_dir=inbox, min_poll_interval=0.0)
+        messages = poller.poll()
+
+        assert len(messages) == 1
+        assert messages[0]["content"] == "delete me"
+        assert not list(inbox.glob("msg_*.json")), "Consumed files should be deleted"
+
+    def test_poll_returns_empty_when_no_directory(self, tmp_path):
+        """Inbox dir doesn't exist → empty list."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        poller = RuntimeInboxPoller(inbox_dir=tmp_path / "nonexistent", min_poll_interval=0.0)
+        messages = poller.poll()
+
+        assert messages == []
+
+    def test_poll_rate_limited(self, tmp_path):
+        """Two rapid polls, second returns empty list."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+
+        msg = {"content": "first", "source": "parent", "timestamp": "2025-01-01T00:00:00Z"}
+        (inbox / "msg_1740000000_0.json").write_text(json.dumps(msg))
+
+        poller = RuntimeInboxPoller(inbox_dir=inbox, min_poll_interval=10.0)
+        first = poller.poll()
+        assert len(first) == 1
+
+        # Write another message
+        msg2 = {"content": "second", "source": "parent", "timestamp": "2025-01-01T00:00:01Z"}
+        (inbox / "msg_1740000001_0.json").write_text(json.dumps(msg2))
+
+        second = poller.poll()
+        assert second == [], "Second poll within min_poll_interval should return empty"
+
+    def test_poll_skips_malformed_json(self, tmp_path):
+        """Bad JSON file is skipped (not consumed), valid ones returned."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+
+        # Valid message
+        msg = {"content": "valid", "source": "parent", "timestamp": "2025-01-01T00:00:00Z"}
+        (inbox / "msg_1740000001_0.json").write_text(json.dumps(msg))
+
+        # Malformed message
+        (inbox / "msg_1740000002_0.json").write_text("not json{{{")
+
+        poller = RuntimeInboxPoller(inbox_dir=inbox, min_poll_interval=0.0)
+        messages = poller.poll()
+
+        assert len(messages) == 1
+        assert messages[0]["content"] == "valid"
+        # Malformed file should be consumed to prevent infinite re-reads
+        assert not (inbox / "msg_1740000002_0.json").exists()
+
+    def test_poll_idempotent(self, tmp_path):
+        """Consumed files not re-read on subsequent polls."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+
+        msg = {"content": "once only", "source": "parent", "timestamp": "2025-01-01T00:00:00Z"}
+        (inbox / "msg_1740000000_0.json").write_text(json.dumps(msg))
+
+        poller = RuntimeInboxPoller(inbox_dir=inbox, min_poll_interval=0.0)
+        first = poller.poll()
+        assert len(first) == 1
+
+        second = poller.poll()
+        assert second == [], "Already consumed messages should not reappear"

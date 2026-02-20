@@ -1,13 +1,15 @@
-# -*- coding: utf-8 -*-
 """Deterministic non-API integration tests for hooks, broadcast, and async subagents."""
 
 from __future__ import annotations
 
+import json
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+import massgen.orchestrator as orchestrator_module
 from massgen.coordination_tracker import AgentAnswer
 from massgen.mcp_tools.hooks import HookType
 from massgen.subagent.models import SubagentResult
@@ -228,6 +230,314 @@ def test_get_pending_subagent_results_polls_mcp_and_deduplicates(mock_orchestrat
     assert first[0][1].status == "completed"
     assert second == []
     assert all(name == f"mcp__subagent_{agent_id}__list_subagents" for name, _ in agent.mcp_client.calls)
+
+
+def test_get_pending_subagent_results_uses_backend_mcp_executor(mock_orchestrator):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+    backend = agent.backend
+    captured_calls: list[tuple[str, dict]] = []
+
+    async def _fake_execute(function_name, arguments_json, max_retries=3):  # noqa: ANN001
+        del max_retries
+        args = json.loads(arguments_json)
+        captured_calls.append((function_name, args))
+        return (
+            '{"success": true}',
+            {
+                "success": True,
+                "subagents": [
+                    {
+                        "subagent_id": "sub-complete",
+                        "status": "completed",
+                        "result": {
+                            "subagent_id": "sub-complete",
+                            "success": True,
+                            "status": "completed",
+                            "answer": "Subagent finished",
+                            "workspace_path": "/tmp/sub-complete",
+                            "execution_time_seconds": 3.5,
+                            "token_usage": {"input_tokens": 10, "output_tokens": 20},
+                        },
+                    },
+                ],
+            },
+        )
+
+    backend._execute_mcp_function_with_retry = _fake_execute
+
+    first = orchestrator._get_pending_subagent_results(agent_id)
+    second = orchestrator._get_pending_subagent_results(agent_id)
+
+    assert len(first) == 1
+    assert first[0][0] == "sub-complete"
+    assert first[0][1].status == "completed"
+    assert second == []
+    assert captured_calls == [
+        (f"mcp__subagent_{agent_id}__list_subagents", {}),
+        (f"mcp__subagent_{agent_id}__list_subagents", {}),
+    ]
+
+
+def test_send_runtime_message_to_subagent_uses_backend_mcp_executor(mock_orchestrator):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+    backend = agent.backend
+    captured_calls: list[tuple[str, dict]] = []
+
+    async def _fake_execute(function_name, arguments_json, max_retries=3):  # noqa: ANN001
+        del max_retries
+        args = json.loads(arguments_json)
+        captured_calls.append((function_name, args))
+        return ('{"success": true}', {"success": True, "operation": "send_message"})
+
+    backend._execute_mcp_function_with_retry = _fake_execute
+
+    delivered = orchestrator.send_runtime_message_to_subagent(
+        "sub-1",
+        "focus on tests",
+        target_agents=["agent_b"],
+    )
+
+    assert delivered is True
+    assert captured_calls == [
+        (
+            f"mcp__subagent_{agent_id}__send_message_to_subagent",
+            {
+                "subagent_id": "sub-1",
+                "message": "focus on tests",
+                "target_agents": ["agent_b"],
+            },
+        ),
+    ]
+
+
+def test_send_runtime_message_to_subagent_falls_back_to_direct_inbox_write(
+    mock_orchestrator,
+    tmp_path,
+):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+    backend = agent.backend
+
+    workspace = tmp_path / "workspace"
+    sub_workspace = workspace / "subagents" / "sub-1" / "workspace"
+    sub_workspace.mkdir(parents=True, exist_ok=True)
+
+    backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: workspace,
+    )
+
+    async def _fake_execute(function_name, arguments_json, max_retries=3):  # noqa: ANN001
+        del function_name, arguments_json, max_retries
+        return ('{"success": false}', {"success": False, "error": "MCP server busy"})
+
+    backend._execute_mcp_function_with_retry = _fake_execute
+
+    delivered = orchestrator.send_runtime_message_to_subagent(
+        "sub-1",
+        "focus on Bob Dylan's early years",
+        target_agents=["agent_b"],
+    )
+
+    assert delivered is True
+
+    inbox_dir = sub_workspace / ".massgen" / "runtime_inbox"
+    msg_files = sorted(inbox_dir.glob("msg_*.json"))
+    assert len(msg_files) == 1
+
+    payload = json.loads(msg_files[0].read_text())
+    assert payload["content"] == "focus on Bob Dylan's early years"
+    assert payload["target_agents"] == ["agent_b"]
+
+
+def test_runtime_inbox_poller_uses_temp_workspace_parent_for_subagent_runs(mock_orchestrator, tmp_path):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+
+    run_workspace = tmp_path / "subagent_run_workspace"
+    active_workspace = run_workspace / "agent_1_abcd1234"
+    active_workspace.mkdir(parents=True, exist_ok=True)
+    (run_workspace / ".massgen" / "runtime_inbox").mkdir(parents=True, exist_ok=True)
+
+    # Subagent backend cwd can point at per-agent inner workspaces while runtime
+    # inbox messages are written to the orchestrator workspace root.
+    orchestrator._agent_temporary_workspace = str(run_workspace / "temp")
+    orchestrator._runtime_inbox_poller = None
+    agent.backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: active_workspace,
+    )
+
+    orchestrator._ensure_runtime_inbox_poller_initialized()
+
+    poller = orchestrator._runtime_inbox_poller
+    assert poller is not None
+    assert getattr(poller, "_inbox_dir", None) == run_workspace / ".massgen" / "runtime_inbox"
+
+
+def test_runtime_inbox_poller_falls_back_to_backend_workspace_without_temp_workspace(
+    mock_orchestrator,
+    tmp_path,
+):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+
+    active_workspace = tmp_path / "active_workspace"
+    active_workspace.mkdir(parents=True, exist_ok=True)
+
+    orchestrator._agent_temporary_workspace = None
+    orchestrator._runtime_inbox_poller = None
+    agent.backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: active_workspace,
+    )
+
+    orchestrator._ensure_runtime_inbox_poller_initialized()
+
+    poller = orchestrator._runtime_inbox_poller
+    assert poller is not None
+    assert getattr(poller, "_inbox_dir", None) == active_workspace / ".massgen" / "runtime_inbox"
+
+
+def test_runtime_inbox_poller_ignores_global_temp_workspace_root(mock_orchestrator, tmp_path, monkeypatch):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+
+    active_workspace = tmp_path / "active_workspace"
+    active_workspace.mkdir(parents=True, exist_ok=True)
+
+    global_temp_root = tmp_path / ".massgen" / "temp_workspaces"
+    global_temp_root.mkdir(parents=True, exist_ok=True)
+
+    orchestrator._agent_temporary_workspace = str(global_temp_root)
+    orchestrator._runtime_inbox_poller = None
+    agent.backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: active_workspace,
+    )
+
+    log_messages: list[str] = []
+
+    def _capture_info(message, *args, **kwargs):
+        if args:
+            try:
+                message = message % args
+            except Exception:
+                pass
+        log_messages.append(str(message))
+
+    monkeypatch.setattr(orchestrator_module.logger, "info", _capture_info)
+    orchestrator._ensure_runtime_inbox_poller_initialized()
+
+    poller = orchestrator._runtime_inbox_poller
+    assert poller is not None
+    assert getattr(poller, "_inbox_dir", None) == active_workspace / ".massgen" / "runtime_inbox"
+    joined = "\n".join(log_messages)
+    assert "Initialized runtime inbox poller" in joined
+    assert str(active_workspace / ".massgen" / "runtime_inbox") in joined
+
+
+def test_poll_runtime_inbox_reads_messages_from_temp_workspace_parent(mock_orchestrator, tmp_path):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+
+    run_workspace = tmp_path / "subagent_run_workspace"
+    agent_workspace = run_workspace / "agent_1_abcd1234"
+    agent_workspace.mkdir(parents=True, exist_ok=True)
+
+    inbox_dir = run_workspace / ".massgen" / "runtime_inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    msg_file = inbox_dir / "msg_1.json"
+    msg_file.write_text(
+        json.dumps(
+            {
+                "content": "include beatles comparison",
+                "source": "parent",
+                "timestamp": "2026-02-20T08:50:41.000000+00:00",
+                "target_agents": None,
+            },
+        ),
+    )
+
+    orchestrator._agent_temporary_workspace = str(run_workspace / "temp")
+    orchestrator._runtime_inbox_poller = None
+    agent.backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: agent_workspace,
+    )
+
+    orchestrator._ensure_runtime_inbox_poller_initialized()
+    orchestrator._poll_runtime_inbox()
+
+    assert orchestrator._human_input_hook is not None
+    assert orchestrator._human_input_hook.has_pending_input()
+    pending_messages = orchestrator._human_input_hook.get_pending_messages(agent_ids=["agent_a"])
+    assert len(pending_messages) == 1
+    assert pending_messages[0]["content"] == "include beatles comparison"
+
+
+@pytest.mark.asyncio
+async def test_human_input_hook_execute_polls_runtime_inbox_and_logs_delivery(
+    mock_orchestrator,
+    tmp_path,
+    monkeypatch,
+):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+
+    run_workspace = tmp_path / "subagent_run_workspace"
+    agent_workspace = run_workspace / "agent_1_abcd1234"
+    agent_workspace.mkdir(parents=True, exist_ok=True)
+
+    inbox_dir = run_workspace / ".massgen" / "runtime_inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    msg_file = inbox_dir / "msg_1.json"
+    msg_file.write_text(
+        json.dumps(
+            {
+                "content": "please also research the beatles",
+                "source": "parent",
+                "timestamp": "2026-02-20T09:08:44.000000+00:00",
+                "target_agents": ["agent_a"],
+            },
+        ),
+    )
+
+    orchestrator._agent_temporary_workspace = str(run_workspace / "temp")
+    orchestrator._runtime_inbox_poller = None
+    orchestrator._human_input_hook = None
+    agent.backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: agent_workspace,
+    )
+
+    log_messages: list[str] = []
+
+    def _capture_info(message, *args, **kwargs):
+        if args:
+            try:
+                message = message % args
+            except Exception:
+                pass
+        log_messages.append(str(message))
+
+    monkeypatch.setattr(orchestrator_module.logger, "info", _capture_info)
+    orchestrator._ensure_runtime_human_input_hook_initialized()
+    orchestrator._ensure_runtime_inbox_poller_initialized()
+
+    human_hook = orchestrator._human_input_hook
+    assert human_hook is not None
+    result = await human_hook.execute(
+        "mcp__filesystem__write_file",
+        "{}",
+        {"agent_id": "agent_a"},
+    )
+
+    assert result.inject is not None
+    assert "please also research the beatles" in result.inject["content"]
+    assert not msg_file.exists()
+    joined = "\n".join(log_messages)
+    assert "Injecting runtime inbox message" in joined
+    assert "please also research the beatles" in joined
 
 
 @pytest.mark.asyncio

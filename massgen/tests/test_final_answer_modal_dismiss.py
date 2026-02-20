@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for FinalAnswerModal dismiss behavior.
 
 Verifies that ESC/X are blocked on the initial modal when there are

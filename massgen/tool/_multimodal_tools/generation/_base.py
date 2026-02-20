@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Base types and protocols for unified media generation.
 
@@ -12,7 +11,7 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class MediaType(Enum):
@@ -45,15 +44,15 @@ class GenerationConfig:
     prompt: str
     output_path: Path
     media_type: MediaType
-    backend: Optional[str] = None
-    model: Optional[str] = None
-    quality: Optional[str] = None
-    duration: Optional[int] = None
-    voice: Optional[str] = None
-    aspect_ratio: Optional[str] = None
-    extra_params: Dict[str, Any] = field(default_factory=dict)
-    input_images: List[Dict[str, str]] = field(default_factory=list)
-    input_image_paths: List[str] = field(default_factory=list)
+    backend: str | None = None
+    model: str | None = None
+    quality: str | None = None
+    duration: int | None = None
+    voice: str | None = None
+    aspect_ratio: str | None = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    input_images: list[dict[str, str]] = field(default_factory=list)
+    input_image_paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -73,25 +72,25 @@ class GenerationResult:
     """
 
     success: bool
-    output_path: Optional[Path] = None
-    media_type: Optional[MediaType] = None
+    output_path: Path | None = None
+    media_type: MediaType | None = None
     backend_name: str = ""
     model_used: str = ""
-    file_size_bytes: Optional[int] = None
-    duration_seconds: Optional[float] = None
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    file_size_bytes: int | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # API key environment variable mappings for each backend
-BACKEND_API_KEYS: Dict[str, List[str]] = {
+BACKEND_API_KEYS: dict[str, list[str]] = {
     "openai": ["OPENAI_API_KEY"],
     "google": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
     "openrouter": ["OPENROUTER_API_KEY"],
 }
 
 # Default models for each backend and media type
-DEFAULT_MODELS: Dict[str, Dict[MediaType, str]] = {
+DEFAULT_MODELS: dict[str, dict[MediaType, str]] = {
     "openai": {
         MediaType.IMAGE: "gpt-5",
         MediaType.VIDEO: "sora-2",
@@ -107,7 +106,7 @@ DEFAULT_MODELS: Dict[str, Dict[MediaType, str]] = {
 }
 
 # Priority order for auto-selection per media type
-BACKEND_PRIORITY: Dict[MediaType, List[str]] = {
+BACKEND_PRIORITY: dict[MediaType, list[str]] = {
     MediaType.IMAGE: ["openai", "google", "openrouter"],
     MediaType.VIDEO: ["openai", "google"],
     MediaType.AUDIO: ["openai"],
@@ -127,7 +126,7 @@ def has_api_key(backend_name: str) -> bool:
     return any(os.getenv(var) for var in env_vars)
 
 
-def get_api_key(backend_name: str) -> Optional[str]:
+def get_api_key(backend_name: str) -> str | None:
     """Get the API key for a backend.
 
     Args:
@@ -143,7 +142,7 @@ def get_api_key(backend_name: str) -> Optional[str]:
     return None
 
 
-def get_default_model(backend_name: str, media_type: MediaType) -> Optional[str]:
+def get_default_model(backend_name: str, media_type: MediaType) -> str | None:
     """Get the default model for a backend and media type.
 
     Args:

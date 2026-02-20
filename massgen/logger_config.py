@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centralized logging configuration for MassGen using loguru.
 
@@ -82,7 +81,7 @@ def _get_log_base_dir() -> Path:
     return Path(".massgen") / "massgen_logs"
 
 
-def get_log_session_dir(turn: Optional[int] = None) -> Path:
+def get_log_session_dir(turn: int | None = None) -> Path:
     """Get the current log session directory, including attempt subdirectory if set.
 
     Args:
@@ -291,9 +290,9 @@ def get_log_session_root() -> Path:
 
 def save_execution_metadata(
     query: str,
-    config_path: Optional[str] = None,
-    config_content: Optional[dict] = None,
-    cli_args: Optional[dict] = None,
+    config_path: str | None = None,
+    config_content: dict | None = None,
+    cli_args: dict | None = None,
 ):
     """Save the query and config metadata to the log directory.
 
@@ -348,7 +347,7 @@ def save_execution_metadata(
         logger.warning(f"Failed to save execution metadata: {e}")
 
 
-def setup_logging(debug: bool = False, log_file: Optional[str] = None, turn: Optional[int] = None):
+def setup_logging(debug: bool = False, log_file: str | None = None, turn: int | None = None):
     """
     Configure MassGen logging system using loguru.
 

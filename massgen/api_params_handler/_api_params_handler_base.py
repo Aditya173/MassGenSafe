@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Base class for API parameters handlers.
 Provides common functionality for building API parameters across different backends.
@@ -7,7 +6,7 @@ Provides common functionality for building API parameters across different backe
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Set
+from typing import Any
 
 
 class APIParamsHandlerBase(ABC):
@@ -26,10 +25,10 @@ class APIParamsHandlerBase(ABC):
     @abstractmethod
     async def build_api_params(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        all_params: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        all_params: dict[str, Any],
+    ) -> dict[str, Any]:
         """Build API parameters for the specific backend.
 
         Args:
@@ -42,14 +41,14 @@ class APIParamsHandlerBase(ABC):
         """
 
     @abstractmethod
-    def get_excluded_params(self) -> Set[str]:
+    def get_excluded_params(self) -> set[str]:
         """Get backend-specific parameters to exclude from API calls."""
 
     @abstractmethod
-    def get_provider_tools(self, all_params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_provider_tools(self, all_params: dict[str, Any]) -> list[dict[str, Any]]:
         """Get provider-specific tools based on parameters."""
 
-    def get_base_excluded_params(self) -> Set[str]:
+    def get_base_excluded_params(self) -> set[str]:
         """Get common parameters to exclude across all backends."""
         return {
             "upload_files",
@@ -146,9 +145,9 @@ class APIParamsHandlerBase(ABC):
 
     def build_base_api_params(
         self,
-        messages: List[Dict[str, Any]],
-        all_params: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        messages: list[dict[str, Any]],
+        all_params: dict[str, Any],
+    ) -> dict[str, Any]:
         """Build base API parameters common to most backends."""
         api_params = {"stream": True}
 
@@ -160,14 +159,14 @@ class APIParamsHandlerBase(ABC):
 
         return api_params
 
-    def get_mcp_tools(self) -> List[Dict[str, Any]]:
+    def get_mcp_tools(self) -> list[dict[str, Any]]:
         """Get MCP tools from backend if available."""
         if hasattr(self.backend, "_mcp_functions") and self.backend._mcp_functions:
             if hasattr(self.backend, "get_mcp_tools_formatted"):
                 return self.backend.get_mcp_tools_formatted()
         return []
 
-    def get_custom_tools(self) -> List[Dict[str, Any]]:
+    def get_custom_tools(self) -> list[dict[str, Any]]:
         """Get custom tools, preferring backend-provided full schemas when available.
 
         Backends that inherit CustomToolAndMCPBackend expose
@@ -185,7 +184,7 @@ class APIParamsHandlerBase(ABC):
                 custom_schemas = []
 
             if custom_schemas:
-                normalized_schemas: List[Dict[str, Any]] = []
+                normalized_schemas: list[dict[str, Any]] = []
                 for schema in custom_schemas:
                     if schema.get("type") == "function" and "function" in schema:
                         function_block = dict(schema.get("function", {}))

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Deterministic non-API integration tests for final presentation decision paths."""
 
 from __future__ import annotations

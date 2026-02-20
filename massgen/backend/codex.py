@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 OpenAI Codex Backend - Integration with OpenAI Codex CLI for MassGen.
 
@@ -64,8 +63,9 @@ import os
 import shutil
 import time
 import uuid
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any
 
 try:
     import tomli_w
@@ -102,7 +102,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         "error": "error",
     }
 
-    def __init__(self, api_key: Optional[str] = None, **kwargs):
+    def __init__(self, api_key: str | None = None, **kwargs):
         """Initialize CodexBackend.
 
         Args:
@@ -124,8 +124,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self.auth_file = Path.home() / ".codex" / "auth.json"
 
         # Session management
-        self.session_id: Optional[str] = None
-        self._session_file: Optional[Path] = None
+        self.session_id: str | None = None
+        self._session_file: Path | None = None
 
         # Configuration
         self.model = kwargs.get("model", "gpt-5.3-codex")
@@ -143,14 +143,20 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self.approval_mode = kwargs.get("approval_mode", "full-auto")
         self.mcp_servers = kwargs.get("mcp_servers", [])
         self._workspace_config_written = False
-        self._custom_tools_specs_path: Optional[Path] = None
+        self._custom_tools_specs_path: Path | None = None
+        self._background_wait_interrupt_file: Path | None = None
+        self._active_background_wait_calls: set[str] = set()
+        self._background_wait_interrupt_provider: Callable[[str], Any] | None = None
+
+        # Hook IPC for MCP server-level PostToolUse injection
+        self._hook_sequence: int = 0
 
         # Agent ID (needed for Docker container lookup)
         self.agent_id = kwargs.get("agent_id")
 
         # Tool event tracking (for emit_tool_start/emit_tool_complete)
-        self._tool_start_times: Dict[str, float] = {}
-        self._tool_id_to_name: Dict[str, str] = {}
+        self._tool_start_times: dict[str, float] = {}
+        self._tool_id_to_name: dict[str, str] = {}
 
         # Docker execution mode
         self._docker_execution = kwargs.get("command_line_execution_mode") == "docker"
@@ -197,7 +203,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             return str(Path(str(self.filesystem_manager.get_current_workspace())).resolve())
         return self._config_cwd or os.getcwd()
 
-    def _find_codex_cli(self) -> Optional[str]:
+    def _find_codex_cli(self) -> str | None:
         """Find the Codex CLI executable."""
         codex_path = shutil.which("codex")
         if codex_path:
@@ -215,9 +221,193 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         return None
 
+    def _resolve_background_wait_interrupt_file(self) -> Path:
+        """Return the per-workspace interrupt signal file for wait tool calls."""
+        signal_path = Path(self.cwd) / ".codex" / "background_wait_interrupt.json"
+        signal_path.parent.mkdir(parents=True, exist_ok=True)
+        self._background_wait_interrupt_file = signal_path
+        return signal_path
+
+    def is_background_wait_active(self) -> bool:
+        """Return whether a wait_for_background_tool call is currently in flight."""
+        return bool(self._active_background_wait_calls)
+
+    def notify_background_wait_interrupt(self, payload: dict[str, Any]) -> bool:
+        """Signal the custom-tools server to interrupt an active wait call.
+
+        Returns True when a signal was written, False when no active wait exists
+        or the signal could not be written.
+        """
+        if not self.is_background_wait_active():
+            return False
+
+        signal_path = self._resolve_background_wait_interrupt_file()
+        normalized_payload = {
+            "interrupt_reason": str(
+                payload.get("interrupt_reason", "runtime_injection_available"),
+            ),
+            "injected_content": payload.get("injected_content"),
+        }
+        if normalized_payload["injected_content"] is not None:
+            normalized_payload["injected_content"] = str(
+                normalized_payload["injected_content"],
+            )
+
+        tmp_path = signal_path.with_suffix(".tmp")
+        try:
+            tmp_path.write_text(
+                json.dumps(normalized_payload, default=str),
+                encoding="utf-8",
+            )
+            tmp_path.replace(signal_path)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed writing Codex wait interrupt signal at %s: %s",
+                signal_path,
+                e,
+                exc_info=True,
+            )
+            return False
+
+    def set_background_wait_interrupt_provider(
+        self,
+        provider: Callable[[str], Any] | None,
+    ) -> None:
+        """Set an optional provider used to interrupt wait_for_background_tool."""
+        self._background_wait_interrupt_provider = provider
+
+    async def _get_background_wait_interrupt_payload(self) -> dict[str, Any] | None:
+        """Return normalized wait interrupt payload, if any."""
+        if not self._background_wait_interrupt_provider:
+            return None
+
+        agent_id = str(self.agent_id or "unknown")
+        try:
+            payload = self._background_wait_interrupt_provider(agent_id)
+            if asyncio.iscoroutine(payload):
+                payload = await payload
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CodexBackend] Wait interrupt provider failed for %s: %s",
+                agent_id,
+                e,
+                exc_info=True,
+            )
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        raw_reason = payload.get("interrupt_reason", "runtime_injection_available")
+        interrupt_reason = str(raw_reason).strip() or "runtime_injection_available"
+        injected_content = payload.get("injected_content")
+        if injected_content is not None:
+            injected_content = str(injected_content)
+
+        return {
+            "interrupt_reason": interrupt_reason,
+            "injected_content": injected_content,
+        }
+
+    async def _maybe_signal_background_wait_interrupt(self, wait_call_id: str) -> None:
+        """Signal wait interruption when runtime payload is already pending."""
+        if not self.is_background_wait_active():
+            return
+
+        interrupt_payload = await self._get_background_wait_interrupt_payload()
+        if not interrupt_payload:
+            return
+
+        signaled = self.notify_background_wait_interrupt(interrupt_payload)
+        if signaled:
+            logger.info(
+                "[CodexBackend] Background wait interrupt signaled on wait start (%s)",
+                wait_call_id,
+            )
+
     def _has_cached_credentials(self) -> bool:
         """Check if OAuth tokens exist at ~/.codex/auth.json."""
         return self.auth_file.exists()
+
+    # ------------------------------------------------------------------
+    # MCP server-level hook IPC
+    # ------------------------------------------------------------------
+
+    def supports_mcp_server_hooks(self) -> bool:
+        """Return True — Codex uses MCP server middleware for PostToolUse injection."""
+        return True
+
+    def get_hook_dir(self) -> Path:
+        """Return the directory used for hook IPC files."""
+        return Path(self.cwd) / ".codex"
+
+    def write_post_tool_use_hook(
+        self,
+        content: str,
+        tool_matcher: str = "*",
+        ttl_seconds: float = 30.0,
+    ) -> None:
+        """Atomic write of hook_post_tool_use.json for MCP middleware to consume.
+
+        Args:
+            content: Injection text to append to the next tool result.
+            tool_matcher: Glob pattern for which tools should receive the injection.
+            ttl_seconds: Time-to-live before the payload expires.
+        """
+        self._hook_sequence += 1
+        hook_dir = self.get_hook_dir()
+        hook_dir.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "inject": {"content": content, "strategy": "tool_result"},
+            "tool_matcher": tool_matcher,
+            "expires_at": time.time() + ttl_seconds,
+            "sequence": self._hook_sequence,
+        }
+
+        hook_file = hook_dir / "hook_post_tool_use.json"
+        tmp_file = hook_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(payload), encoding="utf-8")
+        tmp_file.replace(hook_file)
+
+        logger.info(
+            "Wrote hook_post_tool_use.json (seq=%d, %d chars)",
+            self._hook_sequence,
+            len(content),
+        )
+
+    def read_unconsumed_hook_content(self) -> str | None:
+        """Read and remove any unconsumed hook payload.
+
+        Called after a streaming round ends. If the hook file still exists,
+        the MCP middleware never consumed it. Returns the injection content
+        so the orchestrator can carry it forward to the next round.
+        """
+        hook_file = self.get_hook_dir() / "hook_post_tool_use.json"
+        try:
+            data = json.loads(hook_file.read_text(encoding="utf-8"))
+            hook_file.unlink(missing_ok=True)
+            inject = data.get("inject", {})
+            content = inject.get("content")
+            if content:
+                logger.info(
+                    "Read unconsumed hook content (%d chars) — carrying forward",
+                    len(content),
+                )
+            return content
+        except FileNotFoundError:
+            return None
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed reading unconsumed hook file: %s", e)
+            hook_file.unlink(missing_ok=True)
+            return None
+
+    def clear_hook_files(self) -> None:
+        """Remove stale hook files. Called at start of each turn."""
+        hook_dir = self.get_hook_dir()
+        for filename in ("hook_post_tool_use.json", "hook_post_tool_use.tmp"):
+            (hook_dir / filename).unlink(missing_ok=True)
 
     async def _ensure_authenticated(self) -> None:
         """Ensure Codex is authenticated before making requests."""
@@ -270,7 +460,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         logger.info("Codex authentication successful.")
 
-    def _build_custom_tools_mcp_env(self) -> Dict[str, str]:
+    def _build_custom_tools_mcp_env(self) -> dict[str, str]:
         """Build environment variables for the custom tools MCP server.
 
         Mirrors Docker credential configuration when available; otherwise
@@ -286,10 +476,10 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             return env_vars
 
         # Helper to load .env files (simple KEY=VALUE lines)
-        def _load_env_file(env_file_path: Path) -> Dict[str, str]:
-            loaded: Dict[str, str] = {}
+        def _load_env_file(env_file_path: Path) -> dict[str, str]:
+            loaded: dict[str, str] = {}
             try:
-                with open(env_file_path, "r") as f:
+                with open(env_file_path) as f:
                     for line_num, line in enumerate(f, start=1):
                         line = line.strip()
                         if not line or line.startswith("#") or "=" not in line:
@@ -335,9 +525,9 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         env_vars["FASTMCP_SHOW_CLI_BANNER"] = "false"
         return env_vars
 
-    def _collect_background_mcp_servers(self) -> List[Dict[str, Any]]:
+    def _collect_background_mcp_servers(self) -> list[dict[str, Any]]:
         """Collect MCP server configs available for background target execution."""
-        merged: List[Dict[str, Any]] = []
+        merged: list[dict[str, Any]] = []
 
         config_mcp = self.config.get("mcp_servers") if self.config else None
         if isinstance(config_mcp, dict):
@@ -361,7 +551,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 continue
             merged.append(server_cfg.copy())
 
-        filtered: List[Dict[str, Any]] = []
+        filtered: list[dict[str, Any]] = []
         for server_cfg in merged:
             if not isinstance(server_cfg, dict):
                 continue
@@ -378,7 +568,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         return filtered
 
-    def _setup_custom_tools_mcp(self, custom_tools: List[Dict[str, Any]]) -> None:
+    def _setup_custom_tools_mcp(self, custom_tools: list[dict[str, Any]]) -> None:
         """Wrap MassGen custom tools as an MCP server and add to mcp_servers.
 
         Writes a tool specs JSON file and creates an MCP server config entry
@@ -411,6 +601,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             allowed_paths=[self.cwd],
             agent_id="codex",
             env=self._build_custom_tools_mcp_env(),
+            wait_interrupt_file=self._resolve_background_wait_interrupt_file(),
+            hook_dir=self.get_hook_dir(),
         )
         # Replace existing massgen_custom_tools entry if present
         self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_custom_tools")]
@@ -427,7 +619,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         The CODEX_HOME env var is set to workspace/.codex when running Codex,
         so it reads this config instead of ~/.codex/config.toml.
         """
-        config: Dict[str, Any] = {}
+        config: dict[str, Any] = {}
         config_dir = Path(self.cwd) / ".codex"
         config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -461,6 +653,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                             allowed_paths=[self.cwd],
                             agent_id="codex",
                             env=self._build_custom_tools_mcp_env(),
+                            wait_interrupt_file=self._resolve_background_wait_interrupt_file(),
+                            hook_dir=self.get_hook_dir(),
                         ),
                     )
                     break
@@ -472,7 +666,9 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             from ..mcp_tools.checklist_tools_server import (
                 build_server_config as build_checklist_config,
             )
-            from ..mcp_tools.checklist_tools_server import write_checklist_specs
+            from ..mcp_tools.checklist_tools_server import (
+                write_checklist_specs,
+            )
 
             specs_path = config_dir / "checklist_specs.json"
             write_checklist_specs(
@@ -480,7 +676,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 state=self._checklist_state,
                 output_path=specs_path,
             )
-            checklist_mcp = build_checklist_config(specs_path)
+            checklist_mcp = build_checklist_config(specs_path, hook_dir=self.get_hook_dir())
             # Replace any previous checklist entry
             self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_checklist")]
             self.mcp_servers.append(checklist_mcp)
@@ -503,13 +699,19 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 mcp_servers.extend(config_mcp)
         # Merge in self.mcp_servers (custom tools etc.) avoiding duplicates by name
         existing_names = {s.get("name") for s in mcp_servers if isinstance(s, dict)}
+        logger.info(
+            "Codex config merge: from orchestrator config=%s, from self.mcp_servers=%s",
+            [s.get("name", "?") for s in mcp_servers if isinstance(s, dict)],
+            [s.get("name", "?") for s in self.mcp_servers if isinstance(s, dict)],
+        )
         for s in self.mcp_servers:
             if isinstance(s, dict) and s.get("name") not in existing_names:
                 mcp_servers.append(s)
         if mcp_servers:
-            logger.info(f"Codex workspace config: writing {len(mcp_servers)} MCP server(s)")
+            server_names = [s.get("name", "?") for s in mcp_servers if isinstance(s, dict)]
+            logger.info(f"Codex workspace config: writing {len(mcp_servers)} MCP server(s): {server_names}")
         if mcp_servers:
-            mcp_section: Dict[str, Any] = {}
+            mcp_section: dict[str, Any] = {}
 
             for server in mcp_servers:
                 # Support both list-of-dicts and dict formats
@@ -525,7 +727,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                         logger.info(f"Codex: skipping SDK server '{name}' (not serializable to config.toml)")
                         continue
 
-                    entry: Dict[str, Any] = {}
+                    entry: dict[str, Any] = {}
 
                     if server_type == "stdio":
                         if server.get("command"):
@@ -556,6 +758,11 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
             if mcp_section:
                 config["mcp_servers"] = mcp_section
+                logger.info(f"Codex config.toml MCP servers written: {list(mcp_section.keys())}")
+                for sname, sconf in mcp_section.items():
+                    cmd = sconf.get("command", "?")
+                    args_preview = str(sconf.get("args", []))[:120]
+                    logger.info(f"  MCP [{sname}]: command={cmd}, args={args_preview}")
 
         # Mirror skills into CODEX_HOME/skills so Codex skill discovery can find
         # project/merged skills under the same scoped home directory.
@@ -623,6 +830,13 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             self._write_toml_fallback(config, config_path)
 
         self._workspace_config_written = True
+        # Debug: read back and log the written config
+        try:
+            written = config_path.read_text()
+            # Log first 500 chars to see MCP section
+            logger.info(f"Codex config.toml written ({len(written)} chars): {written[:800]}")
+        except Exception:
+            pass
 
     @staticmethod
     def _toml_value(v: Any) -> str:
@@ -646,7 +860,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         return json.dumps(v)
 
     @staticmethod
-    def _write_toml_fallback(config: Dict[str, Any], path: Path) -> None:
+    def _write_toml_fallback(config: dict[str, Any], path: Path) -> None:
         """Write a simple TOML file without tomli_w dependency.
 
         Follows the Codex config.toml format from the OpenAI docs:
@@ -654,10 +868,10 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         - Nested dicts (like env) use [mcp_servers.<name>.<key>] sub-tables
         - Arrays and strings use standard TOML syntax
         """
-        lines: List[str] = []
+        lines: list[str] = []
         # Write top-level scalar keys FIRST (before any [table] sections),
         # otherwise TOML parsers assign them to the last open table.
-        table_keys: List[str] = []
+        table_keys: list[str] = []
         for section_key, section_val in config.items():
             if isinstance(section_val, dict):
                 table_keys.append(section_key)
@@ -677,7 +891,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 for name, entry in section_val.items():
                     lines.append(f"[{section_key}.{name}]")
                     # Separate simple values from sub-tables (dicts)
-                    sub_tables: List[tuple] = []
+                    sub_tables: list[tuple] = []
                     for k, v in entry.items():
                         if isinstance(v, dict):
                             sub_tables.append((k, v))
@@ -739,7 +953,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             return True
         return False
 
-    def _resolve_codex_skills_source(self) -> Optional[Path]:
+    def _resolve_codex_skills_source(self) -> Path | None:
         """Resolve the best available skills source directory, if any."""
         fm = self.filesystem_manager
         if fm is not None:
@@ -824,7 +1038,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         prompt: str,
         resume_session: bool = False,
         for_docker: bool = False,
-    ) -> List[str]:
+    ) -> list[str]:
         """Build the codex exec command with appropriate flags.
 
         Args:
@@ -884,7 +1098,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         return cmd
 
-    def _parse_codex_event(self, event: Dict[str, Any]) -> List[StreamChunk]:
+    def _parse_codex_event(self, event: dict[str, Any]) -> list[StreamChunk]:
         """Parse a Codex JSON event into StreamChunks.
 
         Handles both the documented item.started/item.completed wrapper format
@@ -924,6 +1138,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         # Handle turn completion
         if event_type == "turn.completed":
+            self._active_background_wait_calls.clear()
             usage = event.get("usage", {})
             return [
                 StreamChunk(
@@ -946,6 +1161,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         # Handle errors - message is at top level, not nested
         if event_type in ("turn.failed", "error"):
+            self._active_background_wait_calls.clear()
             error_msg = event.get("message") or event.get("error", {}).get("message") or str(event)
             return [StreamChunk(type="error", error=error_msg)]
 
@@ -953,7 +1169,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         logger.debug(f"Skipping unknown Codex event type: {event_type}")
         return []
 
-    def _parse_item(self, item_type: str, item: Dict[str, Any], *, is_completed: bool = True) -> List[StreamChunk]:
+    def _parse_item(self, item_type: str, item: dict[str, Any], *, is_completed: bool = True) -> list[StreamChunk]:
         """Parse an item by its type, emitting structured tool events.
 
         Returns a list of StreamChunks. Tool items emit mcp_status chunks
@@ -1121,12 +1337,23 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             server = item.get("server", "")
             item_id = item.get("id") or str(uuid.uuid4())
             full_tool_name = f"{server}/{tool_name}" if server else tool_name
+            is_background_wait_call = server == "massgen_custom_tools" and tool_name == "custom_tool__wait_for_background_tool"
 
             if not is_completed:
                 # item.started (in_progress) — emit tool_start
                 # Skip workflow MCP tools — only the completed result matters
                 if server == "massgen_workflow_tools":
                     return []
+                if is_background_wait_call:
+                    self._active_background_wait_calls.add(item_id)
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(
+                            self._maybe_signal_background_wait_interrupt(item_id),
+                        )
+                    except RuntimeError:
+                        # No active event loop in this context.
+                        pass
                 self._tool_start_times[item_id] = time.time()
                 self._tool_id_to_name[item_id] = full_tool_name
                 arguments = item.get("arguments", {})
@@ -1164,6 +1391,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 is_error = bool(item.get("error"))
                 if is_error:
                     result_str = f"[Error]: {item.get('error', '')}"
+                if is_background_wait_call:
+                    self._active_background_wait_calls.discard(item_id)
 
                 elapsed = time.time() - self._tool_start_times.pop(item_id, time.time())
                 self._tool_id_to_name.pop(item_id, None)
@@ -1284,10 +1513,10 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
     async def stream_with_tools(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
         **kwargs,
-    ) -> AsyncGenerator[StreamChunk, None]:
+    ) -> AsyncGenerator[StreamChunk]:
         """Stream a response from Codex with tool support.
 
         Codex handles tools internally via MCP servers configured in
@@ -1304,6 +1533,9 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             StreamChunk: Standardized response chunks
         """
         await self._ensure_authenticated()
+
+        # Clear stale hook files from previous turns
+        self.clear_hook_files()
 
         # Extract system message from messages and merge into instructions file
         # The orchestrator injects the full system prompt (task context, coordination
@@ -1401,7 +1633,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self,
         prompt: str,
         resume_session: bool,
-    ) -> AsyncGenerator[StreamChunk, None]:
+    ) -> AsyncGenerator[StreamChunk]:
         """Stream Codex output by running inside a Docker container."""
         try:
             container = self._get_docker_container()
@@ -1529,7 +1761,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self,
         prompt: str,
         resume_session: bool,
-    ) -> AsyncGenerator[StreamChunk, None]:
+    ) -> AsyncGenerator[StreamChunk]:
         """Stream Codex output via local subprocess."""
         # Build command
         cmd = self._build_exec_command(prompt, resume_session=resume_session)
@@ -1606,7 +1838,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             yield StreamChunk(type="error", error=str(e))
 
     @staticmethod
-    def _try_extract_workflow_mcp_result_from_codex(result: Any) -> Optional[Dict[str, Any]]:
+    def _try_extract_workflow_mcp_result_from_codex(result: Any) -> dict[str, Any] | None:
         """Extract a workflow tool call from a Codex MCP tool result.
 
         Codex MCP results come as dicts like:
@@ -1645,7 +1877,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         except (json.JSONDecodeError, TypeError):
             return None
 
-    def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
+    def get_disallowed_tools(self, config: dict[str, Any]) -> list[str]:
         """Return Codex native tools to disable.
 
         Codex keeps all its native tools (shell, file_read, file_write,
@@ -1667,7 +1899,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         """
         return []
 
-    def get_tool_category_overrides(self) -> Dict[str, str]:
+    def get_tool_category_overrides(self) -> dict[str, str]:
         """Return tool category overrides for Codex.
 
         Codex has native tools for filesystem, command execution, file search,

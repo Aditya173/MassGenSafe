@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 """Content-related modals: Text, Turn details, Conversation history, Context."""
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 try:
     from textual.app import ComposeResult
@@ -44,7 +43,7 @@ class TurnDetailModal(BaseModal):
 
     def __init__(
         self,
-        turn_data: Dict[str, Any],
+        turn_data: dict[str, Any],
         agent_color_class: str,
     ):
         super().__init__()
@@ -122,9 +121,9 @@ class ConversationHistoryModal(BaseModal):
 
     def __init__(
         self,
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: list[dict[str, Any]],
         current_question: str,
-        agent_ids: List[str],
+        agent_ids: list[str],
     ):
         super().__init__()
         self._history = conversation_history
@@ -156,7 +155,7 @@ class ConversationHistoryModal(BaseModal):
             return f"agent-color-{((agent_idx - 1) % 8) + 1}"
         return "agent-color-1"
 
-    def _create_turn_widget(self, entry: Dict[str, Any], idx: int) -> Widget:
+    def _create_turn_widget(self, entry: dict[str, Any], idx: int) -> Widget:
         """Create a clickable widget for a conversation turn with agent color."""
         turn = entry.get("turn", "?")
         question = entry.get("question", "")
@@ -286,7 +285,7 @@ class ContextModal(BaseModal):
         self.coordination_display = display
         self.app_ref = app
 
-    def _get_current_paths(self) -> List[Dict[str, Any]]:
+    def _get_current_paths(self) -> list[dict[str, Any]]:
         """Get current context paths from agents' PathPermissionManager."""
         orchestrator = getattr(self.coordination_display, "orchestrator", None)
         if not orchestrator or not hasattr(orchestrator, "agents"):
@@ -300,7 +299,7 @@ class ContextModal(BaseModal):
                 return ppm.get_context_paths()
         return []
 
-    def _get_worktree_info(self) -> Dict[str, Dict[str, str]]:
+    def _get_worktree_info(self) -> dict[str, dict[str, str]]:
         """Get worktree path mappings from orchestrator, keyed by agent_id.
 
         Returns: {agent_id: {worktree_path: original_path}}
@@ -344,14 +343,14 @@ class ContextModal(BaseModal):
             yield Label("Changes take effect on the next turn.", id="context_info_hint")
             yield Button("Close (ESC)", id="close_context_button", variant="default")
 
-    def _build_path_rows(self) -> List[Widget]:
+    def _build_path_rows(self) -> list[Widget]:
         """Build interactive rows for each context path."""
         paths = self._get_current_paths()
         if not paths:
             return [Static("[dim]No context paths configured.[/]", id="no_paths_msg", markup=True)]
 
         # Build reverse mapping: original_path -> worktree_path (from any agent)
-        worktree_lookup: Dict[str, str] = {}
+        worktree_lookup: dict[str, str] = {}
         for _agent_id, wt_map in self._get_worktree_info().items():
             for wt_path, orig_path in wt_map.items():
                 worktree_lookup[orig_path] = wt_path

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Widget-level tests for timeline rendering with Textual Pilot."""
 
 from datetime import datetime, timezone

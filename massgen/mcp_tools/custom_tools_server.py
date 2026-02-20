@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Standalone MCP server that wraps MassGen custom tools.
 
 This module creates a FastMCP server from a ToolManager's registered tools,
@@ -27,11 +26,37 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 
 import fastmcp
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_hook_middleware() -> Any:
+    """Return hook middleware class in both package and file-path launch modes."""
+    try:
+        from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+        return MassGenHookMiddleware
+    except ImportError:
+        pass
+
+    try:
+        from .hook_middleware import MassGenHookMiddleware
+
+        return MassGenHookMiddleware
+    except ImportError:
+        pass
+
+    # fastmcp file-path launches can drop package context; add repo root explicitly.
+    project_root = str(Path(__file__).resolve().parents[2])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+    return MassGenHookMiddleware
 
 
 BACKGROUND_TOOL_START_NAME = "custom_tool__start_background_tool"
@@ -76,7 +101,7 @@ def _is_default_media_background_tool(tool_name: str) -> bool:
     }
 
 
-def _is_explicit_foreground_request(arguments: Dict[str, Any]) -> bool:
+def _is_explicit_foreground_request(arguments: dict[str, Any]) -> bool:
     """Return True when args explicitly request foreground/blocking behavior."""
     if arguments.get("background") is False:
         return True
@@ -86,7 +111,7 @@ def _is_explicit_foreground_request(arguments: Dict[str, Any]) -> bool:
     return isinstance(mode, str) and mode.lower() in FOREGROUND_CONTROL_MODES
 
 
-def _should_auto_background_execution(tool_name: str, arguments: Dict[str, Any]) -> bool:
+def _should_auto_background_execution(tool_name: str, arguments: dict[str, Any]) -> bool:
     """Return True when args request automatic background scheduling."""
     if not isinstance(arguments, dict):
         return False
@@ -100,9 +125,9 @@ def _should_auto_background_execution(tool_name: str, arguments: Dict[str, Any])
 
 
 def _strip_background_control_args(
-    arguments: Dict[str, Any],
-    control_args_to_strip: Optional[Set[str]] = None,
-) -> Dict[str, Any]:
+    arguments: dict[str, Any],
+    control_args_to_strip: set[str] | None = None,
+) -> dict[str, Any]:
     """Strip background control args before normal tool execution.
 
     Args:
@@ -132,13 +157,13 @@ class BackgroundToolJob:
     job_id: str
     tool_name: str
     tool_type: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
     status: str
     created_at: float
-    started_at: Optional[float] = None
-    completed_at: Optional[float] = None
-    result: Optional[str] = None
-    error: Optional[str] = None
+    started_at: float | None = None
+    completed_at: float | None = None
+    result: str | None = None
+    error: str | None = None
 
 
 class BackgroundToolManager:
@@ -147,22 +172,24 @@ class BackgroundToolManager:
     def __init__(
         self,
         tool_manager: Any,
-        execution_context: Dict[str, Any],
-        mcp_servers: Optional[List[Dict[str, Any]]] = None,
+        execution_context: dict[str, Any],
+        mcp_servers: list[dict[str, Any]] | None = None,
+        wait_interrupt_file: str | Path | None = None,
     ) -> None:
         self._tool_manager = tool_manager
         self._execution_context = execution_context
         self._mcp_servers = self._filter_background_mcp_servers(mcp_servers or [])
         self._mcp_client = None
         self._mcp_initialized = False
-        self._jobs: Dict[str, BackgroundToolJob] = {}
-        self._tasks: Dict[str, asyncio.Task[Any]] = {}
+        self._jobs: dict[str, BackgroundToolJob] = {}
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._wait_seen_job_ids: set[str] = set()
+        self._wait_interrupt_file: Path | None = Path(wait_interrupt_file) if wait_interrupt_file else None
 
     @staticmethod
-    def _filter_background_mcp_servers(servers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter_background_mcp_servers(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Drop unsupported/recursive servers for background execution."""
-        filtered: List[Dict[str, Any]] = []
+        filtered: list[dict[str, Any]] = []
         for server in servers:
             if not isinstance(server, dict):
                 continue
@@ -179,7 +206,7 @@ class BackgroundToolManager:
         return filtered
 
     @staticmethod
-    def _format_unix_timestamp(timestamp: Optional[float]) -> Optional[str]:
+    def _format_unix_timestamp(timestamp: float | None) -> str | None:
         if timestamp is None:
             return None
         return datetime.fromtimestamp(timestamp).isoformat()
@@ -198,7 +225,7 @@ class BackgroundToolManager:
     def _is_background_management_tool(self, tool_name: str) -> bool:
         return tool_name in BACKGROUND_TOOL_MANAGEMENT_NAMES
 
-    def _resolve_target(self, tool_name: str) -> Optional[Tuple[str, str]]:
+    def _resolve_target(self, tool_name: str) -> tuple[str, str] | None:
         """Resolve requested target to (tool_type, effective_tool_name)."""
         raw_name = (tool_name or "").strip()
         if not raw_name:
@@ -228,7 +255,7 @@ class BackgroundToolManager:
 
         return None
 
-    def _validate_start_prerequisites(self, tool_name: str) -> Optional[str]:
+    def _validate_start_prerequisites(self, tool_name: str) -> str | None:
         """Return an error string when background start prerequisites are missing."""
         if not _is_default_media_background_tool(tool_name):
             return None
@@ -243,8 +270,8 @@ class BackgroundToolManager:
 
         return None
 
-    def _serialize_job(self, job: BackgroundToolJob, include_result: bool = False) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    def _serialize_job(self, job: BackgroundToolJob, include_result: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "job_id": job.job_id,
             "tool_name": job.tool_name,
             "tool_type": job.tool_type,
@@ -260,8 +287,8 @@ class BackgroundToolManager:
         return payload
 
     @staticmethod
-    def _extract_text_from_output_blocks(blocks: List[Any]) -> str:
-        text_parts: List[str] = []
+    def _extract_text_from_output_blocks(blocks: list[Any]) -> str:
+        text_parts: list[str] = []
         for block in blocks:
             if isinstance(block, dict):
                 if block.get("data") is not None:
@@ -293,7 +320,7 @@ class BackgroundToolManager:
         blocks = content if isinstance(content, list) else [content]
         return cls._extract_text_from_output_blocks(blocks)
 
-    async def _run_custom_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def _run_custom_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         tool_request = {"name": tool_name, "input": arguments}
         final_result = None
         async for result in self._tool_manager.execute_tool(
@@ -359,7 +386,7 @@ class BackgroundToolManager:
             self._mcp_client = None
             return None
 
-    async def _run_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Tuple[str, bool]:
+    async def _run_mcp_tool(self, tool_name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
         client = await self._get_mcp_client()
         if client is None:
             return ("Error: MCP client not available for background execution", True)
@@ -411,7 +438,7 @@ class BackgroundToolManager:
             job.completed_at = time.time()
             self._tasks.pop(job_id, None)
 
-    async def start(self, tool_name: str, arguments: Optional[Any] = None) -> Dict[str, Any]:
+    async def start(self, tool_name: str, arguments: Any | None = None) -> dict[str, Any]:
         """Start background execution for a custom or MCP target tool."""
         from massgen.utils.tool_argument_normalization import (
             normalize_json_object_argument,
@@ -468,7 +495,7 @@ class BackgroundToolManager:
         )
         return payload
 
-    def get_status(self, job_id: str) -> Dict[str, Any]:
+    def get_status(self, job_id: str) -> dict[str, Any]:
         job = self._jobs.get((job_id or "").strip())
         if job is None:
             return {"success": False, "error": f"Background job not found: {job_id}"}
@@ -476,7 +503,7 @@ class BackgroundToolManager:
         payload["success"] = True
         return payload
 
-    def get_result(self, job_id: str) -> Dict[str, Any]:
+    def get_result(self, job_id: str) -> dict[str, Any]:
         job = self._jobs.get((job_id or "").strip())
         if job is None:
             return {"success": False, "error": f"Background job not found: {job_id}"}
@@ -487,7 +514,7 @@ class BackgroundToolManager:
             payload["message"] = "Background tool still running"
         return payload
 
-    def cancel(self, job_id: str) -> Dict[str, Any]:
+    def cancel(self, job_id: str) -> dict[str, Any]:
         normalized = (job_id or "").strip()
         if not normalized:
             return {"success": False, "error": "job_id is required"}
@@ -505,7 +532,7 @@ class BackgroundToolManager:
         payload["success"] = True
         return payload
 
-    def list_jobs(self, include_all: bool = False) -> Dict[str, Any]:
+    def list_jobs(self, include_all: bool = False) -> dict[str, Any]:
         jobs = [self._serialize_job(job) for job in self._jobs.values() if include_all or job.status not in BACKGROUND_TOOL_TERMINAL_STATUSES]
         jobs.sort(key=lambda job: job.get("created_at") or "", reverse=True)
         return {
@@ -516,7 +543,7 @@ class BackgroundToolManager:
         }
 
     @staticmethod
-    def _coerce_wait_timeout(timeout_seconds: Optional[float]) -> float:
+    def _coerce_wait_timeout(timeout_seconds: float | None) -> float:
         """Normalize wait timeout to a safe bounded value."""
         if timeout_seconds is None:
             return BACKGROUND_TOOL_WAIT_DEFAULT_TIMEOUT_SECONDS
@@ -528,7 +555,7 @@ class BackgroundToolManager:
             return 0.0
         return min(coerced, BACKGROUND_TOOL_WAIT_MAX_TIMEOUT_SECONDS)
 
-    def _next_waitable_job(self) -> Optional[BackgroundToolJob]:
+    def _next_waitable_job(self) -> BackgroundToolJob | None:
         """Get the next unseen terminal job for wait calls."""
         candidates = [job for job in self._jobs.values() if job.status in BACKGROUND_TOOL_TERMINAL_STATUSES and job.job_id not in self._wait_seen_job_ids]
         if not candidates:
@@ -541,7 +568,43 @@ class BackgroundToolManager:
         )
         return candidates[0]
 
-    async def wait_for_next_completion(self, timeout_seconds: Optional[float] = None) -> Dict[str, Any]:
+    def _consume_wait_interrupt_signal(self) -> dict[str, Any] | None:
+        """Read and clear a pending wait interrupt signal from disk."""
+        signal_path = self._wait_interrupt_file
+        if signal_path is None or not signal_path.exists():
+            return None
+
+        try:
+            raw = signal_path.read_text(encoding="utf-8").strip()
+            signal_path.unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to read wait interrupt signal from %s: %s", signal_path, e)
+            return None
+
+        if not raw:
+            return None
+
+        try:
+            payload = json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Invalid wait interrupt payload in %s: %s", signal_path, e)
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        raw_reason = payload.get("interrupt_reason", "runtime_injection_available")
+        interrupt_reason = str(raw_reason).strip() or "runtime_injection_available"
+        injected_content = payload.get("injected_content")
+        if injected_content is not None:
+            injected_content = str(injected_content)
+
+        return {
+            "interrupt_reason": interrupt_reason,
+            "injected_content": injected_content,
+        }
+
+    async def wait_for_next_completion(self, timeout_seconds: float | None = None) -> dict[str, Any]:
         """Block until the next unseen terminal job is available or timeout elapses."""
         timeout = self._coerce_wait_timeout(timeout_seconds)
         started_at = time.time()
@@ -559,6 +622,18 @@ class BackgroundToolManager:
                     },
                 )
                 return payload
+
+            interrupt_payload = self._consume_wait_interrupt_signal()
+            if interrupt_payload is not None:
+                return {
+                    "success": True,
+                    "ready": False,
+                    "interrupted": True,
+                    "interrupt_reason": interrupt_payload.get("interrupt_reason"),
+                    "injected_content": interrupt_payload.get("injected_content"),
+                    "waited_seconds": round(time.time() - started_at, 3),
+                    "message": "Background wait interrupted by runtime input",
+                }
 
             elapsed = time.time() - started_at
             if elapsed >= timeout:
@@ -580,7 +655,7 @@ class BackgroundToolManager:
                 await asyncio.sleep(sleep_seconds)
 
     async def shutdown(self) -> None:
-        running_tasks: List[asyncio.Task[Any]] = []
+        running_tasks: list[asyncio.Task[Any]] = []
         for job_id, task in list(self._tasks.items()):
             if task.done():
                 continue
@@ -629,6 +704,18 @@ async def create_server() -> fastmcp.FastMCP:
         type=str,
         default="unknown",
         help="Agent ID for execution context",
+    )
+    parser.add_argument(
+        "--wait-interrupt-file",
+        type=str,
+        default=None,
+        help="Optional path to a JSON file used to interrupt wait_for_background_tool.",
+    )
+    parser.add_argument(
+        "--hook-dir",
+        type=str,
+        default=None,
+        help="Optional path to directory for hook IPC files (PostToolUse injection).",
     )
     args = parser.parse_args()
 
@@ -739,6 +826,7 @@ async def create_server() -> fastmcp.FastMCP:
         tool_manager=tool_manager,
         execution_context=execution_context,
         mcp_servers=tool_specs.get("background_mcp_servers", []),
+        wait_interrupt_file=args.wait_interrupt_file,
     )
 
     @asynccontextmanager
@@ -752,6 +840,12 @@ async def create_server() -> fastmcp.FastMCP:
         "massgen_custom_tools",
         lifespan=_server_lifespan,
     )
+
+    # Attach hook middleware for PostToolUse injection if hook_dir is configured
+    if args.hook_dir:
+        MassGenHookMiddleware = _resolve_hook_middleware()
+        mcp.add_middleware(MassGenHookMiddleware(Path(args.hook_dir)))
+        logger.info("Hook middleware attached (hook_dir=%s)", args.hook_dir)
 
     # Register each tool as an MCP tool
     schemas = tool_manager.fetch_tool_schemas()
@@ -782,8 +876,8 @@ async def create_server() -> fastmcp.FastMCP:
     )
     async def _start_background_tool(
         tool_name: str,
-        arguments: Optional[Any] = None,
-        args: Optional[Any] = None,
+        arguments: Any | None = None,
+        args: Any | None = None,
     ) -> str:
         target_arguments = arguments if arguments is not None else args
         payload = await background_manager.start(
@@ -829,7 +923,7 @@ async def create_server() -> fastmcp.FastMCP:
         description=("Block until the next unseen background tool reaches a terminal status " "or timeout elapses."),
     )
     async def _wait_for_background_tool(
-        timeout_seconds: Optional[float] = BACKGROUND_TOOL_WAIT_DEFAULT_TIMEOUT_SECONDS,
+        timeout_seconds: float | None = BACKGROUND_TOOL_WAIT_DEFAULT_TIMEOUT_SECONDS,
     ) -> str:
         payload = await background_manager.wait_for_next_completion(
             timeout_seconds=timeout_seconds,
@@ -843,7 +937,7 @@ async def create_server() -> fastmcp.FastMCP:
     return mcp
 
 
-def _json_schema_to_python_type(prop_schema: Dict[str, Any]) -> Any:
+def _json_schema_to_python_type(prop_schema: dict[str, Any]) -> Any:
     """Map a JSON Schema property to a Python type annotation.
 
     Handles both plain ``{"type": "array"}`` and Pydantic-style
@@ -882,10 +976,10 @@ def _register_mcp_tool(
     mcp: fastmcp.FastMCP,
     tool_name: str,
     tool_desc: str,
-    tool_params: Dict[str, Any],
+    tool_params: dict[str, Any],
     tool_manager: Any,
-    execution_context: Dict[str, Any],
-    background_manager: Optional[BackgroundToolManager] = None,
+    execution_context: dict[str, Any],
+    background_manager: BackgroundToolManager | None = None,
 ) -> None:
     """Register a single custom tool as an MCP tool on the server.
 
@@ -897,7 +991,7 @@ def _register_mcp_tool(
     # Build parameter list from schema properties
     properties = tool_params.get("properties", {})
     required = set(tool_params.get("required", []))
-    signature_to_input_name: Dict[str, str] = {}
+    signature_to_input_name: dict[str, str] = {}
     synthetic_control_input_names: set[str] = set()
 
     def _signature_param_name(param_name: str) -> str:
@@ -908,7 +1002,7 @@ def _register_mcp_tool(
 
     # Create parameters for the dynamic function
     params = []
-    handler_annotations: Dict[str, Any] = {}
+    handler_annotations: dict[str, Any] = {}
     for param_name, param_info in properties.items():
         signature_name = _signature_param_name(param_name)
         signature_to_input_name[signature_name] = param_name
@@ -962,7 +1056,7 @@ def _register_mcp_tool(
 
     # Create the handler with a proper signature
     async def _handler(**kwargs) -> str:
-        input_kwargs: Dict[str, Any] = {}
+        input_kwargs: dict[str, Any] = {}
         for signature_name, value in kwargs.items():
             input_name = signature_to_input_name.get(signature_name, signature_name)
             input_kwargs[input_name] = value
@@ -1016,9 +1110,9 @@ def _register_mcp_tool(
 
 
 def write_tool_specs(
-    custom_tools: List[Dict[str, Any]],
+    custom_tools: list[dict[str, Any]],
     output_path: Path,
-    background_mcp_servers: Optional[List[Dict[str, Any]]] = None,
+    background_mcp_servers: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Write tool specifications to a JSON file for the server to load.
 
@@ -1032,7 +1126,7 @@ def write_tool_specs(
     Returns:
         Path to the written specs file.
     """
-    specs: Dict[str, Any] = {"custom_tools": custom_tools}
+    specs: dict[str, Any] = {"custom_tools": custom_tools}
     if background_mcp_servers is not None:
         specs["background_mcp_servers"] = background_mcp_servers
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1043,11 +1137,13 @@ def write_tool_specs(
 
 def build_server_config(
     tool_specs_path: Path,
-    allowed_paths: Optional[List[str]] = None,
+    allowed_paths: list[str] | None = None,
     agent_id: str = "unknown",
-    env: Optional[Dict[str, str]] = None,
+    env: dict[str, str] | None = None,
     tool_timeout_sec: int = 300,
-) -> Dict[str, Any]:
+    wait_interrupt_file: Path | None = None,
+    hook_dir: Path | None = None,
+) -> dict[str, Any]:
     """Build an MCP server config dict for use in .codex/config.toml or mcp_servers list.
 
     Args:
@@ -1073,6 +1169,10 @@ def build_server_config(
     ]
     if allowed_paths:
         cmd_args.extend(["--allowed-paths"] + allowed_paths)
+    if wait_interrupt_file is not None:
+        cmd_args.extend(["--wait-interrupt-file", str(wait_interrupt_file)])
+    if hook_dir is not None:
+        cmd_args.extend(["--hook-dir", str(hook_dir)])
 
     env_vars = {"FASTMCP_SHOW_CLI_BANNER": "false"}
     if env:

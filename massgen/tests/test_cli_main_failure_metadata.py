@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Regression tests for execution metadata persistence on early CLI failures."""
 
 from __future__ import annotations

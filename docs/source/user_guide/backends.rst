@@ -55,6 +55,9 @@ MassGen supports these backend types (configured via ``type`` field in YAML):
    * - ``lmstudio``
      - LM Studio
      - Local open-source models
+   * - ``copilot``
+     - GitHub Copilot
+     - GPT-5-mini, GPT-4, Claude Sonnet 4, Gemini 2.5 Pro
    * - ``chatcompletion``
      - Generic
      - Any OpenAI-compatible API
@@ -108,6 +111,16 @@ Different backends support different built-in tools:
      - ✅
      - ⭐
      - ✅
+   * - ``copilot``
+     - ⭐
+     - ❌
+     - ❌
+     - 🔧
+     - 🔧
+     - 🔧
+     - ✅
+     - ❌
+     - ❌
    * - ``gemini``
      - ⭐
      - ⭐
@@ -432,6 +445,49 @@ If both ``model_reasoning_effort`` and ``reasoning.effort`` are provided,
          enable_mcp_command_line: true
          command_line_execution_mode: "docker"
          command_line_docker_network_mode: "bridge"  # Required for Codex
+
+GitHub Copilot Backend
+~~~~~~~~~~~~~~~~~~~~~~
+
+**Prerequisites:**
+
+1. An active `GitHub Copilot subscription <https://github.com/features/copilot/plans>`_
+2. Install the Copilot CLI:
+
+   .. code-block:: bash
+
+      # macOS / Linux
+      brew install copilot-cli
+
+      # npm (all platforms)
+      npm install -g @github/copilot
+
+      # Windows
+      winget install GitHub.Copilot
+
+3. Authenticate — run ``copilot`` and use the ``/login`` slash command, or set a
+   ``GH_TOKEN`` / ``GITHUB_TOKEN`` environment variable with a
+   `fine-grained PAT <https://github.com/settings/personal-access-tokens/new>`_
+   that has the **Copilot Requests** permission.
+
+**Basic Configuration:**
+
+.. code-block:: yaml
+
+   agents:
+     - id: "copilot-assistant"
+       backend:
+         type: "copilot"
+         model: "gpt-5-mini"
+
+**Supported Models:** gpt-5-mini (default), gpt-4, claude-sonnet-4, gemini-2.5-pro
+
+**Special Features:**
+
+* No API key required — authentication is handled through your GitHub subscription
+* Web search capability
+* MCP server support
+* Session persistence and resumption
 
 Gemini Backend
 ~~~~~~~~~~~~~~
@@ -1006,6 +1062,7 @@ Ensure the backend type is correct:
    # Correct backend types
    type: "openai"         # ✅
    type: "claude_code"    # ✅
+   type: "copilot"        # ✅
    type: "gemini"         # ✅
 
    # Incorrect (common mistakes)
@@ -1023,6 +1080,7 @@ Check your ``.env`` file has the correct variable name:
    openai       → OPENAI_API_KEY
    claude       → ANTHROPIC_API_KEY
    claude_code  → CLAUDE_CODE_API_KEY (falls back to ANTHROPIC_API_KEY)
+   copilot      → GH_TOKEN or GITHUB_TOKEN (or use /login in Copilot CLI)
    gemini       → GOOGLE_API_KEY
    grok         → XAI_API_KEY
    azure_openai → AZURE_OPENAI_API_KEY

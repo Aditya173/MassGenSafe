@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Test ClaudeCodeBackend with MassGen Orchestrator.
 This test demonstrates a workflow with Claude Code backend.

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Mode Bar Widget for MassGen TUI.
 
@@ -38,7 +37,7 @@ class ModeChanged(Message):
 class PlanConfigChanged(Message):
     """Message emitted when plan configuration changes."""
 
-    def __init__(self, depth: Optional["PlanDepth"] = None, auto_execute: Optional[bool] = None) -> None:
+    def __init__(self, depth: Optional["PlanDepth"] = None, auto_execute: bool | None = None) -> None:
         """Initialize the message.
 
         Args:
@@ -72,19 +71,9 @@ class SkillsClicked(Message):
 
 def _mode_log(msg: str) -> None:
     """Log to TUI debug file."""
-    try:
-        import logging
+    from massgen.frontend.displays.shared.tui_debug import tui_log
 
-        log = logging.getLogger("massgen.tui.debug")
-        if not log.handlers:
-            handler = logging.FileHandler("/tmp/massgen_tui_debug.log", mode="a")
-            handler.setFormatter(logging.Formatter("%(asctime)s [MODE] %(message)s", datefmt="%H:%M:%S"))
-            log.addHandler(handler)
-            log.setLevel(logging.DEBUG)
-            log.propagate = False
-        log.debug(msg)
-    except Exception:
-        pass
+    tui_log(f"[MODE] {msg}")
 
 
 class ModeToggle(Static):
@@ -127,8 +116,8 @@ class ModeToggle(Static):
         initial_state: str,
         states: list[str],
         *,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         """Initialize the mode toggle.
 
@@ -262,22 +251,22 @@ class ModeBar(Widget):
     def __init__(
         self,
         *,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         """Initialize the mode bar."""
         super().__init__(id=id, classes=classes)
-        self._plan_toggle: Optional[ModeToggle] = None
-        self._agent_toggle: Optional[ModeToggle] = None
-        self._coordination_toggle: Optional[ModeToggle] = None
-        self._refinement_toggle: Optional[ModeToggle] = None
-        self._persona_toggle: Optional[ModeToggle] = None
-        self._subtasks_btn: Optional[Button] = None
-        self._mode_help_btn: Optional[Button] = None
-        self._override_btn: Optional[Button] = None
-        self._plan_info: Optional[Label] = None
-        self._plan_settings_btn: Optional[Button] = None
-        self._plan_status: Optional[Static] = None
+        self._plan_toggle: ModeToggle | None = None
+        self._agent_toggle: ModeToggle | None = None
+        self._coordination_toggle: ModeToggle | None = None
+        self._refinement_toggle: ModeToggle | None = None
+        self._persona_toggle: ModeToggle | None = None
+        self._subtasks_btn: Button | None = None
+        self._mode_help_btn: Button | None = None
+        self._override_btn: Button | None = None
+        self._plan_info: Label | None = None
+        self._plan_settings_btn: Button | None = None
+        self._plan_status: Static | None = None
         self._last_responsive_width: int = 0
         self._compact_labels_active: bool = False
 

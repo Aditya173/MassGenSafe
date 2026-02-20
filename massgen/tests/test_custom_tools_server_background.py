@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for background tool lifecycle in custom_tools_server."""
 
 import asyncio
@@ -298,6 +297,39 @@ async def test_background_tool_manager_waits_for_next_completion():
     assert timed_out["success"] is True
     assert timed_out["ready"] is False
     assert timed_out["timed_out"] is True
+
+
+@pytest.mark.asyncio
+async def test_background_tool_manager_wait_returns_interrupt_payload_from_signal_file(
+    tmp_path,
+):
+    """Wait API should exit early when an interrupt signal file is written."""
+    manager = BackgroundToolManager(
+        tool_manager=ToolManager(),
+        execution_context={"agent_id": "agent_x"},
+        wait_interrupt_file=tmp_path / "wait_interrupt.json",
+    )
+
+    async def _write_interrupt_signal() -> None:
+        await asyncio.sleep(0.05)
+        (tmp_path / "wait_interrupt.json").write_text(
+            json.dumps(
+                {
+                    "interrupt_reason": "runtime_injection_available",
+                    "injected_content": "[Human Input]: Please tighten acceptance criteria.",
+                },
+            ),
+            encoding="utf-8",
+        )
+
+    asyncio.create_task(_write_interrupt_signal())
+    waited = await manager.wait_for_next_completion(timeout_seconds=1.0)
+
+    assert waited["success"] is True
+    assert waited["ready"] is False
+    assert waited["interrupted"] is True
+    assert waited["interrupt_reason"] == "runtime_injection_available"
+    assert "acceptance criteria" in waited["injected_content"]
 
 
 @pytest.mark.asyncio

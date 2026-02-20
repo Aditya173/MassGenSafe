@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Subagent Manager for MassGen
 
@@ -10,9 +9,10 @@ import json
 import os
 import shutil
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from massgen.events import MassGenEvent
@@ -57,19 +57,19 @@ class SubagentManager:
         parent_workspace: str,
         parent_agent_id: str,
         orchestrator_id: str,
-        parent_agent_configs: List[Dict[str, Any]],
+        parent_agent_configs: list[dict[str, Any]],
         max_concurrent: int = 3,
         default_timeout: int = SUBAGENT_DEFAULT_TIMEOUT,
         min_timeout: int = SUBAGENT_MIN_TIMEOUT,
         max_timeout: int = SUBAGENT_MAX_TIMEOUT,
-        subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None,
-        log_directory: Optional[str] = None,
-        parent_context_paths: Optional[List[Dict[str, str]]] = None,
-        parent_coordination_config: Optional[Dict[str, Any]] = None,
-        agent_temporary_workspace: Optional[str] = None,
+        subagent_orchestrator_config: SubagentOrchestratorConfig | None = None,
+        log_directory: str | None = None,
+        parent_context_paths: list[dict[str, str]] | None = None,
+        parent_coordination_config: dict[str, Any] | None = None,
+        agent_temporary_workspace: str | None = None,
         subagent_runtime_mode: str = "isolated",
-        subagent_runtime_fallback_mode: Optional[str] = None,
-        subagent_host_launch_prefix: Optional[List[str]] = None,
+        subagent_runtime_fallback_mode: str | None = None,
+        subagent_host_launch_prefix: list[str] | None = None,
     ):
         """
         Initialize SubagentManager.
@@ -143,22 +143,86 @@ class SubagentManager:
         self.subagents_base.mkdir(parents=True, exist_ok=True)
 
         # Track active and completed subagents
-        self._subagents: Dict[str, SubagentState] = {}
+        self._subagents: dict[str, SubagentState] = {}
         # Track background tasks for non-blocking execution
-        self._background_tasks: Dict[str, asyncio.Task] = {}
+        self._background_tasks: dict[str, asyncio.Task] = {}
         # Track active subprocess handles for graceful cancellation
-        self._active_processes: Dict[str, asyncio.subprocess.Process] = {}
+        self._active_processes: dict[str, asyncio.subprocess.Process] = {}
         # Track session IDs for each subagent (for continuation support)
-        self._subagent_sessions: Dict[str, str] = {}  # subagent_id -> session_id
+        self._subagent_sessions: dict[str, str] = {}  # subagent_id -> session_id
         self._semaphore = asyncio.Semaphore(max_concurrent)
         # Callbacks to invoke when background subagents complete
-        self._completion_callbacks: List[Callable[[str, SubagentResult], None]] = []
+        self._completion_callbacks: list[Callable[[str, SubagentResult], None]] = []
+        # Sequence counter for runtime inbox messages
+        self._message_seq: int = 0
 
         logger.info(
             f"[SubagentManager] Initialized for parent {parent_agent_id}, "
             f"workspace: {self.subagents_base}, max_concurrent: {max_concurrent}, "
             f"timeout: {default_timeout}s (min: {min_timeout}s, max: {max_timeout}s)" + (f", log_dir: {self._subagent_logs_base}" if self._subagent_logs_base else ""),
         )
+
+    def send_message_to_subagent(
+        self,
+        subagent_id: str,
+        content: str,
+        target_agents: list[str] | None = None,
+    ) -> bool:
+        """Write a runtime message to a running subagent's inbox.
+
+        Messages are written as JSON files to
+        {workspace}/.massgen/runtime_inbox/msg_{timestamp}_{seq}.json
+        using an atomic write pattern (write .tmp, then rename).
+
+        Args:
+            subagent_id: ID of the subagent to message
+            content: Message content to deliver
+            target_agents: Optional list of inner agent IDs to target.
+                None broadcasts to all inner agents.
+
+        Returns:
+            True if message was written, False if subagent not found or not running
+        """
+        state = self._subagents.get(subagent_id)
+        if state is None:
+            logger.warning(f"[SubagentManager] Cannot send message: subagent '{subagent_id}' not found")
+            return False
+
+        if state.status != "running":
+            logger.warning(
+                f"[SubagentManager] Cannot send message: subagent '{subagent_id}' " f"is {state.status}, not running",
+            )
+            return False
+
+        workspace = Path(state.workspace_path)
+        inbox_dir = workspace / ".massgen" / "runtime_inbox"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+
+        self._message_seq += 1
+        timestamp = int(time.time())
+        filename = f"msg_{timestamp}_{self._message_seq}.json"
+
+        msg_data = {
+            "content": content,
+            "source": "parent",
+            "timestamp": datetime.now().isoformat(),
+            "target_agents": target_agents,
+        }
+
+        # Atomic write: write to .tmp then rename
+        tmp_path = inbox_dir / f"{filename}.tmp"
+        final_path = inbox_dir / filename
+        tmp_path.write_text(json.dumps(msg_data, indent=2))
+        tmp_path.rename(final_path)
+
+        logger.info(
+            f"[SubagentManager] Sent runtime message to {subagent_id}: " f"'{content[:50]}...' -> {final_path}",
+        )
+        return True
+
+    def get_running_subagent_ids(self) -> list[str]:
+        """Return IDs of currently running subagents."""
+        return [sid for sid, state in self._subagents.items() if state.status == "running"]
 
     def _validate_runtime_configuration(self) -> None:
         """Validate runtime mode/fallback configuration."""
@@ -182,7 +246,7 @@ class SubagentManager:
         if self._subagent_host_launch_prefix and any(not isinstance(token, str) or not token.strip() for token in self._subagent_host_launch_prefix):
             raise ValueError("subagent_host_launch_prefix must contain only non-empty string tokens")
 
-    def _clamp_timeout(self, timeout: Optional[int]) -> int:
+    def _clamp_timeout(self, timeout: int | None) -> int:
         """
         Clamp timeout to configured min/max range.
 
@@ -195,7 +259,7 @@ class SubagentManager:
         effective_timeout = timeout if timeout is not None else self.default_timeout
         return max(self.min_timeout, min(self.max_timeout, effective_timeout))
 
-    def _resolve_effective_runtime_mode(self) -> Tuple[str, Optional[str]]:
+    def _resolve_effective_runtime_mode(self) -> tuple[str, str | None]:
         """
         Resolve the effective runtime mode for subagent launch.
 
@@ -237,7 +301,7 @@ class SubagentManager:
         answer_file: Path,
         full_task: str,
         runtime_mode: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Build the subprocess command for a subagent launch."""
         base_cmd = [
             "uv",
@@ -257,7 +321,7 @@ class SubagentManager:
         return base_cmd
 
     @staticmethod
-    def _combine_warnings(primary: Optional[str], secondary: Optional[str]) -> Optional[str]:
+    def _combine_warnings(primary: str | None, secondary: str | None) -> str | None:
         """Combine two optional warning strings without duplication."""
         warnings = [w for w in (primary, secondary) if w]
         if not warnings:
@@ -270,12 +334,12 @@ class SubagentManager:
 
     def _normalize_parent_context_paths(
         self,
-        context_paths: Optional[List[Dict[str, Any]]],
-    ) -> List[Dict[str, str]]:
+        context_paths: list[dict[str, Any]] | None,
+    ) -> list[dict[str, str]]:
         """
         Normalize parent context paths to absolute, read-only entries and always include the parent workspace.
         """
-        normalized: List[Dict[str, str]] = []
+        normalized: list[dict[str, str]] = []
         seen: set[str] = set()
         workspace_path = str(self.parent_workspace.resolve())
 
@@ -300,6 +364,65 @@ class SubagentManager:
             normalized.insert(0, {"path": workspace_path, "permission": "read"})
 
         return normalized
+
+    def _resolve_context_paths_for_subagent(
+        self,
+        config: "SubagentConfig",
+    ) -> list[dict[str, str]]:
+        """Resolve and validate context_paths from a subagent config.
+
+        Resolves relative paths against the parent workspace and validates that
+        each resolved path falls within an allowed root: either the parent
+        workspace itself or one of the inherited parent context path roots.
+
+        Paths that escape all allowed roots are rejected with a warning log
+        to prevent path traversal attacks from model-supplied input.
+
+        Args:
+            config: SubagentConfig with context_paths to resolve.
+
+        Returns:
+            List of validated context path dicts with "path" and "permission" keys.
+        """
+        resolved_paths: list[dict[str, str]] = []
+        if not config.context_paths:
+            return resolved_paths
+
+        parent_ws_resolved = self.parent_workspace.resolve()
+
+        # Build set of allowed roots: parent workspace + parent context path roots
+        allowed_roots: list[Path] = [parent_ws_resolved]
+        for pcp in self._parent_context_paths:
+            root = Path(pcp["path"])
+            if root not in allowed_roots:
+                allowed_roots.append(root)
+
+        seen: set[str] = set()
+        for rel_path in config.context_paths:
+            if rel_path in ("./", "."):
+                resolved = parent_ws_resolved
+            else:
+                candidate = Path(rel_path)
+                if candidate.is_absolute():
+                    resolved = candidate.resolve()
+                else:
+                    resolved = (self.parent_workspace / rel_path).resolve()
+
+            # Validate: resolved path must be within an allowed root
+            is_allowed = any(resolved == root or resolved.is_relative_to(root) for root in allowed_roots)
+            if not is_allowed:
+                logger.warning(
+                    f"[SubagentManager] Rejecting context_path '{rel_path}': " f"resolved to {resolved} which is outside allowed roots",
+                )
+                continue
+
+            path_str = str(resolved)
+            if path_str not in seen:
+                seen.add(path_str)
+                resolved_paths.append({"path": path_str, "permission": "read"})
+                logger.info(f"[SubagentManager] Mounting context path: {path_str}")
+
+        return resolved_paths
 
     def register_completion_callback(
         self,
@@ -378,7 +501,7 @@ class SubagentManager:
         logger.info(f"[SubagentManager] Created workspace for {subagent_id}: {workspace}")
         return workspace
 
-    def _get_subagent_log_dir(self, subagent_id: str) -> Optional[Path]:
+    def _get_subagent_log_dir(self, subagent_id: str) -> Path | None:
         """
         Get or create the log directory for a subagent.
 
@@ -438,7 +561,7 @@ class SubagentManager:
         subagent_id: str,
         role: str,
         content: str,
-        agent_id: Optional[str] = None,
+        agent_id: str | None = None,
     ) -> None:
         """
         Append a message to the conversation log.
@@ -461,7 +584,9 @@ class SubagentManager:
             try:
                 conversation = json.loads(conversation_file.read_text())
             except json.JSONDecodeError:
-                pass
+                logger.warning(
+                    f"[SubagentManager] Corrupted conversation log {conversation_file}; starting fresh",
+                )
 
         # Append new message
         message = {
@@ -562,9 +687,9 @@ class SubagentManager:
     def _copy_context_files(
         self,
         subagent_id: str,
-        context_files: List[str],
+        context_files: list[str],
         workspace: Path,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Copy context files from parent workspace to subagent workspace.
 
@@ -621,8 +746,8 @@ class SubagentManager:
     def _build_subagent_system_prompt(
         self,
         config: SubagentConfig,
-        workspace: Optional[Path] = None,
-    ) -> tuple[str, Optional[str]]:
+        workspace: Path | None = None,
+    ) -> tuple[str, str | None]:
         """
         Build system prompt for subagent.
 
@@ -721,7 +846,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 context_warning,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             execution_time = time.time() - start_time
             log_dir = self._get_subagent_log_dir(config.id)
             # Attempt to recover completed work from workspace
@@ -749,7 +874,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         config: SubagentConfig,
         workspace: Path,
         start_time: float,
-        context_warning: Optional[str] = None,
+        context_warning: str | None = None,
     ) -> SubagentResult:
         """
         Execute subagent by spawning a separate MassGen process.
@@ -772,7 +897,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         # These are ALWAYS read-only - subagents cannot write to context paths.
         # If the parent agent needs changes from the subagent, it should copy
         # the desired files from the subagent's workspace after completion.
-        context_paths: List[Dict[str, str]] = []
+        context_paths: list[dict[str, str]] = []
         if config.context_files:
             for ctx_file in config.context_files:
                 src_path = Path(ctx_file)
@@ -787,17 +912,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 else:
                     logger.warning(f"[SubagentManager] Context file not found: {ctx_file}")
 
-        # Resolve config.context_paths (files/dirs relative to parent workspace)
-        if config.context_paths:
-            for rel_path in config.context_paths:
-                if rel_path in ("./", "."):
-                    resolved = self.parent_workspace.resolve()
-                else:
-                    resolved = (self.parent_workspace / rel_path).resolve()
-                path_str = str(resolved)
-                if path_str not in {p["path"] for p in context_paths}:
-                    context_paths.append({"path": path_str, "permission": "read"})
-                    logger.info(f"[SubagentManager] Mounting context path: {path_str}")
+        # Resolve config.context_paths with path traversal validation
+        validated_ctx_paths = self._resolve_context_paths_for_subagent(config)
+        existing = {p["path"] for p in context_paths}
+        for vcp in validated_ctx_paths:
+            if vcp["path"] not in existing:
+                context_paths.append(vcp)
+                existing.add(vcp["path"])
 
         workspace_abs = workspace.resolve()
 
@@ -834,7 +955,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             f"[SubagentManager] Launching {config.id} with runtime_mode={runtime_mode}, " f"containerized_parent={self._running_inside_container}",
         )
 
-        process: Optional[asyncio.subprocess.Process] = None
+        process: asyncio.subprocess.Process | None = None
         try:
             # Use async subprocess for graceful cancellation support
             process = await asyncio.create_subprocess_exec(
@@ -859,13 +980,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     process.communicate(),
                     timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Kill the process on timeout
                 logger.warning(f"[SubagentManager] Subagent {config.id} timed out, terminating...")
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
                     await process.wait()
                 raise
@@ -933,7 +1054,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     warning=combined_warning,
                 )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"[SubagentManager] Subagent {config.id} timed out")
             # Still copy logs even on timeout - they contain useful debugging info
             _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
@@ -954,7 +1075,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
             self._active_processes.pop(config.id, None)
             # Still copy logs even on cancellation - they contain useful debugging info
@@ -1041,7 +1162,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         self._subagents[config.id] = state
 
         # Build context paths from config.context_files
-        context_paths: List[Dict[str, str]] = []
+        context_paths: list[dict[str, str]] = []
         if config.context_files:
             for ctx_file in config.context_files:
                 src_path = Path(ctx_file)
@@ -1053,17 +1174,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                         },
                     )
 
-        # Resolve config.context_paths (files/dirs relative to parent workspace)
-        if config.context_paths:
-            for rel_path in config.context_paths:
-                if rel_path in ("./", "."):
-                    resolved = self.parent_workspace.resolve()
-                else:
-                    resolved = (self.parent_workspace / rel_path).resolve()
-                path_str = str(resolved)
-                if path_str not in {p["path"] for p in context_paths}:
-                    context_paths.append({"path": path_str, "permission": "read"})
-                    logger.info(f"[SubagentManager] Mounting context path: {path_str}")
+        # Resolve config.context_paths with path traversal validation
+        validated_ctx_paths = self._resolve_context_paths_for_subagent(config)
+        existing = {p["path"] for p in context_paths}
+        for vcp in validated_ctx_paths:
+            if vcp["path"] not in existing:
+                context_paths.append(vcp)
+                existing.add(vcp["path"])
 
         workspace_abs = workspace.resolve()
 
@@ -1115,7 +1232,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             f"[SubagentManager] Executing subagent {config.id} with streaming, " f"config: {yaml_path}",
         )
 
-        process: Optional[asyncio.subprocess.Process] = None
+        process: asyncio.subprocess.Process | None = None
         try:
             # Use async subprocess for real-time streaming
             process = await asyncio.create_subprocess_exec(
@@ -1146,7 +1263,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                             # Capture non-JSON lines for error diagnostics
                             non_event_stdout_lines.append(line.decode().strip())
                         except Exception as e:
-                            logger.debug(f"[SubagentManager] Error processing event: {e}")
+                            logger.warning(f"[SubagentManager] Error processing event: {e}")
 
             # Drain stderr concurrently to prevent pipe buffer deadlock
             stderr_chunks: list[bytes] = []
@@ -1163,12 +1280,12 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 await asyncio.wait_for(stream_events(), timeout=timeout)
                 # Wait for process to complete after streaming is done
                 await process.wait()
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"[SubagentManager] Subagent {config.id} timed out, terminating...")
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
                     await process.wait()
                 raise
@@ -1244,7 +1361,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
             return result
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log_dir = self._get_subagent_log_dir(config.id)
             result = self._create_timeout_result_with_recovery(
                 subagent_id=config.id,
@@ -1263,7 +1380,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
             self._active_processes.pop(config.id, None)
             log_dir = self._get_subagent_log_dir(config.id)
@@ -1297,8 +1414,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         self,
         config: SubagentConfig,
         workspace: Path,
-        context_paths: Optional[List[Dict[str, str]]] = None,
-    ) -> Dict[str, Any]:
+        context_paths: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a YAML config dict for the subagent MassGen process.
 
@@ -1475,7 +1592,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         # Merge context paths: parent context paths + task-specific context paths
         # Parent context paths are always read-only (subagents can read the codebase)
         # Task-specific context paths from context_files are also read-only
-        merged_context_paths: List[Dict[str, str]] = []
+        merged_context_paths: list[dict[str, str]] = []
 
         # Add parent context paths first (always read-only for subagents)
         if self._parent_context_paths:
@@ -1539,7 +1656,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         return yaml_config
 
-    def _parse_subprocess_status(self, workspace: Path) -> tuple[Dict[str, Any], Optional[str], Optional[str]]:
+    def _parse_subprocess_status(self, workspace: Path) -> tuple[dict[str, Any], str | None, str | None]:
         """
         Parse token usage, log path, and session ID from the subprocess's status.json.
 
@@ -1569,15 +1686,17 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     # Extract session_id from meta section
                     session_id = data.get("meta", {}).get("session_id")
                     return token_usage, str(log_dir / "turn_1" / "attempt_1"), session_id
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
+                    logger.warning(
+                        f"[SubagentManager] Failed to parse {status_file}: {e}",
+                    )
         return {}, None, None
 
     def _write_subprocess_log_reference(
         self,
         subagent_id: str,
-        subprocess_log_dir: Optional[str],
-        error: Optional[str] = None,
+        subprocess_log_dir: str | None,
+        error: str | None = None,
     ) -> None:
         """
         Write a reference file pointing to the subprocess's log directory
@@ -1659,14 +1778,14 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
     async def spawn_subagent(
         self,
         task: str,
-        subagent_id: Optional[str] = None,
-        model: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
-        context_files: Optional[List[str]] = None,
-        context_paths: Optional[List[str]] = None,
-        system_prompt: Optional[str] = None,
+        subagent_id: str | None = None,
+        model: str | None = None,
+        timeout_seconds: int | None = None,
+        context_files: list[str] | None = None,
+        context_paths: list[str] | None = None,
+        system_prompt: str | None = None,
         refine: bool = True,
-        skills: Optional[List[str]] = None,
+        skills: list[str] | None = None,
     ) -> SubagentResult:
         """
         Spawn a single subagent to work on a task.
@@ -1761,7 +1880,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                         self._execute_subagent(config, workspace),
                         timeout=config.timeout_seconds,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Attempt to recover completed work from workspace
                     log_dir = self._get_subagent_log_dir(config.id)
                     # Load context warning for the result
@@ -1822,10 +1941,10 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
     async def spawn_parallel(
         self,
-        tasks: List[Dict[str, Any]],
-        timeout_seconds: Optional[int] = None,
+        tasks: list[dict[str, Any]],
+        timeout_seconds: int | None = None,
         refine: bool = True,
-    ) -> List[SubagentResult]:
+    ) -> list[SubagentResult]:
         """
         Spawn multiple subagents to run in parallel.
 
@@ -1884,15 +2003,15 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
     def spawn_subagent_background(
         self,
         task: str,
-        subagent_id: Optional[str] = None,
-        model: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
-        context_files: Optional[List[str]] = None,
-        context_paths: Optional[List[str]] = None,
-        system_prompt: Optional[str] = None,
+        subagent_id: str | None = None,
+        model: str | None = None,
+        timeout_seconds: int | None = None,
+        context_files: list[str] | None = None,
+        context_paths: list[str] | None = None,
+        system_prompt: str | None = None,
         refine: bool = True,
-        skills: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        skills: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Spawn a subagent in the background (non-blocking).
 
@@ -1991,7 +2110,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                         self._execute_subagent(config, workspace),
                         timeout=config.timeout_seconds,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Attempt to recover completed work from workspace
                     log_dir = self._get_subagent_log_dir(config.id)
                     # Load context warning for the result
@@ -2085,7 +2204,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         self,
         subagent_id: str,
         new_message: str,
-        timeout_seconds: Optional[int] = None,
+        timeout_seconds: int | None = None,
     ) -> SubagentResult:
         """Continue a previously spawned subagent with a new message.
 
@@ -2208,7 +2327,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             f"[SubagentManager] Continuing {subagent_id} with runtime_mode={runtime_mode}, " f"containerized_parent={self._running_inside_container}",
         )
 
-        process: Optional[asyncio.subprocess.Process] = None
+        process: asyncio.subprocess.Process | None = None
         try:
             # Use async subprocess for graceful cancellation support
             process = await asyncio.create_subprocess_exec(
@@ -2229,13 +2348,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     process.communicate(),
                     timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Kill the process on timeout
                 logger.warning(f"[SubagentManager] Continuation of {subagent_id} timed out, terminating...")
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
                     await process.wait()
 
@@ -2325,7 +2444,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 warning=runtime_warning,
             )
 
-    def get_subagent_status(self, subagent_id: str) -> Optional[Dict[str, Any]]:
+    def get_subagent_status(self, subagent_id: str) -> dict[str, Any] | None:
         """
         Get the current status of a subagent.
 
@@ -2362,7 +2481,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "started_at": state.started_at.isoformat() if state.started_at else None,
         }
 
-    def get_subagent_display_data(self, subagent_id: str) -> Optional[SubagentDisplayData]:
+    def get_subagent_display_data(self, subagent_id: str) -> SubagentDisplayData | None:
         """
         Get display data for a subagent (for TUI rendering).
 
@@ -2401,7 +2520,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         if workspace_path and workspace_path.exists():
             try:
                 workspace_file_count = sum(1 for p in workspace_path.rglob("*") if p.is_file())
-            except (OSError, IOError):
+            except OSError:
                 pass
 
         # Get last log line
@@ -2421,7 +2540,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                             lines = content.strip().split("\n")
                             if lines:
                                 last_log_line = lines[-1][:100]  # Truncate
-                except (OSError, IOError):
+                except OSError:
                     pass
 
         # Get error message if failed
@@ -2456,14 +2575,15 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             error=error,
             answer_preview=answer_preview,
             log_path=events_jsonl_path,
+            context_paths=list(state.config.context_paths or []),
         )
 
     def _transform_orchestrator_status(
         self,
         subagent_id: str,
-        raw_status: Dict[str, Any],
+        raw_status: dict[str, Any],
         state: SubagentState,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Transform Orchestrator's rich status.json into simplified status for MCP.
 
@@ -2520,7 +2640,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         return result
 
-    async def wait_for_subagent(self, subagent_id: str, timeout: Optional[float] = None) -> Optional[SubagentResult]:
+    async def wait_for_subagent(self, subagent_id: str, timeout: float | None = None) -> SubagentResult | None:
         """
         Wait for a background subagent to complete.
 
@@ -2544,10 +2664,10 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 return await asyncio.wait_for(task, timeout=timeout)
             else:
                 return await task
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
-    def list_subagents(self) -> List[Dict[str, Any]]:
+    def list_subagents(self) -> list[dict[str, Any]]:
         """
         List all subagents spawned by this manager.
 
@@ -2567,7 +2687,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 - source_agent: Agent ID that spawned this subagent (when merging registries)
                 - created_at, execution_time_seconds, success, last_continued_at, etc.
         """
-        subagents: Dict[str, Dict[str, Any]] = {}
+        subagents: dict[str, dict[str, Any]] = {}
 
         # First, load this agent's own registry
         registry_file = self.subagents_base / "_registry.json"
@@ -2680,7 +2800,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         return list(subagents.values())
 
-    def get_subagent_result(self, subagent_id: str) -> Optional[SubagentResult]:
+    def get_subagent_result(self, subagent_id: str) -> SubagentResult | None:
         """
         Get result for a specific subagent.
 
@@ -2695,7 +2815,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             return state.result
         return None
 
-    def get_subagent_costs_summary(self) -> Dict[str, Any]:
+    def get_subagent_costs_summary(self) -> dict[str, Any]:
         """
         Get aggregated cost summary for all subagents.
 
@@ -2737,7 +2857,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "subagents": subagent_details,
         }
 
-    def get_subagent_pointer(self, subagent_id: str) -> Optional[SubagentPointer]:
+    def get_subagent_pointer(self, subagent_id: str) -> SubagentPointer | None:
         """
         Get pointer for a subagent (for plan.json tracking).
 
@@ -2805,7 +2925,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     process.terminate()
                     try:
                         await asyncio.wait_for(process.wait(), timeout=5.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning(f"[SubagentManager] Force killing subagent {subagent_id}")
                         process.kill()
                         await process.wait()
@@ -2846,7 +2966,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
     # Timeout Recovery Methods
     # =========================================================================
 
-    def _extract_status_from_workspace(self, workspace: Path) -> Dict[str, Any]:
+    def _extract_status_from_workspace(self, workspace: Path) -> dict[str, Any]:
         """
         Extract coordination status from a subagent's workspace.
 
@@ -2957,12 +3077,12 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
     def _extract_answer_from_workspace(
         self,
         workspace: Path,
-        winner_agent_id: Optional[str] = None,
-        votes: Optional[Dict[str, int]] = None,
-        historical_workspaces: Optional[Dict[str, str]] = None,
-        historical_workspaces_raw: Optional[List[Dict[str, Any]]] = None,
-        log_path: Optional[Path] = None,
-    ) -> Optional[str]:
+        winner_agent_id: str | None = None,
+        votes: dict[str, int] | None = None,
+        historical_workspaces: dict[str, str] | None = None,
+        historical_workspaces_raw: list[dict[str, Any]] | None = None,
+        log_path: Path | None = None,
+    ) -> str | None:
         """
         Extract the best available answer from a subagent's workspace.
 
@@ -3077,7 +3197,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         return None
 
-    def _extract_costs_from_status(self, workspace: Path) -> Dict[str, Any]:
+    def _extract_costs_from_status(self, workspace: Path) -> dict[str, Any]:
         """
         Extract token usage costs from a subagent's status.json.
 
@@ -3096,8 +3216,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         subagent_id: str,
         workspace: Path,
         timeout_seconds: float,
-        log_path: Optional[str] = None,
-        warning: Optional[str] = None,
+        log_path: str | None = None,
+        warning: str | None = None,
     ) -> SubagentResult:
         """
         Create a SubagentResult for a timed-out subagent, recovering any completed work.

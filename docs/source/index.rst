@@ -58,7 +58,7 @@ MassGen is a cutting-edge multi-agent system that leverages the power of collabo
 * **Share Workspaces** - When agents provide answers, their workspace is captured so others can review their work
 * **Natural Consensus** - Coordination continues until all agents vote, then the agent with most votes presents the final answer
 
-Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
+MassGen is a cutting-edge multi-agent framework that coordinates AI agents through **redundancy and iterative refinement**. Agents tackle the full problem, observe and build on each other's work across cycles of refinement and restarts, then vote — and the best collectively validated answer wins. This lays the groundwork for principled multi-agent scaling and self-improvement.
 
 .. raw:: html
 
@@ -190,6 +190,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.54 (February 20, 2026)** - Subagent Messaging & Copilot SDK Backend
+
+Runtime messaging to steer running background subagents. New GitHub Copilot backend via copilot-sdk with native MCP support. Gemini 3.1 Pro support. Per-agent injection targeting.
+
 **v0.1.53 (February 18, 2026)** - Background Tool Execution
 
 Background tool execution for non-blocking long-running work. Planning task verification requirements. TUI background job indicators and lifecycle controls. Subagent infrastructure groundwork with Evaluator and Explorer types.
@@ -197,10 +201,6 @@ Background tool execution for non-blocking long-running work. Planning task veri
 **v0.1.52 (February 16, 2026)** - Final Answer Modal & Coordination Quality Gates
 
 Dedicated final answer modal with tabbed answer and workspace/review interface. Substantive gate prevents low-value iteration rounds. Novelty injection combats premature convergence. Agent identity versioning for answer provenance tracking.
-
-**v0.1.51 (February 13, 2026)** - Reviewing Coordination & Change Documents
-
-Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. ``--cwd-context`` CLI flag.
 
 :doc:`Full changelog → <changelog>`
 

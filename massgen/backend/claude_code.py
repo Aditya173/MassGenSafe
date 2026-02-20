@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Claude Code Stream Backend - Streaming interface using claude-code-sdk-python.
 
@@ -55,9 +54,10 @@ import sys
 import time
 import uuid
 import warnings
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from claude_agent_sdk import (  # type: ignore
     AssistantMessage,
@@ -87,9 +87,15 @@ from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import (
     build_workflow_instructions,  # Used in _build_system_prompt_with_workflow_tools
 )
-from .base import FilesystemSupport, LLMBackend, StreamChunk
+from .base import (
+    FilesystemSupport,
+    LLMBackend,
+    StreamChunk,
+)
 from .base import extract_structured_response as _extract_structured_response
-from .base import get_multimodal_tool_definitions
+from .base import (
+    get_multimodal_tool_definitions,
+)
 from .base import parse_workflow_tool_calls as _parse_workflow_tool_calls
 from .base_with_custom_tool_and_mcp import (
     BACKGROUND_TOOL_CANCEL_NAME,
@@ -127,7 +133,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
     supports_sdk_mcp = True
 
-    def __init__(self, api_key: Optional[str] = None, **kwargs):
+    def __init__(self, api_key: str | None = None, **kwargs):
         """Initialize ClaudeCodeBackend.
 
         Args:
@@ -182,8 +188,8 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             self._setup_windows_subprocess_cleanup_suppression()
 
         # Single ClaudeSDKClient for this backend instance
-        self._client: Optional[Any] = None  # ClaudeSDKClient
-        self._current_session_id: Optional[str] = None
+        self._client: Any | None = None  # ClaudeSDKClient
+        self._current_session_id: str | None = None
 
         # Get workspace paths from filesystem manager (required for Claude Code)
         # The filesystem manager handles all workspace setup and management
@@ -192,27 +198,28 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
         self._cwd: str = str(Path(str(self.filesystem_manager.get_current_workspace())).resolve())
 
-        self._pending_system_prompt: Optional[str] = None  # Windows-only workaround
+        self._pending_system_prompt: str | None = None  # Windows-only workaround
 
         # Track tool_use_id -> tool_name for matching ToolResultBlock to its ToolUseBlock
         # (ToolResultBlock only has tool_use_id, not the tool name)
-        self._tool_id_to_name: Dict[str, str] = {}
+        self._tool_id_to_name: dict[str, str] = {}
         # Track tool_use_id -> start time for elapsed_seconds calculation
-        self._tool_start_times: Dict[str, float] = {}
+        self._tool_start_times: dict[str, float] = {}
 
         # Background tool management state (parity with MCP-enabled backends)
-        self._background_tool_jobs: Dict[str, BackgroundToolJob] = {}
-        self._background_tool_tasks: Dict[str, asyncio.Task[Any]] = {}
-        self._pending_background_tool_results: List[Dict[str, Any]] = []
-        self._background_tool_wait_seen_ids: Set[str] = set()
-        self._background_tool_management_names: Set[str] = set(
+        self._background_tool_jobs: dict[str, BackgroundToolJob] = {}
+        self._background_tool_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._pending_background_tool_results: list[dict[str, Any]] = []
+        self._background_tool_wait_seen_ids: set[str] = set()
+        self._background_wait_interrupt_provider: Callable[[str], Any] | None = None
+        self._background_tool_management_names: set[str] = set(
             BACKGROUND_TOOL_MANAGEMENT_NAMES,
         )
         self._background_mcp_client = None
         self._background_mcp_initialized = False
 
         # Custom tools support - initialize ToolManager if custom_tools are provided
-        self._custom_tool_manager: Optional[ToolManager] = None
+        self._custom_tool_manager: ToolManager | None = None
         custom_tools = kwargs.get("custom_tools", [])
 
         # Register multimodal tools if enabled
@@ -352,7 +359,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     # supports_native_hooks(), get_native_hook_adapter(), set_native_hooks_config()
     # are provided by NativeToolBackendMixin
 
-    def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
+    def get_disallowed_tools(self, config: dict[str, Any]) -> list[str]:
         """Return native Claude Code tools to disable.
 
         Most native tools (Read, Write, Edit, etc.) are kept enabled,
@@ -381,6 +388,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "Task",  # we have our own version of subagents
             "TodoWrite",
             "ExitPlanMode",
+            "Skill",  # agents read skill files directly; Skill tool misused by weaker models
             "mcp__ide__getDiagnostics",
             "mcp__ide__executeCode",
         ]
@@ -403,7 +411,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
         return disallowed
 
-    def get_tool_category_overrides(self) -> Dict[str, str]:
+    def get_tool_category_overrides(self) -> dict[str, str]:
         """Return tool category overrides for Claude Code.
 
         Claude Code has native tools for filesystem, command execution, file search,
@@ -419,7 +427,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "subagents": "override",  # Override native Task with MassGen spawn_subagents
         }
 
-    def _get_execution_trace_hooks(self) -> Dict[str, List[Any]]:
+    def _get_execution_trace_hooks(self) -> dict[str, list[Any]]:
         """Create SDK hooks that capture tool executions for the execution trace.
 
         Returns:
@@ -428,9 +436,9 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         from claude_agent_sdk import HookMatcher
 
         # Store pending tool calls to correlate with results
-        self._pending_tool_calls: Dict[str, Dict[str, Any]] = {}
+        self._pending_tool_calls: dict[str, dict[str, Any]] = {}
 
-        async def pre_tool_use_hook(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+        async def pre_tool_use_hook(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
             """Capture tool call before execution."""
             if self._execution_trace and input_data.get("hook_event_name") == "PreToolUse":
                 tool_name = input_data.get("tool_name", "unknown")
@@ -451,7 +459,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             # Return empty to allow the operation
             return {}
 
-        async def post_tool_use_hook(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+        async def post_tool_use_hook(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
             """Capture tool result after execution."""
             if self._execution_trace and input_data.get("hook_event_name") == "PostToolUse":
                 tool_name = input_data.get("tool_name", "unknown")
@@ -649,7 +657,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                 )
                 self.token_usage.estimated_cost += cost
 
-    def update_token_usage(self, messages: List[Dict[str, Any]], response_content: str, model: str):
+    def update_token_usage(self, messages: list[dict[str, Any]], response_content: str, model: str):
         """Update token usage tracking (fallback method).
 
         Only used when no ResultMessage available. Provides estimated token
@@ -680,7 +688,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         cost = self.calculate_cost(input_tokens, output_tokens, model, result_message=None)
         self.token_usage.estimated_cost += cost
 
-    def _resolve_skill_source(self) -> Optional[Path]:
+    def _resolve_skill_source(self) -> Path | None:
         """Resolve the best available skills source directory, if any."""
         fm = self.filesystem_manager
         if fm is not None:
@@ -708,21 +716,25 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
         return None
 
-    def _sync_skills_into_claude_home(self, workspace_path: Path) -> None:
-        """Copy discovered skills into workspace/.claude/skills for SDK discovery."""
+    def _sync_skills_into_workspace(self, workspace_path: Path) -> None:
+        """Copy discovered skills into workspace/.agent/skills for direct reading.
+
+        Also creates a .claude/skills symlink pointing to .agent/skills so both
+        conventional paths resolve to the same location.
+        """
         source = self._resolve_skill_source()
         if source is None:
             return
 
-        claude_home = workspace_path / ".claude"
-        dest = claude_home / "skills"
+        # Primary location: .agent/skills/
+        agent_dir = workspace_path / ".agent"
+        dest = agent_dir / "skills"
         dest.mkdir(parents=True, exist_ok=True)
 
         try:
             if source.resolve() == dest.resolve():
                 return
         except OSError:
-            # Continue best-effort copy if either path cannot be resolved.
             pass
 
         copied_entries = 0
@@ -742,7 +754,20 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         if copied_entries:
             logger.info(f"[ClaudeCodeBackend] Skills sync copied {copied_entries} entries from {source} to {dest}")
 
-    def get_supported_builtin_tools(self, enable_web_search: bool = False) -> List[str]:
+        # Symlink .claude/skills -> .agent/skills
+        claude_skills = workspace_path / ".claude" / "skills"
+        try:
+            if claude_skills.is_symlink() or claude_skills.exists():
+                if claude_skills.is_symlink():
+                    claude_skills.unlink()
+                elif claude_skills.is_dir():
+                    shutil.rmtree(claude_skills)
+            claude_skills.parent.mkdir(parents=True, exist_ok=True)
+            claude_skills.symlink_to(dest)
+        except OSError as e:
+            logger.warning(f"Claude Code .claude/skills symlink failed: {e}")
+
+    def get_supported_builtin_tools(self, enable_web_search: bool = False) -> list[str]:
         """Get list of builtin tools supported by Claude Code.
 
         Returns only tools that MassGen doesn't have native equivalents for.
@@ -756,9 +781,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         Returns:
             List of tool names that should be enabled for Claude Code.
         """
-        tools = [
-            "Skill",
-        ]
+        tools: list[str] = []
 
         if enable_web_search:
             tools.extend(["WebSearch", "WebFetch"])
@@ -808,7 +831,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         ],
     }
 
-    def _get_all_tools_for_server(self, server_name: str) -> List[str]:
+    def _get_all_tools_for_server(self, server_name: str) -> list[str]:
         """Get all known tools for a server, prefixed with mcp__{server}__.
 
         Used when we need to explicitly list all tools (fallback when wildcards not supported).
@@ -851,7 +874,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
         return []
 
-    def get_current_session_id(self) -> Optional[str]:
+    def get_current_session_id(self) -> str | None:
         """Get current session ID from server-side session management.
 
         Returns:
@@ -879,7 +902,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     #     # Will integrate with PermissionManager
     #     pass
 
-    def _register_custom_tools(self, custom_tools: List[Dict[str, Any]]) -> None:
+    def _register_custom_tools(self, custom_tools: list[dict[str, Any]]) -> None:
         """Register custom tools with the tool manager.
 
         Supports flexible configuration:
@@ -1038,7 +1061,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         field_value: Any,
         num_functions: int,
         field_name: str,
-    ) -> Optional[List[Any]]:
+    ) -> list[Any] | None:
         """Process a config field that can be a single value or list.
 
         Conversion rules:
@@ -1122,9 +1145,9 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             len(self._get_massgen_custom_tool_schemas()),
         )
 
-    def _get_massgen_custom_tool_schemas(self) -> List[Dict[str, Any]]:
+    def _get_massgen_custom_tool_schemas(self) -> list[dict[str, Any]]:
         """Return user custom-tool schemas plus internal background management tools."""
-        schemas: List[Dict[str, Any]] = []
+        schemas: list[dict[str, Any]] = []
         if self._custom_tool_manager:
             schemas.extend(self._custom_tool_manager.fetch_tool_schemas())
         schemas.extend(self._get_background_tool_management_schemas())
@@ -1134,9 +1157,9 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     def _build_background_management_schema(
         name: str,
         description: str,
-        properties: Dict[str, Any],
-        required: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        properties: dict[str, Any],
+        required: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Create OpenAI function schema for internal background management tools."""
         return {
             "type": "function",
@@ -1151,7 +1174,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             },
         }
 
-    def _get_background_tool_management_schemas(self) -> List[Dict[str, Any]]:
+    def _get_background_tool_management_schemas(self) -> list[dict[str, Any]]:
         """Schemas for lifecycle management of background tool jobs."""
         return [
             self._build_background_management_schema(
@@ -1439,10 +1462,10 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
     def _strip_background_control_args(
         self,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         *,
-        tool_name: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        tool_name: str | None = None,
+    ) -> dict[str, Any]:
         """Remove synthetic background control flags before dispatching target tools."""
         cleaned = dict(arguments)
         preserve_background = bool(tool_name) and self._mcp_tool_declares_argument(tool_name, "background")
@@ -1471,7 +1494,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         }
 
     @staticmethod
-    def _is_explicit_foreground_request(arguments: Dict[str, Any]) -> bool:
+    def _is_explicit_foreground_request(arguments: dict[str, Any]) -> bool:
         """Return True when args explicitly request foreground/blocking behavior."""
         if arguments.get("background") is False:
             return True
@@ -1482,7 +1505,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     def _should_auto_background_execution(
         self,
         tool_name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
     ) -> bool:
         """Return True when this tool call should be started in background mode."""
         if self._is_background_management_tool(tool_name):
@@ -1516,7 +1539,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                 f"CONTEXT.md must be created before starting {tool_name} in background. {exc}",
             ) from exc
 
-    def _resolve_background_tool_type(self, tool_name: str) -> Optional[Tuple[str, str]]:
+    def _resolve_background_tool_type(self, tool_name: str) -> tuple[str, str] | None:
         """Resolve background target to (tool_type, effective_tool_name)."""
         if not tool_name:
             return None
@@ -1540,7 +1563,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         return None
 
     @staticmethod
-    def _format_unix_timestamp(timestamp: Optional[float]) -> Optional[str]:
+    def _format_unix_timestamp(timestamp: float | None) -> str | None:
         """Convert unix timestamp to ISO-8601 string."""
         if timestamp is None:
             return None
@@ -1550,9 +1573,9 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         self,
         job: BackgroundToolJob,
         include_result: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Serialize background job state for tool responses and hook injection."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "job_id": job.job_id,
             "tool_name": job.tool_name,
             "tool_type": job.tool_type,
@@ -1574,17 +1597,59 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             self._serialize_background_job(job, include_result=True),
         )
 
-    def get_pending_background_tool_results(self) -> List[Dict[str, Any]]:
+    def get_pending_background_tool_results(self) -> list[dict[str, Any]]:
         """Return and clear completed background jobs pending injection."""
         pending = list(self._pending_background_tool_results)
         self._pending_background_tool_results.clear()
         return pending
 
-    def _pop_next_pending_background_tool_result(self) -> Optional[Dict[str, Any]]:
+    def _pop_next_pending_background_tool_result(self) -> dict[str, Any] | None:
         """Pop one completed background job payload from the shared delivery queue."""
         if not self._pending_background_tool_results:
             return None
         return self._pending_background_tool_results.pop(0)
+
+    def set_background_wait_interrupt_provider(
+        self,
+        provider: Callable[[str], Any] | None,
+    ) -> None:
+        """Set an optional provider used to interrupt wait_for_background_tool."""
+        self._background_wait_interrupt_provider = provider
+
+    async def _get_background_wait_interrupt_payload(self) -> dict[str, Any] | None:
+        """Return normalized wait interrupt payload, if any."""
+        if not self._background_wait_interrupt_provider:
+            return None
+
+        agent_id = str(
+            getattr(self, "agent_id", None) or self._current_agent_id or "unknown",
+        )
+        try:
+            payload = self._background_wait_interrupt_provider(agent_id)
+            if asyncio.iscoroutine(payload):
+                payload = await payload
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[ClaudeCodeBackend] Wait interrupt provider failed for %s: %s",
+                agent_id,
+                e,
+                exc_info=True,
+            )
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        raw_reason = payload.get("interrupt_reason", "runtime_injection_available")
+        interrupt_reason = str(raw_reason).strip() or "runtime_injection_available"
+        injected_content = payload.get("injected_content")
+        if injected_content is not None:
+            injected_content = str(injected_content)
+
+        return {
+            "interrupt_reason": interrupt_reason,
+            "injected_content": injected_content,
+        }
 
     @staticmethod
     def _extract_text_from_mcp_content(content: Any) -> str:
@@ -1593,7 +1658,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             return ""
 
         blocks = content if isinstance(content, list) else [content]
-        text_parts: List[str] = []
+        text_parts: list[str] = []
 
         for block in blocks:
             if isinstance(block, dict):
@@ -1618,7 +1683,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         return "\n".join(part for part in text_parts if part).strip()
 
     @classmethod
-    def _extract_text_from_mcp_response(cls, response: Dict[str, Any]) -> str:
+    def _extract_text_from_mcp_response(cls, response: dict[str, Any]) -> str:
         """Extract text payload from MCP-style dict response."""
         content = response.get("content") if isinstance(response, dict) else None
         text = cls._extract_text_from_mcp_content(content)
@@ -1626,10 +1691,10 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             return text
         return str(response)
 
-    def _get_background_mcp_servers(self) -> List[Dict[str, Any]]:
+    def _get_background_mcp_servers(self) -> list[dict[str, Any]]:
         """Return MCP server configs usable by background MCP execution."""
         servers = self.config.get("mcp_servers", [])
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
 
         if isinstance(servers, dict):
             for name, cfg in servers.items():
@@ -1693,8 +1758,8 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         self,
         tool_name: str,
         tool_type: str,
-        arguments: Dict[str, Any],
-    ) -> Tuple[str, bool]:
+        arguments: dict[str, Any],
+    ) -> tuple[str, bool]:
         """Execute target tool for a background job."""
         if tool_type == "custom":
             response = await self._execute_massgen_custom_tool(
@@ -1768,8 +1833,8 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     async def _start_background_tool_job(
         self,
         tool_name: str,
-        arguments: Dict[str, Any],
-        source_call_id: Optional[str] = None,
+        arguments: dict[str, Any],
+        source_call_id: str | None = None,
     ) -> BackgroundToolJob:
         """Start a background job for a custom or MCP tool."""
         resolution = self._resolve_background_tool_type(tool_name)
@@ -1797,7 +1862,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         )
         return job
 
-    async def _start_background_tool_from_request(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _start_background_tool_from_request(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Handle custom_tool__start_background_tool."""
         tool_name, target_arguments, parse_error = self._extract_background_start_request(arguments)
         if parse_error:
@@ -1819,8 +1884,8 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
     def _extract_background_start_request(
         self,
-        arguments: Dict[str, Any],
-    ) -> Tuple[str, Dict[str, Any], Optional[str]]:
+        arguments: dict[str, Any],
+    ) -> tuple[str, dict[str, Any], str | None]:
         """Extract target tool name/args from flexible start_background_tool payload."""
         tool_name = str(
             arguments.get("tool_name") or arguments.get("tool") or "",
@@ -1859,7 +1924,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
         return (tool_name, target_arguments, None)
 
-    def _get_background_tool_status_from_request(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_background_tool_status_from_request(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Handle custom_tool__get_background_tool_status."""
         job_id = str(arguments.get("job_id", "")).strip()
         if not job_id:
@@ -1873,7 +1938,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         payload["success"] = True
         return payload
 
-    def _get_background_tool_result_from_request(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_background_tool_result_from_request(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Handle custom_tool__get_background_tool_result."""
         job_id = str(arguments.get("job_id", "")).strip()
         if not job_id:
@@ -1891,7 +1956,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         return payload
 
     @staticmethod
-    def _coerce_background_wait_timeout(arguments: Dict[str, Any]) -> float:
+    def _coerce_background_wait_timeout(arguments: dict[str, Any]) -> float:
         """Normalize wait timeout to a safe bounded value."""
         raw_timeout = arguments.get(
             "timeout_seconds",
@@ -1905,7 +1970,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             return 0.0
         return min(timeout_seconds, BACKGROUND_TOOL_WAIT_MAX_TIMEOUT_SECONDS)
 
-    def _next_waitable_background_job(self) -> Optional[BackgroundToolJob]:
+    def _next_waitable_background_job(self) -> BackgroundToolJob | None:
         """Get the next unseen terminal background job for wait calls."""
         candidates = [job for job in self._background_tool_jobs.values() if job.status in BACKGROUND_TOOL_TERMINAL_STATUSES and job.job_id not in self._background_tool_wait_seen_ids]
         if not candidates:
@@ -1918,7 +1983,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         )
         return candidates[0]
 
-    async def _wait_for_background_tool_from_request(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _wait_for_background_tool_from_request(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Handle custom_tool__wait_for_background_tool."""
         timeout_seconds = self._coerce_background_wait_timeout(arguments)
         wait_started_at = time.time()
@@ -1937,6 +2002,18 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                     },
                 )
                 return payload
+
+            interrupt_payload = await self._get_background_wait_interrupt_payload()
+            if interrupt_payload is not None:
+                return {
+                    "success": True,
+                    "ready": False,
+                    "interrupted": True,
+                    "interrupt_reason": interrupt_payload.get("interrupt_reason"),
+                    "injected_content": interrupt_payload.get("injected_content"),
+                    "waited_seconds": round(time.time() - wait_started_at, 3),
+                    "message": "Background wait interrupted by runtime input",
+                }
 
             elapsed = time.time() - wait_started_at
             if elapsed >= timeout_seconds:
@@ -1957,7 +2034,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             else:
                 await asyncio.sleep(sleep_seconds)
 
-    def _cancel_background_tool_from_request(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _cancel_background_tool_from_request(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Handle custom_tool__cancel_background_tool."""
         job_id = str(arguments.get("job_id", "")).strip()
         if not job_id:
@@ -1978,7 +2055,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         return payload
 
     @staticmethod
-    def _coerce_include_all_background_jobs(arguments: Optional[Dict[str, Any]]) -> bool:
+    def _coerce_include_all_background_jobs(arguments: dict[str, Any] | None) -> bool:
         """Normalize include_all flag for background list requests."""
         if not isinstance(arguments, dict):
             return False
@@ -1990,7 +2067,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             return raw_include_all.strip().lower() in {"1", "true", "yes", "on", "all"}
         return False
 
-    def _list_background_tools_from_request(self, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _list_background_tools_from_request(self, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         """Handle custom_tool__list_background_tools."""
         include_all = self._coerce_include_all_background_jobs(arguments)
         jobs = [self._serialize_background_job(job) for job in self._background_tool_jobs.values() if include_all or job.status not in BACKGROUND_TOOL_TERMINAL_STATUSES]
@@ -2005,8 +2082,8 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     async def _execute_background_management_tool(
         self,
         tool_name: str,
-        arguments: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
         """Dispatch internal background-management tools."""
         if tool_name == BACKGROUND_TOOL_START_NAME:
             return await self._start_background_tool_from_request(arguments)
@@ -2025,7 +2102,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
     async def _cancel_all_background_tool_jobs(self) -> None:
         """Cancel all running background jobs."""
-        running_tasks: List[asyncio.Task[Any]] = []
+        running_tasks: list[asyncio.Task[Any]] = []
         for job_id, task in list(self._background_tool_tasks.items()):
             if task.done():
                 continue
@@ -2110,7 +2187,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             logger.error(f"Failed to create SDK MCP server: {e}")
             return None
 
-    def _build_system_prompt_with_workflow_tools(self, tools: List[Dict[str, Any]], base_system: Optional[str] = None) -> str:
+    def _build_system_prompt_with_workflow_tools(self, tools: list[dict[str, Any]], base_system: str | None = None) -> str:
         """Build system prompt that includes workflow tools information.
 
         Creates comprehensive system prompt that instructs Claude on tool
@@ -2182,16 +2259,16 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                 source="claude_code_backend",
             )
 
-    def extract_structured_response(self, response_text: str) -> Optional[Dict[str, Any]]:
+    def extract_structured_response(self, response_text: str) -> dict[str, Any] | None:
         """Extract structured JSON response — delegates to shared helper."""
         return _extract_structured_response(response_text)
 
-    def _parse_workflow_tool_calls(self, text_content: str) -> List[Dict[str, Any]]:
+    def _parse_workflow_tool_calls(self, text_content: str) -> list[dict[str, Any]]:
         """Parse workflow tool calls from text — delegates to shared helper."""
         return _parse_workflow_tool_calls(text_content)
 
     @staticmethod
-    def _try_extract_workflow_mcp_result(result_str: str) -> Optional[Dict[str, Any]]:
+    def _try_extract_workflow_mcp_result(result_str: str) -> dict[str, Any] | None:
         """Try to extract a workflow tool call from an MCP tool result string.
 
         Returns:
@@ -2227,12 +2304,13 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         permission_mode = options_kwargs.get("permission_mode", "acceptEdits")
         enable_web_search = options_kwargs.get("enable_web_search", False)
         allowed_tools = options_kwargs.get("allowed_tools", self.get_supported_builtin_tools(enable_web_search))
-        disallowed_tools = options_kwargs.get("disallowed_tools", [])
+        options_kwargs.get("disallowed_tools", [])
 
-        # Skill tool requires filesystem-backed settings discovery in the SDK.
-        skill_enabled = isinstance(allowed_tools, list) and "Skill" in allowed_tools
-        if isinstance(disallowed_tools, list) and "Skill" in disallowed_tools:
-            skill_enabled = False
+        # Skill tool is disabled (weaker models misuse it); agents read skill files directly.
+        # skill_enabled = isinstance(allowed_tools, list) and "Skill" in allowed_tools
+        # if isinstance(disallowed_tools, list) and "Skill" in disallowed_tools:
+        #     skill_enabled = False
+        skill_enabled = False
 
         # Filter out parameters handled separately or not for ClaudeAgentOptions
         excluded_params = self.get_base_excluded_config_params() | {
@@ -2270,10 +2348,12 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         cwd_option = Path(str(self.filesystem_manager.get_current_workspace())).resolve()
         self._cwd = str(cwd_option)
 
+        # Always sync skills so agents can read them via filesystem tools.
+        self._sync_skills_into_workspace(cwd_option)
+
         # Keep settings isolated by default; load filesystem settings only when Skill is enabled.
         setting_sources = options_kwargs.get("setting_sources")
         if skill_enabled:
-            self._sync_skills_into_claude_home(cwd_option)
             if setting_sources is None:
                 setting_sources = ["user", "project"]
         elif setting_sources is None:
@@ -2414,7 +2494,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         self._client = ClaudeSDKClient(options)
         return self._client
 
-    async def stream_with_tools(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def stream_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], **kwargs) -> AsyncGenerator[StreamChunk]:
         """
         Stream a response with tool calling support using claude-code-sdk.
 
@@ -2722,7 +2802,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
         # Stream response and convert to MassGen StreamChunks
         accumulated_content = ""
-        workflow_tool_calls_from_mcp: List[Dict[str, Any]] = []
+        workflow_tool_calls_from_mcp: list[dict[str, Any]] = []
         try:
             async for message in client.receive_response():
                 if isinstance(message, (AssistantMessage, UserMessage)):

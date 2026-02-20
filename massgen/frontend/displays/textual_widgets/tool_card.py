@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tool Call Card Widget for MassGen TUI.
 
@@ -6,8 +5,9 @@ Provides clickable cards for displaying tool calls with their
 parameters, results, and status. Clicking opens a detail modal.
 """
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -37,7 +37,7 @@ class InjectionToggle(Static):
         content: Text,
         toggle_callback: Callable[[], None],
         *,
-        id: Optional[str] = None,
+        id: str | None = None,
     ) -> None:
         """Initialize the injection toggle.
 
@@ -111,10 +111,10 @@ class ToolCallCard(Static):
         self,
         tool_name: str,
         tool_type: str = "unknown",
-        call_id: Optional[str] = None,
+        call_id: str | None = None,
         *,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         """Initialize the tool card.
 
@@ -131,12 +131,12 @@ class ToolCallCard(Static):
         self.call_id = call_id
         self._status = "running"
         self._start_time = datetime.now()
-        self._end_time: Optional[datetime] = None
-        self._params: Optional[str] = None  # Truncated for display
-        self._params_full: Optional[str] = None  # Full args for modal
-        self._result: Optional[str] = None  # Truncated for display
-        self._result_full: Optional[str] = None  # Full result for modal
-        self._error: Optional[str] = None
+        self._end_time: datetime | None = None
+        self._params: str | None = None  # Truncated for display
+        self._params_full: str | None = None  # Full args for modal
+        self._result: str | None = None  # Truncated for display
+        self._result_full: str | None = None  # Full result for modal
+        self._error: str | None = None
 
         # Get category info for styling
         self._category = get_tool_category(tool_name)
@@ -158,7 +158,7 @@ class ToolCallCard(Static):
         self._is_subagent = self._category["category"] == "subagent"
         self._expanded = False  # For showing workspace inline
         self._subagent_tasks: list[dict] = []  # Parsed subagent task list
-        self._workspace_content: Optional[str] = None  # Subagent workspace output
+        self._workspace_content: str | None = None  # Subagent workspace output
 
         # Terminal tool detection - these are "hero" tools (new_answer, vote)
         self._is_terminal = self._detect_terminal_tool(tool_name)
@@ -167,13 +167,13 @@ class ToolCallCard(Static):
             self.add_class("terminal-tool")
 
         # Injection toggle widget (managed separately for click handling)
-        self._injection_toggle: Optional[InjectionToggle] = None
+        self._injection_toggle: InjectionToggle | None = None
 
         # Timer for updating elapsed time while running
         self._elapsed_timer = None
 
         # Background/async operation tracking
-        self._async_id: Optional[str] = None  # e.g., shell_id for background shells
+        self._async_id: str | None = None  # e.g., shell_id for background shells
         self._is_background = False  # True if this is an async operation
 
         # Appearance animation state
@@ -996,7 +996,7 @@ class ToolCallCard(Static):
                 return True
         return False
 
-    def set_params(self, params: str, params_full: Optional[str] = None) -> None:
+    def set_params(self, params: str, params_full: str | None = None) -> None:
         """Set the tool parameters.
 
         Args:
@@ -1007,7 +1007,7 @@ class ToolCallCard(Static):
         self._params_full = params_full if params_full else params
         self._refresh_main_content()
 
-    def set_result(self, result: str, result_full: Optional[str] = None) -> None:
+    def set_result(self, result: str, result_full: str | None = None) -> None:
         """Set successful result.
 
         Args:
@@ -1040,8 +1040,8 @@ class ToolCallCard(Static):
     def set_background_result(
         self,
         result: str,
-        result_full: Optional[str] = None,
-        async_id: Optional[str] = None,
+        result_full: str | None = None,
+        async_id: str | None = None,
     ) -> None:
         """Set result for a background/async operation.
 
@@ -1069,9 +1069,9 @@ class ToolCallCard(Static):
         self,
         hook_name: str,
         decision: str,
-        reason: Optional[str] = None,
-        execution_time_ms: Optional[float] = None,
-        injection_content: Optional[str] = None,
+        reason: str | None = None,
+        execution_time_ms: float | None = None,
+        injection_content: str | None = None,
     ) -> None:
         """Add a pre-tool hook execution to display.
 
@@ -1097,9 +1097,9 @@ class ToolCallCard(Static):
     def add_post_hook(
         self,
         hook_name: str,
-        injection_preview: Optional[str] = None,
-        execution_time_ms: Optional[float] = None,
-        injection_content: Optional[str] = None,
+        injection_preview: str | None = None,
+        execution_time_ms: float | None = None,
+        injection_content: str | None = None,
     ) -> None:
         """Add a post-tool hook execution to display.
 
@@ -1155,7 +1155,7 @@ class ToolCallCard(Static):
             self._subagent_tasks[task_index]["status"] = status
             self._refresh_main_content()
 
-    def _get_formatted_result(self) -> Optional[str]:
+    def _get_formatted_result(self) -> str | None:
         """Get a formatted version of the result, parsing JSON if applicable.
 
         For subagent tools, this extracts meaningful information from the JSON result.
@@ -1280,7 +1280,7 @@ class ToolCallCard(Static):
         return self._subagent_tasks
 
     @property
-    def workspace_content(self) -> Optional[str]:
+    def workspace_content(self) -> str | None:
         """Get the workspace content."""
         return self._workspace_content
 
@@ -1310,17 +1310,17 @@ class ToolCallCard(Static):
         return ""
 
     @property
-    def params(self) -> Optional[str]:
+    def params(self) -> str | None:
         """Get full parameters string for modal."""
         return self._params_full or self._params
 
     @property
-    def result(self) -> Optional[str]:
+    def result(self) -> str | None:
         """Get full result string for modal."""
         return self._result_full or self._result
 
     @property
-    def error(self) -> Optional[str]:
+    def error(self) -> str | None:
         """Get error message."""
         return self._error
 

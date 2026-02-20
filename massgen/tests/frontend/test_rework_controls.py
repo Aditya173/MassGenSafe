@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
 """Unit tests for ReworkControlsMixin — the shared feedback + rework button pattern."""
-
 
 from massgen.frontend.displays.textual.widgets.rework_controls import (
     ReworkControlsMixin,

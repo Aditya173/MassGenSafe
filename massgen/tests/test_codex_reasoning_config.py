@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for Codex reasoning effort config mapping."""
 
 import json

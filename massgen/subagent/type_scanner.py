@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Scanner for specialized subagent types defined on disk.
 
 Mirrors the skills discovery pattern: directories containing SUBAGENT.md
@@ -8,7 +7,6 @@ with YAML frontmatter are discovered and parsed into SpecializedSubagentConfig.
 import logging
 import re
 from pathlib import Path
-from typing import List
 
 from massgen.subagent.models import SpecializedSubagentConfig
 
@@ -18,7 +16,7 @@ logger = logging.getLogger(__name__)
 def scan_subagent_types(
     builtin_dir: Path = Path("massgen/subagent_types"),
     project_dir: Path = Path(".agent/subagent_types"),
-) -> List[SpecializedSubagentConfig]:
+) -> list[SpecializedSubagentConfig]:
     """Scan directories for SUBAGENT.md files and parse into configs.
 
     Scans builtin_dir first, then project_dir. Project types override
@@ -35,7 +33,7 @@ def scan_subagent_types(
     project_types = _scan_directory(project_dir)
 
     # Project overrides builtin on name collision (case-insensitive)
-    result: List[SpecializedSubagentConfig] = []
+    result: list[SpecializedSubagentConfig] = []
     seen: set = set()
 
     # Project types first (they win on collision)
@@ -55,15 +53,18 @@ def scan_subagent_types(
     return result
 
 
-def _scan_directory(directory: Path) -> List[SpecializedSubagentConfig]:
+def _scan_directory(directory: Path) -> list[SpecializedSubagentConfig]:
     """Scan a directory for subdirectories containing SUBAGENT.md."""
-    types: List[SpecializedSubagentConfig] = []
+    types: list[SpecializedSubagentConfig] = []
+    excluded_dir_names = {"_template"}
 
     if not directory.is_dir():
         return types
 
     for type_path in sorted(directory.iterdir()):
         if not type_path.is_dir():
+            continue
+        if type_path.name.lower() in excluded_dir_names:
             continue
 
         subagent_file = type_path / "SUBAGENT.md"
@@ -75,6 +76,9 @@ def _scan_directory(directory: Path) -> List[SpecializedSubagentConfig]:
             config = _parse_subagent_md(content, str(subagent_file), type_path.name)
             if config:
                 types.append(config)
+        except ValueError:
+            # Surface schema errors explicitly so users can fix invalid profiles.
+            raise
         except Exception as e:
             logger.warning(f"Failed to parse {subagent_file}: {e}")
             continue
@@ -94,6 +98,16 @@ def _parse_subagent_md(
     from massgen.filesystem_manager.skills_manager import parse_frontmatter
 
     metadata = parse_frontmatter(content)
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Failed to parse SUBAGENT.md frontmatter at {source_path}")
+
+    allowed_fields = {"name", "description", "skills", "expected_input"}
+    unsupported_fields = sorted(set(metadata.keys()) - allowed_fields)
+    if unsupported_fields:
+        fields = ", ".join(unsupported_fields)
+        raise ValueError(
+            f"Unsupported specialized subagent frontmatter fields in {source_path}: {fields}. " "Allowed fields: name, description, skills, expected_input",
+        )
 
     # Extract system prompt: everything after the closing ---
     system_prompt = ""
@@ -103,6 +117,13 @@ def _parse_subagent_md(
 
     name = str(metadata.get("name", "")).strip() or dir_name
     description = metadata.get("description", "")
+    skills = metadata.get("skills", []) or []
+    expected_input = metadata.get("expected_input", []) or []
+
+    if skills and (not isinstance(skills, list) or any(not isinstance(item, str) for item in skills)):
+        raise ValueError(f"Invalid 'skills' field in {source_path}: expected a list of strings")
+    if expected_input and (not isinstance(expected_input, list) or any(not isinstance(item, str) for item in expected_input)):
+        raise ValueError(f"Invalid 'expected_input' field in {source_path}: expected a list of strings")
 
     if not description:
         logger.warning(f"SUBAGENT.md at {source_path} has no description, skipping")
@@ -112,9 +133,7 @@ def _parse_subagent_md(
         name=name,
         description=description,
         system_prompt=system_prompt,
-        default_background=bool(metadata.get("default_background", False)),
-        default_refine=bool(metadata.get("default_refine", False)),
-        skills=metadata.get("skills", []) or [],
-        mcp_servers=metadata.get("mcp_servers", []) or [],
+        skills=skills,
+        expected_input=expected_input,
         source_path=source_path,
     )

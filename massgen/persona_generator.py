@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Automatic persona generation for MassGen agents.
 
 This module provides functionality to automatically generate diverse system
@@ -9,9 +8,10 @@ diversity without requiring users to manually craft different system messages.
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -38,7 +38,7 @@ class GeneratedPersona:
 
     agent_id: str
     persona_text: str
-    attributes: Dict[str, str]
+    attributes: dict[str, str]
 
     def get_softened_text(self) -> str:
         """Get the eased persona text after peer answers are visible."""
@@ -70,7 +70,7 @@ class PersonaGeneratorConfig:
 
     enabled: bool = False
     diversity_mode: str = "perspective"  # "perspective" or "implementation"
-    persona_guidelines: Optional[str] = None
+    persona_guidelines: str | None = None
     persist_across_turns: bool = False  # Default: generate new personas each turn
 
     def __post_init__(self):
@@ -110,7 +110,7 @@ class PersonaGenerator:
 
     def __init__(
         self,
-        guidelines: Optional[str] = None,
+        guidelines: str | None = None,
         diversity_mode: str = "perspective",
     ):
         """Initialize the persona generator.
@@ -125,10 +125,10 @@ class PersonaGenerator:
 
     async def generate_personas(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
-        existing_system_messages: Dict[str, Optional[str]],
-    ) -> Dict[str, GeneratedPersona]:
+        existing_system_messages: dict[str, str | None],
+    ) -> dict[str, GeneratedPersona]:
         """Generate diverse personas for all agents.
 
         Args:
@@ -227,9 +227,9 @@ class PersonaGenerator:
 
     def _build_generation_prompt(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
-        existing_system_messages: Dict[str, Optional[str]],
+        existing_system_messages: dict[str, str | None],
     ) -> str:
         """Build the prompt for persona generation.
 
@@ -331,7 +331,7 @@ Generate personas now:"""
         }
         return strategies.get(self.strategy, strategies["complementary"])
 
-    def _parse_response(self, response: str, agent_ids: List[str]) -> Dict[str, GeneratedPersona]:
+    def _parse_response(self, response: str, agent_ids: list[str]) -> dict[str, GeneratedPersona]:
         """Parse LLM response into GeneratedPersona objects.
 
         Tries multiple strategies to extract JSON from potentially messy output:
@@ -413,7 +413,7 @@ Generate personas now:"""
         logger.debug(f"Response was: {response[:500]}...")
         return self._generate_fallback_personas(agent_ids)
 
-    def _try_parse_json(self, text: str) -> Optional[Dict[str, Any]]:
+    def _try_parse_json(self, text: str) -> dict[str, Any] | None:
         """Attempt to parse JSON, returning None on failure.
 
         Args:
@@ -430,8 +430,8 @@ Generate personas now:"""
     def _find_personas_json(
         self,
         log_directory: str,
-        agent_ids: List[str],
-    ) -> Optional[Dict[str, GeneratedPersona]]:
+        agent_ids: list[str],
+    ) -> dict[str, GeneratedPersona] | None:
         """Search for personas.json in the subagent logs.
 
         Searches multiple locations where personas.json might exist:
@@ -470,7 +470,7 @@ Generate personas now:"""
         ]
 
         # Collect all personas.json files found, sorted by modification time (most recent first)
-        found_files: List[Path] = []
+        found_files: list[Path] = []
         for pattern in search_patterns:
             found_files.extend(persona_generation_dir.glob(pattern))
 
@@ -528,7 +528,7 @@ Generate personas now:"""
 
         return None
 
-    def _generate_fallback_personas(self, agent_ids: List[str]) -> Dict[str, GeneratedPersona]:
+    def _generate_fallback_personas(self, agent_ids: list[str]) -> dict[str, GeneratedPersona]:
         """Generate simple fallback personas if LLM generation fails.
 
         Args:
@@ -579,7 +579,7 @@ Generate personas now:"""
 
         return personas
 
-    def _generate_methodology_fallback_personas(self, agent_ids: List[str]) -> Dict[str, GeneratedPersona]:
+    def _generate_methodology_fallback_personas(self, agent_ids: list[str]) -> dict[str, GeneratedPersona]:
         """Generate fallback personas for methodology mode (different working approaches)."""
         fallback_templates = [
             (
@@ -632,15 +632,15 @@ Generate personas now:"""
 
     async def generate_personas_via_subagent(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
-        existing_system_messages: Dict[str, Optional[str]],
-        parent_agent_configs: List[Dict[str, Any]],
+        existing_system_messages: dict[str, str | None],
+        parent_agent_configs: list[dict[str, Any]],
         parent_workspace: str,
         orchestrator_id: str,
-        log_directory: Optional[str] = None,
-        on_subagent_started: Optional[Callable[[str, str, int, Callable[[str], Optional[Any]], Optional[str]], None]] = None,
-    ) -> Dict[str, GeneratedPersona]:
+        log_directory: str | None = None,
+        on_subagent_started: Callable[[str, str, int, Callable[[str], Any | None], str | None], None] | None = None,
+    ) -> dict[str, GeneratedPersona]:
         """Generate all personas via a single subagent call.
 
         This method uses MassGen's subagent infrastructure to generate personas.
@@ -710,7 +710,7 @@ Generate personas now:"""
                 log_directory=log_directory,
             )
 
-            def _status_callback(subagent_id: str) -> Optional[Any]:
+            def _status_callback(subagent_id: str) -> Any | None:
                 try:
                     return manager.get_subagent_display_data(subagent_id)
                 except Exception:
@@ -778,8 +778,8 @@ Generate personas now:"""
 
     def _create_simplified_agent_configs(
         self,
-        parent_configs: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        parent_configs: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """Create simplified agent configs - same models, no tools.
 
         Args:
@@ -809,9 +809,9 @@ Generate personas now:"""
 
     def _build_subagent_personas_prompt(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
-        existing_system_messages: Dict[str, Optional[str]],
+        existing_system_messages: dict[str, str | None],
     ) -> str:
         """Build prompt to generate ALL personas with task-appropriate diversity.
 
@@ -873,7 +873,7 @@ Generate personas now:"""
 
     def _build_perspective_diversity_prompt(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
         agents_list: str,
         agent_ids_json: str,
@@ -938,7 +938,7 @@ Write personas.json now."""
 
     def _build_implementation_diversity_prompt(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
         agents_list: str,
         agent_ids_json: str,
@@ -1003,7 +1003,7 @@ Write personas.json now."""
 
     def _build_methodology_diversity_prompt(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         task: str,
         agents_list: str,
         agent_ids_json: str,

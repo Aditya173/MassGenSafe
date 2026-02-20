@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task Plan Host for MassGen TUI.
 
@@ -8,7 +7,7 @@ the main TUI and subagent TUI share identical behavior and layout.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from textual.containers import Container
 
@@ -22,30 +21,30 @@ class TaskPlanHost(Container):
         self,
         *,
         agent_id: str,
-        ribbon: Optional[Any] = None,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        ribbon: Any | None = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         super().__init__(id=id, classes=classes)
         self._agent_id = agent_id
         self._ribbon = ribbon
-        self._active_task_plan_id: Optional[str] = None
-        self._active_task_plan_tasks: Optional[List[Dict[str, Any]]] = None
+        self._active_task_plan_id: str | None = None
+        self._active_task_plan_tasks: list[dict[str, Any]] | None = None
         self._task_plan_visible: bool = False
 
-    def set_ribbon(self, ribbon: Optional[Any]) -> None:
+    def set_ribbon(self, ribbon: Any | None) -> None:
         """Set the status ribbon reference for task counts."""
         self._ribbon = ribbon
 
-    def get_active_tasks(self) -> Optional[List[Dict[str, Any]]]:
+    def get_active_tasks(self) -> list[dict[str, Any]] | None:
         """Return current task list, if any."""
         return self._active_task_plan_tasks
 
-    def get_active_plan_id(self) -> Optional[str]:
+    def get_active_plan_id(self) -> str | None:
         """Return current plan id, if any."""
         return self._active_task_plan_id
 
-    def update_task_plan(self, tasks: List[Dict[str, Any]], plan_id: Optional[str] = None, operation: str = "create") -> None:
+    def update_task_plan(self, tasks: list[dict[str, Any]], plan_id: str | None = None, operation: str = "create") -> None:
         """Update cached task plan state and ribbon counts."""
         self._active_task_plan_id = plan_id
         self._active_task_plan_tasks = [t.copy() for t in tasks] if tasks else None
@@ -56,8 +55,8 @@ class TaskPlanHost(Container):
 
     def update_pinned_task_plan(
         self,
-        tasks: List[Dict[str, Any]],
-        focused_task_id: Optional[str] = None,
+        tasks: list[dict[str, Any]],
+        focused_task_id: str | None = None,
         operation: str = "update",
         show_notification: bool = True,
     ) -> None:
@@ -120,7 +119,7 @@ class TaskPlanHost(Container):
         self.remove_class("collapsed")
         self._task_plan_visible = True
 
-    def get_task_plan_card(self) -> Optional[TaskPlanCard]:
+    def get_task_plan_card(self) -> TaskPlanCard | None:
         """Return the current TaskPlanCard if mounted."""
         try:
             return self.query_one(TaskPlanCard)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Understand and analyze videos using the best available backend.
 
@@ -18,7 +17,6 @@ import json
 import mimetypes
 import os
 from pathlib import Path
-from typing import List, Optional
 
 from dotenv import load_dotenv
 
@@ -28,7 +26,7 @@ from massgen.tool._multimodal_tools.backend_selector import get_backend
 from massgen.tool._result import ExecutionResult, TextContent
 
 
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -> None:
     """
     Validate that a path is within allowed directories.
 
@@ -52,7 +50,7 @@ def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None
     raise ValueError(f"Path not in allowed directories: {path}")
 
 
-def _extract_key_frames(video_path: Path, num_frames: int = 8) -> List[str]:
+def _extract_key_frames(video_path: Path, num_frames: int = 8) -> list[str]:
     """
     Extract key frames from a video file and resize them to fit OpenAI Vision API limits.
 
@@ -444,11 +442,11 @@ async def understand_video(
     video_path: str,
     prompt: str = "What's happening in this video? Please describe the content, actions, and any important details you observe.",
     num_frames: int = 8,
-    model: Optional[str] = None,
-    backend_type: Optional[str] = None,
-    allowed_paths: Optional[List[str]] = None,
-    agent_cwd: Optional[str] = None,
-    task_context: Optional[str] = None,
+    model: str | None = None,
+    backend_type: str | None = None,
+    allowed_paths: list[str] | None = None,
+    agent_cwd: str | None = None,
+    task_context: str | None = None,
 ) -> ExecutionResult:
     """
     Understand and analyze a video using the best available backend.

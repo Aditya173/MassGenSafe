@@ -1,7 +1,8 @@
-# -*- coding: utf-8 -*-
 """Tests for specialized subagent types (skills-like discovery)."""
 
 from pathlib import Path
+
+import pytest
 
 # ── Test 1-3: SpecializedSubagentConfig dataclass ──
 
@@ -14,19 +15,15 @@ def test_config_creation():
         name="evaluator",
         description="Runs deliverables and checks features",
         system_prompt="You are an evaluator.",
-        default_background=True,
-        default_refine=False,
         skills=["webapp-testing", "agent-browser"],
-        mcp_servers=["browser"],
+        expected_input=["objective", "setup", "commands"],
         source_path="/path/to/SUBAGENT.md",
     )
     assert config.name == "evaluator"
     assert config.description == "Runs deliverables and checks features"
     assert config.system_prompt == "You are an evaluator."
-    assert config.default_background is True
-    assert config.default_refine is False
     assert config.skills == ["webapp-testing", "agent-browser"]
-    assert config.mcp_servers == ["browser"]
+    assert config.expected_input == ["objective", "setup", "commands"]
     assert config.source_path == "/path/to/SUBAGENT.md"
 
 
@@ -38,11 +35,9 @@ def test_config_defaults():
         name="test",
         description="test type",
     )
-    assert config.default_background is False
-    assert config.default_refine is False
     assert config.system_prompt == ""
     assert config.skills == []
-    assert config.mcp_servers == []
+    assert config.expected_input == []
     assert config.source_path == ""
 
 
@@ -54,10 +49,8 @@ def test_config_roundtrip():
         name="evaluator",
         description="Checks features",
         system_prompt="You are an evaluator.\nBe thorough.",
-        default_background=True,
-        default_refine=False,
         skills=["webapp-testing", "agent-browser"],
-        mcp_servers=["browser"],
+        expected_input=["objective", "setup", "commands"],
         source_path="/path/to/SUBAGENT.md",
     )
     data = original.to_dict()
@@ -65,10 +58,8 @@ def test_config_roundtrip():
     assert restored.name == original.name
     assert restored.description == original.description
     assert restored.system_prompt == original.system_prompt
-    assert restored.default_background == original.default_background
-    assert restored.default_refine == original.default_refine
     assert restored.skills == original.skills
-    assert restored.mcp_servers == original.mcp_servers
+    assert restored.expected_input == original.expected_input
     assert restored.source_path == original.source_path
 
 
@@ -76,7 +67,7 @@ def test_config_roundtrip():
 
 
 def test_scanner_finds_builtin_types():
-    """Scanner discovers evaluator + explorer from massgen/subagent_types/."""
+    """Scanner discovers evaluator + explorer + researcher from massgen/subagent_types/."""
     from massgen.subagent.type_scanner import scan_subagent_types
 
     # Use the real built-in directory
@@ -85,18 +76,42 @@ def test_scanner_finds_builtin_types():
     names = {t.name for t in types}
     assert "evaluator" in names
     assert "explorer" in names
+    assert "researcher" in names
 
 
 def test_scanner_parses_frontmatter():
-    """Name, description, defaults, skills extracted from SUBAGENT.md frontmatter."""
+    """Name, description, skills, expected_input extracted from SUBAGENT.md frontmatter."""
     from massgen.subagent.type_scanner import scan_subagent_types
 
     builtin_dir = Path(__file__).parent.parent / "subagent_types"
     types = scan_subagent_types(builtin_dir=builtin_dir, project_dir=Path("/nonexistent"))
     evaluator = next(t for t in types if t.name == "evaluator")
     assert evaluator.description  # non-empty description
-    assert isinstance(evaluator.default_background, bool)
-    assert isinstance(evaluator.default_refine, bool)
+    assert isinstance(evaluator.skills, list)
+    assert isinstance(evaluator.expected_input, list)
+
+
+def test_builtin_descriptions_include_when_to_use():
+    """Each built-in description should include explicit when-to-use guidance."""
+    from massgen.subagent.type_scanner import scan_subagent_types
+
+    builtin_dir = Path(__file__).parent.parent / "subagent_types"
+    types = scan_subagent_types(builtin_dir=builtin_dir, project_dir=Path("/nonexistent"))
+    for name in ("evaluator", "explorer", "researcher"):
+        config = next(t for t in types if t.name == name)
+        assert "when to use" in config.description.lower()
+
+
+def test_builtin_profiles_define_expected_input():
+    """Each built-in should define an expected_input checklist in frontmatter."""
+    from massgen.subagent.type_scanner import scan_subagent_types
+
+    builtin_dir = Path(__file__).parent.parent / "subagent_types"
+    types = scan_subagent_types(builtin_dir=builtin_dir, project_dir=Path("/nonexistent"))
+    for name in ("evaluator", "explorer", "researcher"):
+        config = next(t for t in types if t.name == name)
+        assert len(config.expected_input) >= 3
+        assert all(isinstance(item, str) and item.strip() for item in config.expected_input)
 
 
 def test_evaluator_description_targets_programmatic_execution():
@@ -159,6 +174,34 @@ def test_explorer_has_skills():
     assert "semtools" in explorer.skills
 
 
+def test_researcher_description_targets_external_research():
+    """Researcher description should emphasize external-source research behavior."""
+    from massgen.subagent.type_scanner import scan_subagent_types
+
+    builtin_dir = Path(__file__).parent.parent / "subagent_types"
+    types = scan_subagent_types(builtin_dir=builtin_dir, project_dir=Path("/nonexistent"))
+    researcher = next(t for t in types if t.name == "researcher")
+    lower = researcher.description.lower()
+    assert "research" in lower
+    assert "external" in lower or "source" in lower or "web" in lower
+
+
+def test_builtin_prompts_include_actionable_sections():
+    """Built-in prompts should include explicit structure and usage guidance."""
+    from massgen.subagent.type_scanner import scan_subagent_types
+
+    builtin_dir = Path(__file__).parent.parent / "subagent_types"
+    types = scan_subagent_types(builtin_dir=builtin_dir, project_dir=Path("/nonexistent"))
+
+    for name in ("evaluator", "explorer", "researcher"):
+        config = next(t for t in types if t.name == name)
+        prompt = config.system_prompt.lower()
+        assert len(prompt) > 400
+        assert "when to use" in prompt
+        assert "deliverable" in prompt or "output format" in prompt
+        assert "do not" in prompt
+
+
 def test_scanner_project_overrides_builtin(tmp_path):
     """Project type with same name replaces built-in."""
     from massgen.subagent.type_scanner import scan_subagent_types
@@ -185,6 +228,44 @@ def test_scanner_empty_dir(tmp_path):
     types = scan_subagent_types(
         builtin_dir=tmp_path / "nonexistent",
         project_dir=tmp_path / "also_nonexistent",
+    )
+    assert types == []
+
+
+def test_scanner_rejects_unsupported_frontmatter_fields(tmp_path):
+    """Legacy fields in SUBAGENT frontmatter should fail validation."""
+    from massgen.subagent.type_scanner import scan_subagent_types
+
+    project_dir = tmp_path / "subagent_types"
+    bad_dir = project_dir / "custom_eval"
+    bad_dir.mkdir(parents=True)
+    (bad_dir / "SUBAGENT.md").write_text(
+        "---\nname: custom_eval\ndescription: Custom evaluator\ndefault_background: true\n---\nPrompt text.",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported specialized subagent frontmatter fields"):
+        scan_subagent_types(
+            builtin_dir=tmp_path / "nonexistent",
+            project_dir=project_dir,
+        )
+
+
+def test_scanner_excludes_template_directory_from_discovery(tmp_path):
+    """A `_template` profile directory should be ignored by scanner discovery."""
+    from massgen.subagent.type_scanner import scan_subagent_types
+
+    project_dir = tmp_path / "subagent_types"
+    template_dir = project_dir / "_template"
+    template_dir.mkdir(parents=True)
+    (template_dir / "SUBAGENT.md").write_text(
+        "---\nname: template\ndescription: Template profile\n---\nTemplate body.",
+        encoding="utf-8",
+    )
+
+    types = scan_subagent_types(
+        builtin_dir=tmp_path / "nonexistent",
+        project_dir=project_dir,
     )
     assert types == []
 
@@ -247,55 +328,87 @@ def test_subagent_section_without_types_unchanged():
     assert "ATTACHED" not in content.upper()
 
 
+def test_subagent_section_includes_specialized_task_brief_template():
+    """Specialized section should teach parent agents how to write high-quality task briefs."""
+    from massgen.subagent.models import SpecializedSubagentConfig
+    from massgen.system_prompt_sections import SubagentSection
+
+    types = [
+        SpecializedSubagentConfig(name="evaluator", description="Checks features"),
+    ]
+    section = SubagentSection("/workspace", max_concurrent=3, specialized_subagents=types)
+    content = section.build_content().lower()
+
+    assert "when writing a `task` for specialized subagents" in content
+    assert "expected input for each specialized type" in content
+    assert "objective" in content
+    assert "setup" in content
+    assert "commands to run" in content
+    assert "expected output format" in content
+    assert "constraints" in content
+
+
+def test_subagent_section_includes_evaluator_task_brief_details():
+    """Evaluator delegation guidance should require explicit procedural details in task briefs."""
+    from massgen.subagent.models import SpecializedSubagentConfig
+    from massgen.system_prompt_sections import SubagentSection
+
+    types = [
+        SpecializedSubagentConfig(name="evaluator", description="Checks features"),
+    ]
+    section = SubagentSection("/workspace", max_concurrent=3, specialized_subagents=types)
+    content = section.build_content().lower()
+
+    assert "for `evaluator` tasks, explicitly include" in content
+    assert "what to run" in content
+    assert "how to set it up" in content
+    assert "exact commands" in content
+    assert "what evidence to capture" in content
+    assert "pass/fail format" in content
+
+
 # ── Test 13-15: EvaluationSection with evaluator subagent ──
 
 
 def test_evaluation_no_evaluator():
-    """Without evaluator, no mandatory directive."""
+    """Checklist gating should not include mandatory evaluator directives."""
     from massgen.system_prompt_sections import EvaluationSection
 
     section = EvaluationSection(
         voting_sensitivity="checklist_gated",
-        has_evaluator_subagent=False,
     )
     content = section.build_content()
     assert "Mandatory Evaluator Check" not in content
 
 
 def test_evaluation_with_evaluator():
-    """With evaluator, mandatory directive is present."""
+    """Checklist gating output remains non-mandatory regardless of profile availability."""
     from massgen.system_prompt_sections import EvaluationSection
 
     section = EvaluationSection(
         voting_sensitivity="checklist_gated",
-        has_evaluator_subagent=True,
     )
     content = section.build_content()
-    assert "Mandatory Evaluator Check" in content
+    assert "Mandatory Evaluator Check" not in content
 
 
 def test_evaluation_evaluator_says_dont_do_yourself():
-    """Evaluator directive says NOT to serve/test yourself."""
+    """No mandatory evaluator directive should be injected in checklist section."""
     from massgen.system_prompt_sections import EvaluationSection
 
     section = EvaluationSection(
         voting_sensitivity="checklist_gated",
-        has_evaluator_subagent=True,
     )
     content = section.build_content()
-    # Should tell agent NOT to do evaluation work inline
-    assert "do not" in content.lower() or "don't" in content.lower() or "NOT" in content
-    assert "evaluator" in content.lower()
+    assert "Mandatory Evaluator Check" not in content
 
 
 def test_evaluation_evaluator_directive_keeps_main_agent_decision_authority():
-    """Evaluator directive can accept suggestions but must keep final judgment with main agent."""
+    """Checklist gating instructions still remain present when evaluator exists."""
     from massgen.system_prompt_sections import EvaluationSection
 
     section = EvaluationSection(
         voting_sensitivity="checklist_gated",
-        has_evaluator_subagent=True,
     )
     content = section.build_content().lower()
-    assert "suggest" in content
-    assert "your judgment" in content or "you decide" in content or "you remain responsible" in content
+    assert "submit_checklist" in content

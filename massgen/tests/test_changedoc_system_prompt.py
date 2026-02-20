@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for ChangedocSection system prompt.
 
 Tests cover:
@@ -765,11 +764,14 @@ class TestEvaluationDelegation:
         lower = content.lower()
         assert "descri" in lower and ("observ" in lower or "finding" in lower or "report" in lower)
 
-    def test_background_lifecycle_guidance_for_no_hook_backends(self):
-        """Async section must mention standard background lifecycle polling as fallback."""
+    def test_background_lifecycle_guidance(self):
+        """Subagent section must describe the background subagent lifecycle."""
         content = _subagent_content()
         lower = content.lower()
-        assert "custom_tool__get_background_tool_status" in lower or "custom_tool__wait_for_background_tool" in lower
+        assert "background subagent lifecycle" in lower
+        assert "list_subagents" in lower
+        assert "send_message_to_subagent" in lower
+        assert "continue_subagent" in lower
 
     def test_subagent_section_requires_explicit_context_paths(self):
         """Subagent guidance must require explicit context_paths (including [])."""

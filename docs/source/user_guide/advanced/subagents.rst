@@ -172,7 +172,7 @@ When subagents are enabled, agents have access to the ``spawn_subagents`` tool:
    }
 
 Critical Rules for Calling Subagent Tool
-~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 1. **Tasks run in PARALLEL**: All tasks start simultaneously. Do NOT create tasks where one depends on another's output.
 
@@ -205,6 +205,77 @@ For background lifecycle management, use the standardized background lifecycle t
 ``custom_tool__wait_for_background_tool``, ``custom_tool__cancel_background_tool``,
 ``custom_tool__list_background_tools``).
 Use ``include_all=true`` with ``custom_tool__list_background_tools`` (not ``list_subagents``).
+
+Specialized Subagent Types
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can pass ``subagent_type`` per task to use a specialized profile:
+
+.. code-block:: json
+
+   {
+     "tool": "spawn_subagents",
+     "arguments": {
+       "tasks": [
+         {
+           "task": "Run procedural UI verification and report findings",
+           "subagent_type": "evaluator",
+           "subagent_id": "ui_eval",
+           "context_paths": ["./"]
+         }
+       ]
+     }
+   }
+
+Built-in specialized types:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Type
+     - When to use
+     - What the parent brief should include
+   * - ``explorer``
+     - Codebase/repository discovery, tracing where behavior is implemented, mapping relevant files and call paths
+     - Specific questions to answer, likely path roots, and expected artifact (for example: file list + key findings with line references)
+   * - ``researcher``
+     - External-source research, evidence gathering, and citation-oriented synthesis
+     - Scope boundaries, recency/citation requirements, allowed sources, and expected output format (summary, comparison matrix, references)
+   * - ``evaluator``
+     - Procedural verification and execution-heavy checks (tests, scripts, UI checks, reproducible validation)
+     - Environment/setup steps, exact commands to run, pass/fail rubric, and required report format (what passed, what failed, logs/artifacts)
+
+If you want additional roles (for example ``reasoner``), add a custom profile in
+``.agent/subagent_types/<type-name>/SUBAGENT.md`` and call it via ``subagent_type``.
+
+Parent Briefing Template (Recommended)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Specialized subagents typically have less orchestration context than the parent. Give them a concrete brief with explicit execution instructions.
+
+.. code-block:: text
+
+   Objective:
+   Scope and paths:
+   Environment/setup:
+   Exact commands or checks to run:
+   Success criteria / pass-fail rubric:
+   Output format required:
+   Constraints (time, tools, sources):
+
+For ``evaluator`` tasks, include command-level detail (setup + run + verification) so the subagent can execute deterministically.
+
+Custom project profiles can be added in ``.agent/subagent_types/<type-name>/SUBAGENT.md``.
+Frontmatter is strict and only supports:
+
+* ``name``
+* ``description``
+* ``skills`` (optional list of skill names)
+* ``expected_input`` (optional list describing the parent-task brief requirements)
+
+Unknown ``subagent_type`` values fail fast with an explicit validation error that includes available type names.
+Template scaffolding is available at ``massgen/subagent_types/_template/SUBAGENT_TEMPLATE.md`` and is excluded from discovery.
 
 Result Structure
 ~~~~~~~~~~~~~~~~
@@ -714,6 +785,8 @@ since it has full context and the subagent may run on a simpler or cheaper model
    ``custom_tool__get_background_tool_result(job_id)``, and
    ``custom_tool__cancel_background_tool(job_id)``.
    Use ``custom_tool__list_background_tools(include_all=true)`` to inspect job history.
+   The wait call may return early with ``interrupted: true`` and ``injected_content``
+   when runtime input/context becomes available.
 
 Best Practices
 --------------
@@ -793,7 +866,7 @@ Mode semantics:
 * ``isolated`` (default): require isolated subagent runtime behavior.
 * ``inherited``: run subagents in the parent runtime boundary.
 * ``subagent_runtime_fallback_mode: inherited``: explicit downgrade when isolated prerequisites are unavailable.
-* Codex + Docker default: when fallback is unset and ``subagent_runtime_mode`` is ``isolated``, orchestrator forwards fallback as ``inherited`` by default.
+* **Codex difference (Docker mode)**: when fallback is unset and ``subagent_runtime_mode`` is ``isolated``, orchestrator treats fallback as ``inherited`` by default. Other backends stay strict unless fallback is explicitly configured.
 
 Isolated mode in containerized parent runtimes may require a launch bridge:
 
@@ -801,7 +874,6 @@ Isolated mode in containerized parent runtimes may require a launch bridge:
 * If isolated mode is requested and prerequisites are unavailable:
   * with no fallback configured: subagent launch fails with actionable diagnostics
   * with explicit fallback configured: launch continues in inherited mode and returns a warning
-  * for Codex + Docker runs, fallback defaults to ``inherited`` when unset
 
 Execution model:
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Unit tests for the checklist MCP tools server.
 
 Tests cover:
@@ -13,6 +12,8 @@ Tests cover:
 """
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -1121,3 +1122,56 @@ class TestChecklistStdioRegistration:
         from massgen.mcp_tools.checklist_tools_server import SERVER_NAME
 
         assert SERVER_NAME in FRAMEWORK_MCPS, f"{SERVER_NAME!r} missing from FRAMEWORK_MCPS — " f"checklist tool will be filtered out of direct model tools"
+
+
+@pytest.mark.asyncio
+async def test_checklist_create_server_standalone_with_hook_dir(
+    monkeypatch,
+    tmp_path,
+):
+    """Standalone file-path loading must support --hook-dir without import errors."""
+    import importlib.util
+
+    server_path = Path(__file__).parent.parent / "mcp_tools" / "checklist_tools_server.py"
+    assert server_path.exists(), f"Expected server file at {server_path}"
+
+    specs_path = tmp_path / "checklist_specs.json"
+    specs_path.write_text(
+        json.dumps(
+            {
+                "items": ["T1"],
+                "state": {
+                    "required": 1,
+                    "cutoff": 70,
+                    "has_existing_answers": True,
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    hook_dir = tmp_path / "hook_ipc"
+    hook_dir.mkdir(parents=True, exist_ok=True)
+
+    spec = importlib.util.spec_from_file_location("checklist_tools_server", server_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["checklist_tools_server"] = module
+    try:
+        spec.loader.exec_module(module)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "checklist_tools_server.py",
+                "--specs",
+                str(specs_path),
+                "--hook-dir",
+                str(hook_dir),
+            ],
+        )
+        server = await module.create_server()
+    finally:
+        sys.modules.pop("checklist_tools_server", None)
+
+    available_tools = {tool.name for tool in server._tool_manager._tools.values()}
+    assert "submit_checklist" in available_tools

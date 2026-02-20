@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for core Orchestrator coordination behavior."""
 
 from __future__ import annotations

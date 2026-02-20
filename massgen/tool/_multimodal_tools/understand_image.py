@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Understand and analyze images using OpenAI's gpt-4.1 API.
 
@@ -10,7 +9,6 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -19,7 +17,7 @@ from massgen.logger_config import logger
 from massgen.tool._result import ExecutionResult, TextContent
 
 
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -> None:
     """
     Validate that a path is within allowed directories.
 
@@ -50,14 +48,14 @@ class LoadedImage:
     path: Path
     base64_data: str
     mime_type: str
-    name: Optional[str] = None  # Optional name for referencing in prompts
+    name: str | None = None  # Optional name for referencing in prompts
 
 
 def _load_and_process_image(
     image_path: str,
     base_dir: Path,
-    allowed_paths_list: Optional[List[Path]] = None,
-    name: Optional[str] = None,
+    allowed_paths_list: list[Path] | None = None,
+    name: str | None = None,
 ) -> LoadedImage:
     """
     Load and process a single image, resizing if necessary.
@@ -207,13 +205,13 @@ def _load_and_process_image(
 
 
 async def understand_image(
-    image_path: Optional[str] = None,
+    image_path: str | None = None,
     prompt: str = "What's in this image? Please describe it in detail.",
     model: str = "gpt-4.1",
-    allowed_paths: Optional[List[str]] = None,
-    agent_cwd: Optional[str] = None,
-    task_context: Optional[str] = None,
-    images: Optional[Dict[str, str]] = None,
+    allowed_paths: list[str] | None = None,
+    agent_cwd: str | None = None,
+    task_context: str | None = None,
+    images: dict[str, str] | None = None,
 ) -> ExecutionResult:
     """
     Understand and analyze one or more images using OpenAI's gpt-4.1 API.
@@ -296,7 +294,7 @@ async def understand_image(
         base_dir = Path(agent_cwd) if agent_cwd else Path.cwd()
 
         # Load images using the helper function
-        loaded_images: List[LoadedImage] = []
+        loaded_images: list[LoadedImage] = []
 
         if image_path:
             # Single image mode
@@ -328,7 +326,7 @@ async def understand_image(
                 augmented_prompt = f"{name_context}\n{augmented_prompt}"
 
             # Build content array with text prompt and all images
-            content: List[dict] = [{"type": "input_text", "text": augmented_prompt}]
+            content: list[dict] = [{"type": "input_text", "text": augmented_prompt}]
             for img in loaded_images:
                 content.append({"type": "input_image", "image_url": f"data:{img.mime_type};base64,{img.base64_data}"})
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for the Subagent feature.
 
@@ -8,7 +7,6 @@ Tests cover:
 - SubagentPointer tracking
 - TaskPlan subagent tracking
 """
-
 
 import pytest
 

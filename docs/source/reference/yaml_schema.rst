@@ -1011,7 +1011,7 @@ Coordination Configuration
    * - ``subagent_runtime_fallback_mode``
      - string or null
      - No
-     - Optional fallback mode when isolated prerequisites are unavailable. ``inherited`` or ``null`` (strict isolation).
+     - Optional fallback mode when isolated prerequisites are unavailable. ``inherited`` or ``null`` (strict isolation). Codex in Docker mode treats unset fallback as ``inherited`` when ``subagent_runtime_mode`` is ``isolated``.
    * - ``subagent_host_launch_prefix``
      - list or null
      - No

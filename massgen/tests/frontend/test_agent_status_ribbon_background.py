@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for background job indicator in AgentStatusRibbon."""
 
 from __future__ import annotations

@@ -76,3 +76,12 @@ Agents are STATELESS and ANONYMOUS across coordination rounds. Each round:
 **Timeline Chronology Rule**: Tool batching MUST respect chronological order. Tools should ONLY be batched when they arrive consecutively with no intervening content (thinking, text, status). When non-tool content arrives, any pending batch must be finalized before the content is added, and the next tool starts a fresh batch.
 
 This is enforced via `ToolBatchTracker.mark_content_arrived()` in `content_handlers.py`, which is called whenever non-tool content is added to the timeline.
+
+### TUI Debug Logging
+
+All TUI debug logging goes through `massgen/frontend/displays/shared/tui_debug.py`. This module is the **single source of truth** for TUI debug file output.
+
+- **Enable**: set `MASSGEN_TUI_DEBUG=1` in your environment.
+- **Log file**: `<tempdir>/tui_debug.log` (uses `tempfile.gettempdir()` for cross-platform support).
+- **Usage**: call `tui_log(msg)` from anywhere in the TUI layer. Widget-specific wrappers (e.g. `_wizard_log`, `_tab_log`) add a prefix tag and delegate to `tui_log`.
+- **Do NOT** create ad-hoc `logging.FileHandler` instances with hard-coded paths in widget files — always use `tui_log`.

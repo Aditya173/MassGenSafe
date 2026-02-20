@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Code Execution MCP Server for MassGen
 
@@ -20,7 +19,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import fastmcp
 
@@ -42,7 +41,7 @@ except ImportError:
     DockerException = Exception  # type: ignore
 
 
-def _validate_path_access(path: Path, allowed_paths: List[Path]) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path]) -> None:
     """
     Validate that a path is within allowed directories.
 
@@ -106,7 +105,7 @@ def _sanitize_command(command: str, enable_sudo: bool = False) -> None:
             raise ValueError(f"Potentially dangerous command detected: {message}")
 
 
-def _check_command_filters(command: str, allowed_patterns: Optional[List[str]], blocked_patterns: Optional[List[str]]) -> None:
+def _check_command_filters(command: str, allowed_patterns: list[str] | None, blocked_patterns: list[str] | None) -> None:
     """
     Check command against whitelist/blacklist filters.
 
@@ -134,7 +133,7 @@ def _check_command_filters(command: str, allowed_patterns: Optional[List[str]], 
                 )
 
 
-def _prepare_environment(work_dir: Path, local_skills_directory: Optional[str] = None) -> Dict[str, str]:
+def _prepare_environment(work_dir: Path, local_skills_directory: str | None = None) -> dict[str, str]:
     """
     Prepare environment by auto-detecting .venv in work_dir and setting up skills.
 
@@ -338,9 +337,9 @@ async def create_server() -> fastmcp.FastMCP:
     @mcp.tool()
     def execute_command(
         command: str,
-        timeout: Optional[int] = None,
-        work_dir: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        timeout: int | None = None,
+        work_dir: str | None = None,
+    ) -> dict[str, Any]:
         """
         Execute a command line command.
 

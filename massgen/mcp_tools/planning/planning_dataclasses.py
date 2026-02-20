@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task Planning Data Structures for MassGen
 
@@ -9,7 +8,7 @@ status management, validation, and subagent tracking.
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     pass
@@ -37,12 +36,12 @@ class Task:
     status: Literal["pending", "in_progress", "completed", "verified", "blocked"] = "pending"
     priority: Literal["low", "medium", "high"] = "medium"
     created_at: datetime = field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
-    verified_at: Optional[datetime] = None
-    dependencies: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    completed_at: datetime | None = None
+    verified_at: datetime | None = None
+    dependencies: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert task to dictionary for serialization."""
         return {
             "id": self.id,
@@ -57,7 +56,7 @@ class Task:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Task":
+    def from_dict(cls, data: dict[str, Any]) -> "Task":
         """Create task from dictionary."""
         return cls(
             id=data["id"],
@@ -85,17 +84,17 @@ class TaskPlan:
     """
 
     agent_id: str
-    tasks: List[Task] = field(default_factory=list)
+    tasks: list[Task] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    subagents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    subagents: dict[str, dict[str, Any]] = field(default_factory=dict)
     require_verification: bool = True
 
     def __post_init__(self):
         """Initialize task index for fast lookups."""
-        self._task_index: Dict[str, Task] = {task.id: task for task in self.tasks}
+        self._task_index: dict[str, Task] = {task.id: task for task in self.tasks}
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         """
         Get a task by ID.
 
@@ -128,7 +127,7 @@ class TaskPlan:
 
         return True
 
-    def get_ready_tasks(self) -> List[Task]:
+    def get_ready_tasks(self) -> list[Task]:
         """
         Get all tasks ready to start (pending with satisfied dependencies).
 
@@ -137,7 +136,7 @@ class TaskPlan:
         """
         return [task for task in self.tasks if task.status == "pending" and self.can_start_task(task.id)]
 
-    def get_blocked_tasks(self) -> List[Task]:
+    def get_blocked_tasks(self) -> list[Task]:
         """
         Get all tasks blocked by dependencies.
 
@@ -151,7 +150,7 @@ class TaskPlan:
                 blocked.append(task)
         return blocked
 
-    def get_tasks_awaiting_verification(self) -> Dict[str, List[Task]]:
+    def get_tasks_awaiting_verification(self) -> dict[str, list[Task]]:
         """
         Get all tasks with status='completed' that need verification, grouped by verification_group.
 
@@ -159,7 +158,7 @@ class TaskPlan:
             Dictionary mapping verification_group to list of completed tasks.
             Tasks without a verification_group are grouped under 'ungrouped'.
         """
-        awaiting: Dict[str, List[Task]] = {}
+        awaiting: dict[str, list[Task]] = {}
         for task in self.tasks:
             if task.status == "completed":
                 group = task.metadata.get("verification_group", "ungrouped")
@@ -168,7 +167,7 @@ class TaskPlan:
                 awaiting[group].append(task)
         return awaiting
 
-    def get_verification_group_status(self, group: str) -> Dict[str, Any]:
+    def get_verification_group_status(self, group: str) -> dict[str, Any]:
         """
         Get the status of a verification group.
 
@@ -201,7 +200,7 @@ class TaskPlan:
             "all_verified": status_counts["pending"] == 0 and status_counts["in_progress"] == 0 and status_counts["blocked"] == 0 and status_counts["completed"] == 0,
         }
 
-    def get_blocking_tasks(self, task_id: str) -> List[str]:
+    def get_blocking_tasks(self, task_id: str) -> list[str]:
         """
         Get list of incomplete dependency task IDs blocking a task.
 
@@ -226,12 +225,12 @@ class TaskPlan:
     def add_task(
         self,
         description: str,
-        task_id: Optional[str] = None,
-        after_task_id: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        task_id: str | None = None,
+        after_task_id: str | None = None,
+        depends_on: list[str] | None = None,
         priority: Literal["low", "medium", "high"] = "medium",
-        verification: Optional[str] = None,
-        verification_method: Optional[str] = None,
+        verification: str | None = None,
+        verification_method: str | None = None,
         skip_verification: bool = False,
     ) -> Task:
         """
@@ -274,7 +273,7 @@ class TaskPlan:
             )
 
         # Build metadata with verification fields if provided
-        metadata: Dict[str, Any] = {}
+        metadata: dict[str, Any] = {}
         if verification:
             metadata["verification"] = verification
         if verification_method:
@@ -317,8 +316,8 @@ class TaskPlan:
         self,
         task_id: str,
         status: Literal["pending", "in_progress", "completed", "verified", "blocked"],
-        completion_notes: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        completion_notes: str | None = None,
+    ) -> dict[str, Any]:
         """
         Update task status and detect newly unblocked tasks.
 
@@ -358,7 +357,7 @@ class TaskPlan:
                     newly_ready.append(other_task)
 
             # Build completion result
-            result: Dict[str, Any] = {
+            result: dict[str, Any] = {
                 "task": task.to_dict(),
                 "newly_ready_tasks": [t.to_dict() for t in newly_ready],
             }
@@ -388,7 +387,7 @@ class TaskPlan:
 
         return {"task": task.to_dict()}
 
-    def edit_task(self, task_id: str, description: Optional[str] = None) -> Task:
+    def edit_task(self, task_id: str, description: str | None = None) -> Task:
         """
         Edit a task's description.
 
@@ -438,7 +437,7 @@ class TaskPlan:
         del self._task_index[task_id]
         self.updated_at = datetime.now()
 
-    def validate_dependencies(self, task_list: List[Dict[str, Any]]) -> None:
+    def validate_dependencies(self, task_list: list[dict[str, Any]]) -> None:
         """
         Validate dependencies when creating a task plan.
 
@@ -491,7 +490,7 @@ class TaskPlan:
                                     f"Task {task_id}: Self-dependency detected",
                                 )
 
-    def _has_circular_dependency(self, task_id: str, all_tasks: List[Task]) -> bool:
+    def _has_circular_dependency(self, task_id: str, all_tasks: list[Task]) -> bool:
         """
         Check if adding a task would create a circular dependency.
 
@@ -529,7 +528,7 @@ class TaskPlan:
 
         return has_cycle(task_id)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert plan to dictionary for serialization."""
         return {
             "agent_id": self.agent_id,
@@ -540,7 +539,7 @@ class TaskPlan:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TaskPlan":
+    def from_dict(cls, data: dict[str, Any]) -> "TaskPlan":
         """Create plan from dictionary."""
         tasks = [Task.from_dict(t) for t in data.get("tasks", [])]
         plan = cls(
@@ -583,7 +582,7 @@ class TaskPlan:
         self,
         subagent_id: str,
         status: str,
-        result_summary: Optional[str] = None,
+        result_summary: str | None = None,
     ) -> None:
         """
         Update a subagent's status in the plan.
@@ -603,7 +602,7 @@ class TaskPlan:
             self.subagents[subagent_id]["result_summary"] = result_summary
         self.updated_at = datetime.now()
 
-    def get_subagent(self, subagent_id: str) -> Optional[Dict[str, Any]]:
+    def get_subagent(self, subagent_id: str) -> dict[str, Any] | None:
         """
         Get a subagent pointer by ID.
 
