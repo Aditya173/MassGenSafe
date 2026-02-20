@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Test script for testing the final presentation fallback functionality.
 This tests the specific changes we made to handle empty final presentations.

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool management system for MassGen."""
 
 import asyncio
@@ -8,10 +7,11 @@ import inspect
 import json
 import sys
 import time
+from collections.abc import AsyncGenerator, Callable, Generator
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Dict, Generator, List, Optional, Type
+from typing import Any
 
 from docstring_parser import parse
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -41,7 +41,7 @@ class ToolCategory:
     category_desc: str
     """Description of the tool category."""
 
-    usage_hints: Optional[str] = None
+    usage_hints: str | None = None
     """Usage guidelines for tools in this category."""
 
 
@@ -58,15 +58,15 @@ class ToolManager:
 
     def __init__(self) -> None:
         """Initialize the tool manager."""
-        self.registered_tools: Dict[str, RegisteredToolEntry] = {}
-        self.tool_categories: Dict[str, ToolCategory] = {}
+        self.registered_tools: dict[str, RegisteredToolEntry] = {}
+        self.tool_categories: dict[str, ToolCategory] = {}
 
     def setup_category(
         self,
         category_name: str,
         description: str,
         enabled: bool = False,
-        usage_hints: Optional[str] = None,
+        usage_hints: str | None = None,
     ) -> None:
         """Create a new tool category.
 
@@ -88,7 +88,7 @@ class ToolManager:
             is_enabled=enabled,
         )
 
-    def modify_categories(self, category_list: List[str], enabled: bool) -> None:
+    def modify_categories(self, category_list: list[str], enabled: bool) -> None:
         """Update the activation status of categories.
 
         Args:
@@ -102,7 +102,7 @@ class ToolManager:
             if cat_name in self.tool_categories:
                 self.tool_categories[cat_name].is_enabled = enabled
 
-    def delete_categories(self, category_list: List[str]) -> None:
+    def delete_categories(self, category_list: list[str]) -> None:
         """Remove categories and their associated tools.
 
         Args:
@@ -125,16 +125,16 @@ class ToolManager:
 
     def add_tool_function(
         self,
-        path: Optional[str] = None,
-        func: Optional[Callable] = None,
+        path: str | None = None,
+        func: Callable | None = None,
         category: str = "default",
-        preset_args: Optional[Dict[str, Any]] = None,
-        description: Optional[str] = None,
-        tool_schema: Optional[dict] = None,
+        preset_args: dict[str, Any] | None = None,
+        description: str | None = None,
+        tool_schema: dict | None = None,
         include_full_desc: bool = True,
         allow_var_args: bool = False,
         allow_var_kwargs: bool = False,
-        post_processor: Optional[Callable] = None,
+        post_processor: Callable | None = None,
     ) -> None:
         """Register a tool function.
 
@@ -262,7 +262,7 @@ class ToolManager:
         """
         self.registered_tools.pop(tool_name, None)
 
-    def fetch_tool_schemas(self) -> List[dict]:
+    def fetch_tool_schemas(self) -> list[dict]:
         """Get JSON schemas for all active tools.
 
         Returns:
@@ -280,7 +280,7 @@ class ToolManager:
     def apply_extension_model(
         self,
         tool_name: str,
-        model_class: Optional[Type[BaseModel]],
+        model_class: type[BaseModel] | None,
     ) -> None:
         """Apply an extension model to a tool's schema.
 
@@ -299,7 +299,7 @@ class ToolManager:
     async def execute_tool(
         self,
         tool_request: dict,
-        execution_context: Optional[Dict[str, Any]] = None,
+        execution_context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ExecutionResult, None]:
         """Execute a tool and return results as async generator.
 
@@ -570,7 +570,7 @@ class ToolManager:
         self.registered_tools.clear()
         self.tool_categories.clear()
 
-    def _load_builtin_function(self, func_name: str) -> Optional[Callable]:
+    def _load_builtin_function(self, func_name: str) -> Callable | None:
         """Load a built-in function from the tool folder.
 
         Args:
@@ -626,8 +626,8 @@ class ToolManager:
     def _load_function_from_path(
         self,
         path: str,
-        func_name: Optional[str] = None,
-    ) -> Optional[Callable]:
+        func_name: str | None = None,
+    ) -> Callable | None:
         """Load a function from a given path.
 
         Args:
@@ -766,7 +766,7 @@ class ToolManager:
                 if not include_varkwargs:
                     continue
                 param_fields[param_name] = (
-                    Dict[str, Any] if param_info.annotation == inspect.Parameter.empty else Dict[str, param_info.annotation],
+                    dict[str, Any] if param_info.annotation == inspect.Parameter.empty else dict[str, param_info.annotation],
                     Field(
                         description=param_docs.get(param_name),
                         default={} if param_info.default is param_info.empty else param_info.default,

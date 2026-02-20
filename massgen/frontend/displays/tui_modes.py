@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TUI Mode State management for MassGen Textual terminal display.
 
 This module provides the TuiModeState dataclass that tracks mode configuration
@@ -6,7 +5,7 @@ and generates orchestrator overrides based on current mode settings.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
     from massgen.plan_storage import PlanSession
@@ -43,8 +42,8 @@ class PlanConfig:
     """
 
     depth: PlanDepth = "dynamic"
-    target_steps: Optional[int] = None
-    target_chunks: Optional[int] = 1
+    target_steps: int | None = None
+    target_chunks: int | None = 1
     execute_auto_continue_chunks: bool = True
     execute_refinement_mode: Literal["inherit", "on", "off"] = "inherit"
     auto_execute: bool = False
@@ -76,11 +75,11 @@ class AnalysisConfig:
     profile: AnalysisProfile = "user"
 
     # Selected analysis target. None means "auto-select current/latest".
-    selected_log_dir: Optional[str] = None
-    selected_turn: Optional[int] = None
+    selected_log_dir: str | None = None
+    selected_turn: int | None = None
 
     # Session-only skill allowlist. None means "no filtering" (all discovered skills).
-    enabled_skill_names: Optional[List[str]] = None
+    enabled_skill_names: list[str] | None = None
 
     # Include evolving skills discovered from previous sessions.
     include_previous_session_skills: bool = False
@@ -89,14 +88,14 @@ class AnalysisConfig:
     skill_lifecycle_mode: SkillLifecycleMode = "create_or_update"
 
     # Pre-analysis snapshot for detecting new skills. Internal state only.
-    _pre_analysis_skill_dirs: Optional[Set[str]] = field(default=None, repr=False)
+    _pre_analysis_skill_dirs: set[str] | None = field(default=None, repr=False)
 
-    def get_enabled_skill_names(self) -> Optional[List[str]]:
+    def get_enabled_skill_names(self) -> list[str] | None:
         """Return normalized enabled skill names, or None if unfiltered."""
         if self.enabled_skill_names is None:
             return None
         seen: set[str] = set()
-        normalized: List[str] = []
+        normalized: list[str] = []
         for name in self.enabled_skill_names:
             cleaned = (name or "").strip()
             if not cleaned:
@@ -133,27 +132,27 @@ class TuiModeState:
     analysis_config: AnalysisConfig = field(default_factory=AnalysisConfig)
     plan_revision: int = 0
     planning_iteration_count: int = 0
-    planning_feedback_history: List[str] = field(default_factory=list)
+    planning_feedback_history: list[str] = field(default_factory=list)
     last_planning_mode: str = "multi"  # "multi" | "single"
-    pending_planning_feedback: Optional[str] = None
-    pending_planning_mode: Optional[str] = None  # "multi" | "single"
-    quick_edit_prev_agent_mode: Optional[str] = None
-    quick_edit_prev_selected_agent: Optional[str] = None
+    pending_planning_feedback: str | None = None
+    pending_planning_mode: str | None = None  # "multi" | "single"
+    quick_edit_prev_agent_mode: str | None = None
+    quick_edit_prev_selected_agent: str | None = None
     quick_edit_restore_pending: bool = False
 
     # Selected plan ID for execution (None = use latest, "new" = create new)
-    selected_plan_id: Optional[str] = None
+    selected_plan_id: str | None = None
 
     # Track the original question for plan execution prompt
-    last_planning_question: Optional[str] = None
+    last_planning_question: str | None = None
     # Track which turn planning was initiated on
-    planning_started_turn: Optional[int] = None
+    planning_started_turn: int | None = None
     # Store context paths from planning phase for execution
-    planning_context_paths: Optional[List[Dict[str, Any]]] = None
+    planning_context_paths: list[dict[str, Any]] | None = None
 
     # Agent mode: "multi" | "single"
     agent_mode: str = "multi"
-    selected_single_agent: Optional[str] = None
+    selected_single_agent: str | None = None
 
     # Coordination mode shown in TUI:
     # - "parallel" -> orchestrator coordination_mode="voting"
@@ -167,14 +166,14 @@ class TuiModeState:
     # Set to True after the user explicitly changes the coordination toggle
     coordination_mode_user_set: bool = False
     # Optional per-agent subtask overrides for decomposition mode
-    decomposition_subtasks: Dict[str, str] = field(default_factory=dict)
+    decomposition_subtasks: dict[str, str] = field(default_factory=dict)
 
     # Refinement mode: True = normal voting, False = disabled
     refinement_enabled: bool = True
 
     # Override state
     override_pending: bool = False
-    override_selected_agent: Optional[str] = None
+    override_selected_agent: str | None = None
 
     # Track if override is available (after voting, before presentation)
     override_available: bool = False
@@ -197,7 +196,7 @@ class TuiModeState:
         """Unlock mode changes (call when execution completes or is cancelled)."""
         self.execution_locked = False
 
-    def get_orchestrator_overrides(self) -> Dict[str, Any]:
+    def get_orchestrator_overrides(self) -> dict[str, Any]:
         """Generate orchestrator config overrides based on current mode state.
 
         Returns:
@@ -213,7 +212,7 @@ class TuiModeState:
           disable_injection=True, defer_voting_until_all_answered=True
           (quick mode: agents work independently, vote once after all answered)
         """
-        overrides: Dict[str, Any] = {}
+        overrides: dict[str, Any] = {}
 
         # Coordination mode mapping from TUI labels to orchestrator config values.
         # Decomposition requires multiple active agents, so single-agent mode
@@ -244,7 +243,7 @@ class TuiModeState:
 
         return overrides
 
-    def get_coordination_overrides(self) -> Dict[str, Any]:
+    def get_coordination_overrides(self) -> dict[str, Any]:
         """Generate coordination config overrides for plan mode.
 
         Returns:
@@ -269,7 +268,7 @@ class TuiModeState:
             "broadcast": self.plan_config.broadcast,
         }
 
-    def get_effective_agents(self, all_agents: Dict[str, Any]) -> Dict[str, Any]:
+    def get_effective_agents(self, all_agents: dict[str, Any]) -> dict[str, Any]:
         """Return active agents based on mode.
 
         Args:
@@ -283,7 +282,7 @@ class TuiModeState:
                 return {self.selected_single_agent: all_agents[self.selected_single_agent]}
         return all_agents
 
-    def get_effective_agent_ids(self, all_agent_ids: List[str]) -> List[str]:
+    def get_effective_agent_ids(self, all_agent_ids: list[str]) -> list[str]:
         """Return active agent IDs based on mode.
 
         Args:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for convergence and ambition/craft mechanisms.
 
 Tests cover:

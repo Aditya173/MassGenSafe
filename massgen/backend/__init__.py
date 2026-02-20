@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MassGen Backend System - Multi-Provider LLM Integration
 

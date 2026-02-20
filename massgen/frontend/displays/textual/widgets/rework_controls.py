@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Shared rework controls mixin for MassGen TUI modals.
 
@@ -6,8 +5,6 @@ Provides the feedback Input + Continue/Quick Edit button pattern used by both
 PlanApprovalModal and GitDiffReviewModal. Subclasses set class-level widget ID
 constants to avoid CSS/test ID collisions.
 """
-
-from typing import Optional
 
 try:
     from textual.containers import Horizontal
@@ -173,7 +170,7 @@ class ReworkControlsMixin:
 
         yield result
 
-    def _rework_feedback_text(self) -> Optional[str]:
+    def _rework_feedback_text(self) -> str | None:
         """Get the current feedback text, or None if empty/whitespace.
 
         Tries to read from mounted widget first, falls back to cached value.

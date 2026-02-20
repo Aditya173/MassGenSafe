@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Full TUI Modal for Subagents.
 
@@ -14,7 +13,7 @@ Features:
 - Full parity with main TUI styling and widgets
 """
 
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -42,7 +41,7 @@ class SubagentFinalAnswerCard(Vertical):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, content: str = "", id: Optional[str] = None) -> None:
+    def __init__(self, content: str = "", id: str | None = None) -> None:
         super().__init__(id=id)
         self._content = content
 
@@ -126,8 +125,8 @@ class SubagentTuiModal(ModalScreen[None]):
     def __init__(
         self,
         subagent: SubagentDisplayData,
-        all_subagents: Optional[List[SubagentDisplayData]] = None,
-        status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
+        all_subagents: list[SubagentDisplayData] | None = None,
+        status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
     ) -> None:
         """Initialize the modal.
 
@@ -147,12 +146,12 @@ class SubagentTuiModal(ModalScreen[None]):
                 break
 
         self._status_callback = status_callback
-        self._poll_timer: Optional[Timer] = None
-        self._event_reader: Optional[EventReader] = None
-        self._content_processor: Optional[ContentProcessor] = None
+        self._poll_timer: Timer | None = None
+        self._event_reader: EventReader | None = None
+        self._content_processor: ContentProcessor | None = None
         self._tool_count = 0
         self._round_number = 1
-        self._final_answer: Optional[str] = None
+        self._final_answer: str | None = None
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -326,7 +325,7 @@ class SubagentTuiModal(ModalScreen[None]):
         events = self._event_reader.read_all()
         self._process_events(events)
 
-    def _process_events(self, events: List[MassGenEvent]) -> None:
+    def _process_events(self, events: list[MassGenEvent]) -> None:
         """Process events and add widgets to timeline."""
         if not self._content_processor:
             return

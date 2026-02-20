@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Unified media generation tool.
 
@@ -10,12 +9,13 @@ It automatically selects the best available backend based on:
 
 Supports batch mode for parallel generation of multiple media items.
 """
+
 import asyncio
 import base64
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from massgen.logger_config import logger
 from massgen.tool._decorators import context_params
@@ -35,7 +35,7 @@ from massgen.tool._multimodal_tools.generation._video import generate_video
 from massgen.tool._result import ExecutionResult, TextContent
 
 
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -> None:
     """Validate that a path is within allowed directories.
 
     Args:
@@ -63,9 +63,9 @@ _MAX_INPUT_IMAGE_SIZE_BYTES = 4 * 1024 * 1024  # 4MB limit for Requests API
 
 
 def _prepare_input_images(
-    image_paths: List[str],
+    image_paths: list[str],
     base_dir: Path,
-    allowed_paths: Optional[List[Path]] = None,
+    allowed_paths: list[Path] | None = None,
 ) -> tuple[list[dict[str, str]], list[str]]:
     """Validate and load input images for image-to-image generation.
 
@@ -126,7 +126,7 @@ def _clean_for_filename(text: str, max_length: int = 30) -> str:
     return clean.replace(" ", "_")
 
 
-def _get_extension(media_type: MediaType, audio_format: Optional[str] = None) -> str:
+def _get_extension(media_type: MediaType, audio_format: str | None = None) -> str:
     """Get file extension for media type.
 
     Args:
@@ -147,23 +147,23 @@ def _get_extension(media_type: MediaType, audio_format: Optional[str] = None) ->
 
 async def _generate_single_with_input_images(
     prompt: str,
-    input_images: List[str],
+    input_images: list[str],
     output_dir: Path,
     base_dir: Path,
-    allowed_paths_list: Optional[List[Path]],
+    allowed_paths_list: list[Path] | None,
     selected_backend: str,
-    selected_model: Optional[str],
+    selected_model: str | None,
     media_type: MediaType,
     mode: str,
-    quality: Optional[str],
-    duration: Optional[int],
-    voice: Optional[str],
-    aspect_ratio: Optional[str],
-    extra_params: Optional[Dict[str, Any]],
-    instructions: Optional[str],
+    quality: str | None,
+    duration: int | None,
+    voice: str | None,
+    aspect_ratio: str | None,
+    extra_params: dict[str, Any] | None,
+    instructions: str | None,
     timestamp: str,
     ext: str,
-    task_context: Optional[str] = None,
+    task_context: str | None = None,
 ) -> ExecutionResult:
     """Handle single image generation with input images (image-to-image).
 
@@ -265,25 +265,25 @@ async def _generate_single_with_input_images(
 
 @context_params("agent_cwd", "allowed_paths", "multimodal_config", "task_context")
 async def generate_media(
-    prompt: Optional[str] = None,
+    prompt: str | None = None,
     mode: Literal["image", "video", "audio"] = "image",
-    prompts: Optional[List[str]] = None,
-    input_images: Optional[List[str]] = None,
-    storage_path: Optional[str] = None,
-    backend_type: Optional[str] = None,
-    model: Optional[str] = None,
-    quality: Optional[str] = None,
-    duration: Optional[int] = None,
-    voice: Optional[str] = None,
-    aspect_ratio: Optional[str] = None,
-    audio_format: Optional[str] = None,
-    instructions: Optional[str] = None,
-    extra_params: Optional[Dict[str, Any]] = None,
+    prompts: list[str] | None = None,
+    input_images: list[str] | None = None,
+    storage_path: str | None = None,
+    backend_type: str | None = None,
+    model: str | None = None,
+    quality: str | None = None,
+    duration: int | None = None,
+    voice: str | None = None,
+    aspect_ratio: str | None = None,
+    audio_format: str | None = None,
+    instructions: str | None = None,
+    extra_params: dict[str, Any] | None = None,
     max_concurrent: int = 4,
-    agent_cwd: Optional[str] = None,
-    allowed_paths: Optional[List[str]] = None,
-    multimodal_config: Optional[Dict[str, Any]] = None,
-    task_context: Optional[str] = None,
+    agent_cwd: str | None = None,
+    allowed_paths: list[str] | None = None,
+    multimodal_config: dict[str, Any] | None = None,
+    task_context: str | None = None,
 ) -> ExecutionResult:
     """
     Generate media (image, video, or audio) from text prompt(s).
@@ -450,7 +450,7 @@ async def generate_media(
         from massgen.context.task_context import format_prompt_with_context
 
         # Define the single generation task
-        async def _generate_one(idx: int, single_prompt: str, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
+        async def _generate_one(idx: int, single_prompt: str, semaphore: asyncio.Semaphore) -> dict[str, Any]:
             """Generate a single media item with concurrency control."""
             async with semaphore:
                 try:

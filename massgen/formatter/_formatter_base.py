@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Base class for API parameters handlers.
 Provides common functionality for building API parameters across different backends.
@@ -7,7 +6,7 @@ Provides common functionality for building API parameters across different backe
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 
 from ..utils.tool_argument_normalization import normalize_json_object_argument
 
@@ -26,26 +25,26 @@ class FormatterBase(ABC):
     @abstractmethod
     def format_messages(
         self,
-        messages: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
     def format_tools(
         self,
-        tools: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        tools: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
     def format_mcp_tools(
         self,
-        mcp_functions: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        mcp_functions: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         pass
 
     @staticmethod
-    def extract_tool_name(tool_call: Dict[str, Any]) -> str:
+    def extract_tool_name(tool_call: dict[str, Any]) -> str:
         """
         Extract tool name from a tool call (handles multiple formats).
 
@@ -70,7 +69,7 @@ class FormatterBase(ABC):
         return "unknown"
 
     @staticmethod
-    def extract_tool_arguments(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+    def extract_tool_arguments(tool_call: dict[str, Any]) -> dict[str, Any]:
         """
         Extract tool arguments from a tool call (handles multiple formats).
 
@@ -107,7 +106,7 @@ class FormatterBase(ABC):
             return {}
 
     @staticmethod
-    def extract_tool_call_id(tool_call: Dict[str, Any]) -> str:
+    def extract_tool_call_id(tool_call: dict[str, Any]) -> str:
         """
         Extract tool call ID from a tool call (handles multiple formats).
 

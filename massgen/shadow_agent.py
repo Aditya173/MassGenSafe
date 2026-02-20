@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Shadow Agent Implementation for Broadcast Responses.
 
@@ -24,7 +23,7 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .broadcast.broadcast_dataclasses import BroadcastRequest
@@ -262,7 +261,7 @@ You are responding to a question from another agent in your team.
         self,
         parent_agent: "SingleAgent",
         shadow_id: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Build a formatted string of the parent's current turn context.
 
         Combines text content, tool calls, reasoning, and MCP tool calls
@@ -343,7 +342,7 @@ You are responding to a question from another agent in your team.
         shadow_system_prompt: str,
         parent_agent: "SingleAgent",
         broadcast_request: "BroadcastRequest",
-        current_turn_context: Optional[str],
+        current_turn_context: str | None,
         shadow_id: str,
     ) -> list:
         """Build a conversation history compatible with Claude Code backend.
@@ -485,10 +484,10 @@ Please provide your response:"""
         broadcast_request: "BroadcastRequest",
         shadow_system_prompt: str,
         shadow_history: list,
-        current_turn_context: Optional[str],
+        current_turn_context: str | None,
         parent_agent: "SingleAgent",
         log_session_dir: Path,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """Save shadow agent context to a debug file.
 
         Creates a JSON file with the full context sent to the shadow agent,
@@ -568,7 +567,7 @@ Please provide your response:"""
             response: The generated response
         """
         try:
-            with open(filepath, "r") as f:
+            with open(filepath) as f:
                 debug_data = json.load(f)
 
             debug_data["response"] = response

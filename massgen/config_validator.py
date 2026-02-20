@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Configuration validation for MassGen YAML/JSON configs.
 
@@ -25,7 +24,7 @@ Usage:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -43,7 +42,7 @@ class ValidationIssue:
 
     message: str
     location: str
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
     severity: str = "error"  # "error" or "warning"
 
     def __str__(self) -> str:
@@ -59,14 +58,14 @@ class ValidationIssue:
 class ValidationResult:
     """Aggregates all validation errors and warnings."""
 
-    errors: List[ValidationIssue] = field(default_factory=list)
-    warnings: List[ValidationIssue] = field(default_factory=list)
+    errors: list[ValidationIssue] = field(default_factory=list)
+    warnings: list[ValidationIssue] = field(default_factory=list)
 
-    def add_error(self, message: str, location: str, suggestion: Optional[str] = None) -> None:
+    def add_error(self, message: str, location: str, suggestion: str | None = None) -> None:
         """Add a validation error."""
         self.errors.append(ValidationIssue(message, location, suggestion, "error"))
 
-    def add_warning(self, message: str, location: str, suggestion: Optional[str] = None) -> None:
+    def add_warning(self, message: str, location: str, suggestion: str | None = None) -> None:
         """Add a validation warning."""
         self.warnings.append(ValidationIssue(message, location, suggestion, "warning"))
 
@@ -107,7 +106,7 @@ class ValidationResult:
             parts.append(self.format_warnings())
         return "\n".join(parts) if parts else "✅ Configuration is valid!"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON output."""
         return {
             "valid": self.is_valid(),
@@ -193,7 +192,7 @@ class ConfigValidator:
 
         # Load config file
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 if path.suffix in [".yaml", ".yml"]:
                     config = yaml.safe_load(f)
                 elif path.suffix == ".json":
@@ -214,7 +213,7 @@ class ConfigValidator:
         # Validate the loaded config
         return self.validate_config(config)
 
-    def validate_config(self, config: Dict[str, Any]) -> ValidationResult:
+    def validate_config(self, config: dict[str, Any]) -> ValidationResult:
         """
         Validate a configuration dictionary.
 
@@ -259,7 +258,7 @@ class ConfigValidator:
 
         return result
 
-    def _check_v1_keywords(self, config: Dict[str, Any], result: ValidationResult) -> None:
+    def _check_v1_keywords(self, config: dict[str, Any], result: ValidationResult) -> None:
         """Check for V1 config keywords and reject them."""
         found_v1_keywords = []
         for keyword in self.V1_KEYWORDS:
@@ -273,7 +272,7 @@ class ConfigValidator:
                 "Migrate to V2 config format. See docs/source/reference/yaml_schema.rst for the current schema.",
             )
 
-    def _validate_top_level(self, config: Dict[str, Any], result: ValidationResult) -> None:
+    def _validate_top_level(self, config: dict[str, Any], result: ValidationResult) -> None:
         """Validate top-level config structure (Level 1)."""
         # Require either 'agents' (list) or 'agent' (single)
         has_agents = "agents" in config
@@ -315,7 +314,7 @@ class ConfigValidator:
         if "hooks" in config:
             self._validate_hooks(config["hooks"], "hooks", result)
 
-    def _validate_agents(self, config: Dict[str, Any], result: ValidationResult) -> None:
+    def _validate_agents(self, config: dict[str, Any], result: ValidationResult) -> None:
         """Validate agent configurations (Level 2)."""
         # Get agents list (normalize single agent to list)
         if "agents" in config:
@@ -326,7 +325,7 @@ class ConfigValidator:
             agents = [config["agent"]]
 
         # Track agent IDs for duplicate detection
-        agent_ids: List[str] = []
+        agent_ids: list[str] = []
 
         for i, agent_config in enumerate(agents):
             agent_location = f"agents[{i}]" if "agents" in config else "agent"
@@ -401,7 +400,7 @@ class ConfigValidator:
                         "Use a string describing the agent's subtask",
                     )
 
-    def _validate_backend(self, backend_config: Dict[str, Any], location: str, result: ValidationResult) -> None:
+    def _validate_backend(self, backend_config: dict[str, Any], location: str, result: ValidationResult) -> None:
         """Validate backend configuration (Level 3)."""
         if not isinstance(backend_config, dict):
             result.add_error(
@@ -561,7 +560,7 @@ class ConfigValidator:
 
     def _validate_tool_filtering(
         self,
-        backend_config: Dict[str, Any],
+        backend_config: dict[str, Any],
         location: str,
         result: ValidationResult,
     ) -> None:
@@ -622,7 +621,7 @@ class ConfigValidator:
 
     def _validate_hooks(
         self,
-        hooks_config: Dict[str, Any],
+        hooks_config: dict[str, Any],
         location: str,
         result: ValidationResult,
     ) -> None:
@@ -684,7 +683,7 @@ class ConfigValidator:
 
     def _validate_single_hook(
         self,
-        hook_config: Dict[str, Any],
+        hook_config: dict[str, Any],
         location: str,
         result: ValidationResult,
     ) -> None:
@@ -760,7 +759,7 @@ class ConfigValidator:
                     "Use true or false",
                 )
 
-    def _validate_orchestrator(self, orchestrator_config: Dict[str, Any], result: ValidationResult) -> None:
+    def _validate_orchestrator(self, orchestrator_config: dict[str, Any], result: ValidationResult) -> None:
         """Validate orchestrator configuration (Level 5)."""
         location = "orchestrator"
 
@@ -1172,7 +1171,7 @@ class ConfigValidator:
                             "Use 'true' or 'false'",
                         )
 
-    def _validate_ui(self, ui_config: Dict[str, Any], result: ValidationResult) -> None:
+    def _validate_ui(self, ui_config: dict[str, Any], result: ValidationResult) -> None:
         """Validate UI configuration (Level 6)."""
         location = "ui"
 
@@ -1205,7 +1204,7 @@ class ConfigValidator:
                     "Use 'true' or 'false'",
                 )
 
-    def _validate_memory(self, memory_config: Dict[str, Any], result: ValidationResult) -> None:
+    def _validate_memory(self, memory_config: dict[str, Any], result: ValidationResult) -> None:
         """Validate memory configuration."""
         location = "memory"
 
@@ -1406,7 +1405,7 @@ class ConfigValidator:
                             "Use 'true' or 'false'",
                         )
 
-    def _check_warnings(self, config: Dict[str, Any], result: ValidationResult) -> None:
+    def _check_warnings(self, config: dict[str, Any], result: ValidationResult) -> None:
         """Check for warnings (best practices, deprecations, etc.)."""
         # Get agents list (normalize single agent to list)
         if "agents" in config:

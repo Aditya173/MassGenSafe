@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Session registry for tracking and managing memory sessions.
 
 This module provides functionality to:
@@ -12,7 +11,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ class SessionRegistry:
     - description: Optional user-provided description
     """
 
-    def __init__(self, registry_path: Optional[str] = None):
+    def __init__(self, registry_path: str | None = None):
         """Initialize session registry.
 
         Args:
@@ -51,31 +50,31 @@ class SessionRegistry:
             self.registry_path.write_text(json.dumps({"sessions": []}, indent=2))
             logger.debug(f"Created session registry at {self.registry_path}")
 
-    def _load_registry(self) -> Dict[str, List[Dict[str, Any]]]:
+    def _load_registry(self) -> dict[str, list[dict[str, Any]]]:
         """Load registry from disk."""
         try:
-            with open(self.registry_path, "r") as f:
+            with open(self.registry_path) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to load session registry: {e}. Creating new registry.")
             return {"sessions": []}
 
-    def _save_registry(self, data: Dict[str, List[Dict[str, Any]]]) -> None:
+    def _save_registry(self, data: dict[str, list[dict[str, Any]]]) -> None:
         """Save registry to disk."""
         try:
             with open(self.registry_path, "w") as f:
                 json.dump(data, f, indent=2)
-        except IOError as e:
+        except OSError as e:
             logger.error(f"Failed to save session registry: {e}")
 
     def register_session(
         self,
         session_id: str,
-        config_path: Optional[str] = None,
-        model: Optional[str] = None,
-        description: Optional[str] = None,
+        config_path: str | None = None,
+        model: str | None = None,
+        description: str | None = None,
         subagent: bool = False,
-        parent_session_id: Optional[str] = None,
+        parent_session_id: str | None = None,
         **metadata: Any,
     ) -> None:
         """Register a new session or update existing session.
@@ -147,7 +146,7 @@ class SessionRegistry:
 
         self._save_registry(registry)
 
-    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Get metadata for a specific session.
 
         Args:
@@ -166,9 +165,9 @@ class SessionRegistry:
 
     def list_sessions(
         self,
-        limit: Optional[int] = None,
-        status: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        limit: int | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List all registered sessions.
 
         Args:
@@ -194,7 +193,7 @@ class SessionRegistry:
 
         return sessions
 
-    def get_most_recent_session(self) -> Optional[Dict[str, Any]]:
+    def get_most_recent_session(self) -> dict[str, Any] | None:
         """Get the most recently started session.
 
         Returns:
@@ -203,7 +202,7 @@ class SessionRegistry:
         sessions = self.list_sessions(limit=1)
         return sessions[0] if sessions else None
 
-    def get_most_recent_continuable_session(self) -> Optional[Dict[str, Any]]:
+    def get_most_recent_continuable_session(self) -> dict[str, Any] | None:
         """Get the most recent session that can be continued (has saved turns).
 
         Skips empty sessions that have no turns saved yet.
@@ -279,7 +278,7 @@ class SessionRegistry:
         return False
 
 
-def format_session_list(sessions: List[Dict[str, Any]], show_all: bool = False) -> str:
+def format_session_list(sessions: list[dict[str, Any]], show_all: bool = False) -> str:
     """Format session list for display in CLI.
 
     Args:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Docker Container Manager for MassGen
 
@@ -10,7 +9,7 @@ while keeping MCP servers on the host.
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..logger_config import logger
 
@@ -42,12 +41,12 @@ class DockerManager:
         self,
         image: str = "ghcr.io/massgen/mcp-runtime:latest",
         network_mode: str = "none",
-        memory_limit: Optional[str] = None,
-        cpu_limit: Optional[float] = None,
+        memory_limit: str | None = None,
+        cpu_limit: float | None = None,
         enable_sudo: bool = False,
-        credentials: Optional[Dict[str, Any]] = None,
-        packages: Optional[Dict[str, Any]] = None,
-        instance_id: Optional[str] = None,
+        credentials: dict[str, Any] | None = None,
+        packages: dict[str, Any] | None = None,
+        instance_id: str | None = None,
     ):
         """
         Initialize Docker manager.
@@ -151,8 +150,8 @@ class DockerManager:
             logger.error(f"❌ [Docker] Failed to connect to Docker daemon: {e}")
             raise RuntimeError(f"Failed to connect to Docker: {e}")
 
-        self.containers: Dict[str, Container] = {}  # agent_id -> container
-        self.temp_skills_dirs: Dict[str, Path] = {}  # agent_id -> temp skills directory path
+        self.containers: dict[str, Container] = {}  # agent_id -> container
+        self.temp_skills_dirs: dict[str, Path] = {}  # agent_id -> temp skills directory path
 
     def ensure_image_exists(self) -> None:
         """
@@ -179,11 +178,11 @@ class DockerManager:
                     )
                 raise RuntimeError(f"Failed to pull Docker image '{self.image}': {e}")
 
-    def _parse_single_env_file(self, env_path: Path) -> Dict[str, str]:
+    def _parse_single_env_file(self, env_path: Path) -> dict[str, str]:
         """Parse a single .env file and return its key-value pairs."""
         env_vars = {}
         try:
-            with open(env_path, "r") as f:
+            with open(env_path) as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     # Skip empty lines and comments
@@ -209,7 +208,7 @@ class DockerManager:
             raise RuntimeError(f"Failed to read environment file {env_path}: {e}")
         return env_vars
 
-    def _load_env_file(self, env_file_path: str) -> Dict[str, str]:
+    def _load_env_file(self, env_file_path: str) -> dict[str, str]:
         """
         Load environment variables from .env files.
 
@@ -261,7 +260,7 @@ class DockerManager:
 
         return env_vars
 
-    def _build_environment(self) -> Dict[str, str]:
+    def _build_environment(self) -> dict[str, str]:
         """
         Build environment variables dict to pass to container.
 
@@ -308,7 +307,7 @@ class DockerManager:
 
         return env_vars
 
-    def _build_credential_mounts(self) -> Dict[str, Dict[str, str]]:
+    def _build_credential_mounts(self) -> dict[str, dict[str, str]]:
         """
         Build volume mounts for credential files.
 
@@ -510,16 +509,16 @@ class DockerManager:
         self,
         agent_id: str,
         workspace_path: Path,
-        temp_workspace_path: Optional[Path] = None,
-        context_paths: Optional[List[Dict[str, Any]]] = None,
-        session_mount: Optional[Dict[str, Dict[str, str]]] = None,
-        skills_directory: Optional[str] = None,
-        massgen_skills: Optional[List[str]] = None,
-        shared_tools_directory: Optional[Path] = None,
+        temp_workspace_path: Path | None = None,
+        context_paths: list[dict[str, Any]] | None = None,
+        session_mount: dict[str, dict[str, str]] | None = None,
+        skills_directory: str | None = None,
+        massgen_skills: list[str] | None = None,
+        shared_tools_directory: Path | None = None,
         load_previous_session_skills: bool = False,
-        extra_mount_paths: Optional[List[tuple]] = None,
+        extra_mount_paths: list[tuple] | None = None,
         skills_writable: bool = False,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """
         Create and start a persistent Docker container for an agent.
 
@@ -876,7 +875,7 @@ class DockerManager:
             logger.error(f"❌ [Docker] Failed to create container for agent {agent_id}: {e}")
             raise RuntimeError(f"Failed to create Docker container for agent {agent_id}: {e}")
 
-    def get_container(self, agent_id: str) -> Optional[Container]:
+    def get_container(self, agent_id: str) -> Container | None:
         """
         Get container for an agent.
 
@@ -892,9 +891,9 @@ class DockerManager:
         self,
         agent_id: str,
         command: str,
-        workdir: Optional[str] = None,
-        timeout: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        workdir: str | None = None,
+        timeout: int | None = None,
+    ) -> dict[str, Any]:
         """
         Execute a command inside the agent's container.
 
@@ -1051,7 +1050,7 @@ class DockerManager:
         except DockerException as e:
             logger.error(f"❌ [Docker] Failed to remove container for agent {agent_id}: {e}")
 
-    def cleanup(self, agent_id: Optional[str] = None) -> None:
+    def cleanup(self, agent_id: str | None = None) -> None:
         """
         Clean up containers and temp skills directories.
 
@@ -1128,7 +1127,7 @@ class DockerManager:
         except Exception as e:
             logger.warning(f"⚠️ [Docker] Could not log container info: {e}")
 
-    def get_container_health(self, agent_id: str) -> Dict[str, Any]:
+    def get_container_health(self, agent_id: str) -> dict[str, Any]:
         """
         Get health/status information for a container.
 
@@ -1190,7 +1189,7 @@ class DockerManager:
         agent_id: str,
         tail: int = 100,
         timestamps: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get logs from a container.
 

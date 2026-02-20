@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Regression coverage for ChatCompletionsBackend provider wiring."""
 
 import pytest

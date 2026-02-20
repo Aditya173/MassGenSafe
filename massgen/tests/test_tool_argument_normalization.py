@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for shared tool-argument normalization utilities."""
 
 import json

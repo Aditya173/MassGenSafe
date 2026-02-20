@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Background Tasks Modal Widget for MassGen TUI.
 
@@ -8,7 +7,7 @@ Supports drilling down into individual tasks to see live output.
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -22,9 +21,9 @@ class BackgroundTaskRow(Static, can_focus=True):
 
     def __init__(
         self,
-        task_data: Dict[str, Any],
+        task_data: dict[str, Any],
         index: int,
-        agent_id: Optional[str] = None,
+        agent_id: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -104,12 +103,12 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, task_data: Dict[str, Any], agent_id: Optional[str] = None) -> None:
+    def __init__(self, task_data: dict[str, Any], agent_id: str | None = None) -> None:
         super().__init__()
         self._task_data = task_data
         self.agent_id = agent_id
-        self._output_widget: Optional[Static] = None
-        self._status_widget: Optional[Static] = None
+        self._output_widget: Static | None = None
+        self._status_widget: Static | None = None
 
     def compose(self) -> ComposeResult:
         task = self._task_data
@@ -306,7 +305,7 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
 
         return text
 
-    def _get_shell_output(self) -> Optional[Dict[str, Any]]:
+    def _get_shell_output(self) -> dict[str, Any] | None:
         """Get background output from stored tool result.
 
         The TUI currently shows the result payload captured by the tool card.
@@ -322,7 +321,7 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
             }
         return None
 
-    def _get_shell_status(self) -> Optional[Dict[str, Any]]:
+    def _get_shell_status(self) -> dict[str, Any] | None:
         """Get background status metadata for display."""
         async_id = self._task_data.get("async_id")
         status = str(self._task_data.get("status") or "background")
@@ -377,9 +376,9 @@ class BackgroundTasksModal(ModalScreen[None]):
 
     def __init__(
         self,
-        background_tasks: List[Dict[str, Any]],
-        recent_tasks: Optional[List[Dict[str, Any]]] = None,
-        agent_id: Optional[str] = None,
+        background_tasks: list[dict[str, Any]],
+        recent_tasks: list[dict[str, Any]] | None = None,
+        agent_id: str | None = None,
     ) -> None:
         super().__init__()
         self.background_tasks = background_tasks or []

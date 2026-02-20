@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 System Prompt Section Architecture
 
@@ -15,7 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -59,7 +58,7 @@ def _threshold_to_quality_bar(threshold: int) -> float:
 def _build_budget_line(
     quality_bar: float,
     answers_used: int,
-    answer_cap: Optional[int],
+    answer_cap: int | None,
 ) -> tuple[float, str]:
     """Compute effective quality bar + budget text given remaining answer slots.
 
@@ -83,7 +82,7 @@ def _build_budget_line(
 def build_roi_decision_block(
     threshold: int,
     answers_used: int = 0,
-    answer_cap: Optional[int] = None,
+    answer_cap: int | None = None,
     *,
     iterate_action: str = "new_answer",
     satisfied_action: str = "vote",
@@ -863,9 +862,9 @@ class SystemPromptSection(ABC):
 
     title: str
     priority: Priority
-    xml_tag: Optional[str] = None
+    xml_tag: str | None = None
     enabled: bool = True
-    subsections: List["SystemPromptSection"] = field(default_factory=list)
+    subsections: list["SystemPromptSection"] = field(default_factory=list)
 
     @abstractmethod
     def build_content(self) -> str:
@@ -1102,7 +1101,7 @@ class SkillsSection(SystemPromptSection):
 
     def __init__(
         self,
-        skills: List[Dict[str, Any]],
+        skills: list[dict[str, Any]],
         skills_dir: Optional["Path"] = None,
     ):
         super().__init__(
@@ -1113,7 +1112,7 @@ class SkillsSection(SystemPromptSection):
         self.skills = skills
         self.skills_dir = skills_dir
 
-    def _try_load_registry(self) -> Optional[str]:
+    def _try_load_registry(self) -> str | None:
         """Attempt to load registry content if it exists."""
         if self.skills_dir is None:
             return None
@@ -1144,7 +1143,7 @@ class SkillsSection(SystemPromptSection):
 
         return {m.group(1).lower() for m in re.finditer(r"\*\*([^*]+)\*\*", registry_body)}
 
-    def _build_usage_instructions(self) -> List[str]:
+    def _build_usage_instructions(self) -> list[str]:
         """Build the common usage instructions block."""
         parts = []
         parts.append("<usage>")
@@ -1298,7 +1297,7 @@ class CodeBasedToolsSection(SystemPromptSection):
         self,
         workspace_path: str,
         shared_tools_path: str = None,
-        mcp_servers: List[Dict[str, Any]] = None,
+        mcp_servers: list[dict[str, Any]] = None,
     ):
         super().__init__(
             title="Code-Based Tools",
@@ -1542,7 +1541,7 @@ class MemorySection(SystemPromptSection):
                       including short-term and long-term memory content
     """
 
-    def __init__(self, memory_config: Dict[str, Any]):
+    def __init__(self, memory_config: dict[str, Any]):
         super().__init__(
             title="Memory System",
             priority=Priority.HIGH,
@@ -1802,13 +1801,13 @@ class WorkspaceStructureSection(SystemPromptSection):
     def __init__(
         self,
         workspace_path: str,
-        context_paths: List[str],
+        context_paths: list[str],
         use_two_tier_workspace: bool = False,
         decomposition_mode: bool = False,
-        worktree_paths: Optional[Dict[str, str]] = None,
-        branch_name: Optional[str] = None,
-        other_branches: Optional[Dict[str, str]] = None,
-        branch_diff_summaries: Optional[Dict[str, str]] = None,
+        worktree_paths: dict[str, str] | None = None,
+        branch_name: str | None = None,
+        other_branches: dict[str, str] | None = None,
+        branch_diff_summaries: dict[str, str] | None = None,
     ):
         super().__init__(
             title="Workspace Structure",
@@ -1940,7 +1939,7 @@ class ProjectInstructionsSection(SystemPromptSection):
         workspace_root: Agent workspace root (kept for backwards compatibility, not used for search boundary)
     """
 
-    def __init__(self, context_paths: List[Dict[str, str]], workspace_root: str):
+    def __init__(self, context_paths: list[dict[str, str]], workspace_root: str):
         super().__init__(
             title="Project Instructions",
             priority=Priority.HIGH,  # Important context, but not operational instructions
@@ -1949,7 +1948,7 @@ class ProjectInstructionsSection(SystemPromptSection):
         self.context_paths = context_paths
         self.workspace_root = Path(workspace_root) if workspace_root else Path.cwd()
 
-    def discover_instruction_file(self, context_path: Path) -> Optional[Path]:
+    def discover_instruction_file(self, context_path: Path) -> Path | None:
         """
         Walk up from context_path searching for CLAUDE.md or AGENTS.md.
         Returns the closest instruction file found.
@@ -2124,6 +2123,9 @@ class CommandExecutionSection(SystemPromptSection):
             "If no meaningful work remains while waiting on background jobs, " "call `custom_tool__wait_for_background_tool` instead of tight polling loops.",
         )
         parts.append(
+            "The wait call may return early with `interrupted: true` and `injected_content` " "when runtime input or completion updates are ready; treat that payload as new context and continue.",
+        )
+        parts.append(
             "Background results may be auto-injected on a later turn. If not injected, poll status and then fetch the result manually.\n",
         )
 
@@ -2184,14 +2186,14 @@ class FilesystemOperationsSection(SystemPromptSection):
 
     def __init__(
         self,
-        main_workspace: Optional[str] = None,
-        temp_workspace: Optional[str] = None,
-        context_paths: Optional[List[Dict[str, str]]] = None,
-        previous_turns: Optional[List[Dict[str, Any]]] = None,
+        main_workspace: str | None = None,
+        temp_workspace: str | None = None,
+        context_paths: list[dict[str, str]] | None = None,
+        previous_turns: list[dict[str, Any]] | None = None,
         workspace_prepopulated: bool = False,
-        agent_answers: Optional[Dict[str, str]] = None,
+        agent_answers: dict[str, str] | None = None,
         enable_command_execution: bool = False,
-        agent_mapping: Optional[Dict[str, str]] = None,
+        agent_mapping: dict[str, str] | None = None,
         has_native_tools: bool = False,
     ):
         super().__init__(
@@ -2462,13 +2464,13 @@ class FilesystemSection(SystemPromptSection):
     def __init__(
         self,
         workspace_path: str,
-        context_paths: List[str],
-        main_workspace: Optional[str] = None,
-        temp_workspace: Optional[str] = None,
-        context_paths_detailed: Optional[List[Dict[str, str]]] = None,
-        previous_turns: Optional[List[Dict[str, Any]]] = None,
+        context_paths: list[str],
+        main_workspace: str | None = None,
+        temp_workspace: str | None = None,
+        context_paths_detailed: list[dict[str, str]] | None = None,
+        previous_turns: list[dict[str, Any]] | None = None,
         workspace_prepopulated: bool = False,
-        agent_answers: Optional[Dict[str, str]] = None,
+        agent_answers: dict[str, str] | None = None,
         enable_command_execution: bool = False,
         docker_mode: bool = False,
         enable_sudo: bool = False,
@@ -2653,13 +2655,12 @@ class EvaluationSection(SystemPromptSection):
         answer_novelty_requirement: str = "lenient",
         vote_only: bool = False,
         round_number: int = 1,
-        voting_threshold: Optional[int] = None,
+        voting_threshold: int | None = None,
         answers_used: int = 0,
-        answer_cap: Optional[int] = None,
+        answer_cap: int | None = None,
         checklist_require_gap_report: bool = True,
         gap_report_mode: str = "changedoc",
         has_changedoc: bool = False,
-        has_evaluator_subagent: bool = False,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -2676,7 +2677,6 @@ class EvaluationSection(SystemPromptSection):
         self.checklist_require_gap_report = checklist_require_gap_report
         self.gap_report_mode = gap_report_mode
         self.has_changedoc = has_changedoc
-        self.has_evaluator_subagent = has_evaluator_subagent
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -2799,19 +2799,9 @@ Your goal is to iteratively refine answers until they meet the quality bar.
                 require_gap_report=self.checklist_require_gap_report,
                 gap_report_mode=self.gap_report_mode,
             )
-            evaluator_directive = ""
-            if self.has_evaluator_subagent:
-                evaluator_directive = (
-                    "\n\n"
-                    "**Mandatory Evaluator Check:** BEFORE calling `submit_checklist`, spawn your evaluator "
-                    "subagent to verify your output. Do NOT serve websites, run test suites, or write "
-                    "verification scripts yourself — delegate that procedural work to the evaluator. Read "
-                    "its report, then factor the findings into your T1-T5 scores. If it includes "
-                    "suggestions, treat them as optional input and use your judgment for the final call."
-                )
             evaluation_section = f"""{analysis}
 
-{decision}{evaluator_directive}"""
+{decision}"""
         elif effective_sensitivity == "adversarial":
             evaluation_section = """**ADVERSARIAL EVALUATION (INTERNAL RED-TEAMING)**
 
@@ -2949,11 +2939,11 @@ class DecompositionSection(SystemPromptSection):
 
     def __init__(
         self,
-        subtask: Optional[str] = None,
-        voting_threshold: Optional[int] = None,
+        subtask: str | None = None,
+        voting_threshold: int | None = None,
         voting_sensitivity: str = "roi",
         answers_used: int = 0,
-        answer_cap: Optional[int] = None,
+        answer_cap: int | None = None,
         checklist_require_gap_report: bool = True,
         gap_report_mode: str = "changedoc",
         has_changedoc: bool = False,
@@ -3015,22 +3005,12 @@ Both are terminal actions that end your round.
                     require_gap_report=self.checklist_require_gap_report,
                     gap_report_mode=self.gap_report_mode,
                 )
-                evaluator_directive = ""
-                if self.has_evaluator_subagent:
-                    evaluator_directive = (
-                        "\n\n"
-                        "**Mandatory Evaluator Check:** BEFORE calling `submit_checklist`, spawn your evaluator "
-                        "subagent to verify your output. Do NOT serve websites, run test suites, or write "
-                        "verification scripts yourself — delegate that procedural work to the evaluator. Read "
-                        "its report, then factor the findings into your T1-T5 scores. If it includes "
-                        "suggestions, treat them as optional input and use your judgment for the final call."
-                    )
                 return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round.
 
 {analysis}
 
-{decision}{evaluator_directive}"""
+{decision}"""
             else:
                 # roi (default) and roi_* variants
                 roi_block = build_roi_decision_block(
@@ -3575,6 +3555,12 @@ class SubagentSection(SystemPromptSection):
         if not self.specialized_subagents:
             return ""
 
+        background_by_type = {
+            "explorer": True,
+            "researcher": True,
+            "evaluator": False,
+        }
+
         lines = [
             "",
             "## ATTACHED SUBAGENTS — USE THESE INSTEAD OF DOING THE WORK YOURSELF",
@@ -3584,9 +3570,14 @@ class SubagentSection(SystemPromptSection):
         ]
 
         for t in self.specialized_subagents:
-            background_str = "True" if t.default_background else "False"
+            background_default = background_by_type.get(t.name.lower(), False)
+            background_str = "True" if background_default else "False"
             lines.append(f"**{t.name}** — {t.description}")
             lines.append(f'`spawn_subagents(tasks=[{{"task": "...", "subagent_type": "{t.name}", "context_paths": []}}], background={background_str})`')
+            if getattr(t, "expected_input", None):
+                lines.append("Expected input for this type:")
+                for item in t.expected_input:
+                    lines.append(f"- {item}")
             if t.name.lower() == "evaluator":
                 lines.append(
                     "Use this when the task is mostly programmatic execution/reporting (batch tests, Playwright flows, screenshot sweeps, scripted validation).",
@@ -3597,6 +3588,34 @@ class SubagentSection(SystemPromptSection):
 
     def build_content(self) -> str:
         attached = self._build_attached_subagents_section()
+        specialized_names = {t.name.lower() for t in self.specialized_subagents}
+        specialized_guidance = ""
+        if specialized_names:
+            evaluator_guidance = ""
+            if "evaluator" in specialized_names:
+                evaluator_guidance = """
+**FOR `EVALUATOR` TASKS, EXPLICITLY INCLUDE:**
+- What to run (tests, scripts, flows, URLs, targets)
+- How to set it up (install/build/start steps, ports, env vars, prerequisites)
+- Exact commands (copy-pastable command list in order)
+- What evidence to capture (screenshots, logs, timings, failing cases, artifact paths)
+- Pass/fail format (explicit rubric or required report sections)
+"""
+            specialized_guidance = f"""
+**WHEN WRITING A `TASK` FOR SPECIALIZED SUBAGENTS:**
+Give a high-quality brief so the subagent can execute correctly. Include:
+- **Objective**: exact outcome and scope boundary
+- **Setup**: dependencies, environment details, paths, credentials assumptions, and how to set it up
+- **Commands to run**: exact commands or scripts in execution order
+- **Expected output format**: section names, fields, and how results should be structured
+- **Constraints**: runtime limits, deterministic requirements, and what not to change
+
+**EXPECTED INPUT FOR EACH SPECIALIZED TYPE:**
+Read the "Expected input for this type" bullets in ATTACHED SUBAGENTS and adapt your task accordingly.
+If that checklist is present, treat it as required inputs for your task brief.
+
+{evaluator_guidance}
+"""
         return f"""{attached}
 # Subagent Delegation
 
@@ -3632,6 +3651,8 @@ Subagents are useful helpers but have limitations:
 - Their outputs are **raw materials** - expect to review, refine, and fix their work
 - Don't blindly trust subagent results - verify and integrate thoughtfully
 - If a subagent produces something broken or incomplete, **you fix it** rather than reporting failure
+
+{specialized_guidance}
 
 **EVALUATION DELEGATION (background pattern):**
 When your output needs testing or evaluation that involves procedural tool use, delegate it
@@ -3678,7 +3699,8 @@ quality and priorities, since you have the full context and the subagent may run
    - Use specific paths for least-privilege access (recommended when possible)
    - `context_files` remains optional for copying files into subagent workspace
 4. **No Nesting**: Subagents cannot spawn their own subagents
-5. **No Human Broadcast**: Subagents cannot ask the human or request human input
+5. **No Human Broadcast**: Subagents cannot ask the human or request human input,
+   but they CAN receive runtime messages from you via `send_message_to_subagent`
 
 ## Waiting for Subagents (CRITICAL)
 
@@ -3776,20 +3798,26 @@ spawn_subagents(
 **background parameter (async mode):**
 - `background=True`: Spawn in background and continue working asynchronously. Results are
   often auto-injected on a later tool call.
-- If auto-injection is unavailable (or you need explicit control), use the standardized
-  background lifecycle tools:
-  - `custom_tool__get_background_tool_status(job_id)`
-  - `custom_tool__wait_for_background_tool(timeout_seconds?)`
-  - `custom_tool__get_background_tool_result(job_id)`
-  - `custom_tool__cancel_background_tool(job_id)`
-  - `custom_tool__list_background_tools(include_all=true)` to inspect all jobs
-- `list_subagents()` is a subagent discovery/index view (IDs, status, workspace, session_id);
-  do not treat it as the generic background job lifecycle manager, and do not pass `include_all` there.
+- Use `list_subagents()` to check status and discover workspace paths for running subagents.
 - `background=False` (default): Wait for results before proceeding. Use when you need outputs to continue.
 
 **refine parameter:**
 - `refine=True` (default): Multi-round refinement with voting. Higher quality, slower, more expensive. Use for complex analysis.
 - `refine=False`: Single-pass execution. Faster, cheaper. Use for simple lookups/lists.
+
+## Background Subagent Lifecycle
+
+When using `background=True`, subagents run asynchronously. Here is the full lifecycle:
+
+1. **Launch**: `spawn_subagents(tasks, background=True)` — starts running, returns immediately with subagent IDs
+2. **Monitor**: `list_subagents()` — check status (`running` / `completed` / `timeout` / `failed`), get workspace path
+3. **Steer** (while running): `send_message_to_subagent(subagent_id, message)` — inject guidance mid-execution (e.g., "focus on X", "skip Y"). Delivered at next checkpoint.
+4. **Resume** (after completion): `continue_subagent(subagent_id, message)` — start a new turn with full conversation history preserved
+
+**Monitoring a running subagent's progress:**
+Use `list_subagents()` to get the workspace path, then:
+- **Live output**: Read `{{workspace}}/.massgen/massgen_logs/log_*/turn_*/attempt_*/agent_outputs/*.txt` to see streaming text, tool calls, and thinking from each agent in the subagent process.
+- **Work products**: Read files directly in `{{workspace}}/` to see what the subagent has created so far.
 
 ## Available Tools
 
@@ -3797,6 +3825,9 @@ spawn_subagents(
   Each task must include `task` and explicit `context_paths` (can be `[]`).
 - `list_subagents()` - Discovery/index of spawned subagents (status, workspace, session_id)
 - `continue_subagent(subagent_id, message, timeout_seconds?)` - Continue an existing subagent conversation
+- `send_message_to_subagent(subagent_id, message)` - Send a message to a RUNNING background subagent.
+  Use to steer direction mid-execution without waiting for completion.
+  Only works for background subagents that are currently running (not completed/failed).
 
 ## Result Format
 
@@ -3877,7 +3908,7 @@ class BroadcastCommunicationSection(SystemPromptSection):
         broadcast_mode: str,
         wait_by_default: bool = True,
         sensitivity: str = "medium",
-        human_qa_history: List[Dict[str, Any]] = None,
+        human_qa_history: list[dict[str, Any]] = None,
     ):
         super().__init__(
             title="Broadcast Communication",
@@ -4434,7 +4465,7 @@ class SystemPromptBuilder:
     """
 
     def __init__(self):
-        self.sections: List[SystemPromptSection] = []
+        self.sections: list[SystemPromptSection] = []
 
     def add_section(self, section: SystemPromptSection) -> "SystemPromptBuilder":
         """

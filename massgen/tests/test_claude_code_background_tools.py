@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for Claude Code background tool management parity."""
 
 import asyncio
@@ -358,6 +357,33 @@ async def test_claude_code_wait_consumes_shared_completion_queue(tmp_path):
     pending = backend.get_pending_background_tool_results()
     pending_ids = {job.get("job_id") for job in pending}
     assert started["job_id"] not in pending_ids
+
+
+@pytest.mark.asyncio
+async def test_claude_code_wait_returns_interrupt_payload_when_runtime_input_available(
+    tmp_path,
+):
+    """wait_for_background_tool should return early when runtime injection content is available."""
+    backend = ClaudeCodeBackend(cwd=str(tmp_path))
+
+    async def interrupt_provider(agent_id: str):
+        assert agent_id
+        return {
+            "interrupt_reason": "runtime_injection_available",
+            "injected_content": "[Human Input]: Please continue with stricter validation.",
+        }
+
+    backend.set_background_wait_interrupt_provider(interrupt_provider)
+
+    waited = await backend._execute_background_management_tool(
+        BACKGROUND_TOOL_WAIT_NAME,
+        {"timeout_seconds": 1.0},
+    )
+    assert waited["success"] is True
+    assert waited["ready"] is False
+    assert waited["interrupted"] is True
+    assert waited["interrupt_reason"] == "runtime_injection_available"
+    assert "stricter validation" in waited["injected_content"]
 
 
 @pytest.mark.asyncio

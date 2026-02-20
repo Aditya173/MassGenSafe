@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Full-Screen Subagent View for MassGen TUI.
 
@@ -33,8 +32,9 @@ Features:
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -52,6 +52,7 @@ from ..shared.tui_debug import tui_log
 from ..tui_event_pipeline import TimelineEventAdapter
 from .agent_status_ribbon import AgentStatusRibbon
 from .content_sections import FinalPresentationCard, TimelineSection
+from .queued_input_banner import QueuedInputBanner
 from .tab_bar import AgentTabBar, AgentTabChanged, SessionInfoClicked
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,13 @@ logger = logging.getLogger(__name__)
 
 class SubagentHeader(Horizontal):
     """Header bar for subagent screen with back button and subagent info."""
+
+    class ContextPathClicked(Message):
+        """Emitted when a context path link is clicked."""
+
+        def __init__(self, path: str) -> None:
+            super().__init__()
+            self.path = path
 
     DEFAULT_CSS = """
     SubagentHeader {
@@ -89,9 +97,23 @@ class SubagentHeader(Horizontal):
         text-style: bold;
     }
 
-    SubagentHeader .model-info {
+    SubagentHeader #header_context_paths {
+        width: auto;
+    }
+
+    SubagentHeader .context-path-btn {
         width: auto;
         color: $text-muted;
+        min-width: 1;
+        height: 1;
+        border: none;
+        background: transparent;
+        margin-left: 1;
+    }
+
+    SubagentHeader .context-path-btn:hover {
+        color: $primary;
+        text-style: underline;
     }
     """
 
@@ -99,15 +121,76 @@ class SubagentHeader(Horizontal):
         self,
         subagent: SubagentDisplayData,
         *,
-        id: Optional[str] = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self._subagent = subagent
+        self._context_button_map: dict[str, str] = {}
+        self._context_btn_generation: int = 0
 
     def compose(self) -> ComposeResult:
         yield Button("← Back", classes="back-button", id="back_btn")
         yield Static(f"Subagent: {self._subagent.id}", classes="subagent-title", id="header_title")
-        yield Static("", classes="model-info", id="model_info")
+        yield Horizontal(id="header_context_paths")
+
+    def on_mount(self) -> None:
+        self._refresh_context_path_buttons()
+
+    @staticmethod
+    def _normalize_context_paths(raw_paths: Any) -> list[str]:
+        if not raw_paths:
+            return []
+        if not isinstance(raw_paths, list):
+            raw_paths = [raw_paths]
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for entry in raw_paths:
+            path_value = ""
+            if isinstance(entry, str):
+                path_value = entry.strip()
+            elif isinstance(entry, dict):
+                candidate = entry.get("path")
+                if candidate is not None:
+                    path_value = str(candidate).strip()
+            elif entry is not None:
+                path_value = str(entry).strip()
+
+            if not path_value or path_value in seen:
+                continue
+            seen.add(path_value)
+            normalized.append(path_value)
+
+        return normalized
+
+    @staticmethod
+    def _format_context_label(path: str) -> str:
+        path_obj = Path(path)
+        label = path_obj.name or path
+        return f"📂 {label}"
+
+    def _refresh_context_path_buttons(self) -> None:
+        try:
+            container = self.query_one("#header_context_paths", Horizontal)
+        except Exception:
+            return
+
+        self._context_button_map = {}
+        self._context_btn_generation += 1
+        gen = self._context_btn_generation
+        container.remove_children()
+
+        context_paths = self._normalize_context_paths(getattr(self._subagent, "context_paths", []))
+        for index, path in enumerate(context_paths):
+            button_id = f"context_path_btn_{gen}_{index}"
+            self._context_button_map[button_id] = path
+            container.mount(
+                Button(
+                    self._format_context_label(path),
+                    id=button_id,
+                    classes="context-path-btn",
+                ),
+            )
 
     def update_subagent(self, subagent: SubagentDisplayData) -> None:
         """Update the header for a new subagent."""
@@ -116,6 +199,14 @@ class SubagentHeader(Horizontal):
             self.query_one("#header_title", Static).update(f"Subagent: {subagent.id}")
         except Exception as e:
             tui_log(f"[SubagentScreen] {e}")
+        self._refresh_context_path_buttons()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        context_path = self._context_button_map.get(button_id)
+        if context_path:
+            self.post_message(self.ContextPathClicked(context_path))
+            event.stop()
 
 
 class ReturnToMainPromptModal(ModalScreen[bool]):
@@ -166,7 +257,7 @@ class ReturnToMainPromptModal(ModalScreen[bool]):
     def __init__(self, timeout_seconds: int = 8) -> None:
         super().__init__()
         self._remaining_seconds = max(1, int(timeout_seconds))
-        self._countdown_timer: Optional[Timer] = None
+        self._countdown_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         with Container(id="return_prompt_container"):
@@ -292,11 +383,11 @@ class SubagentStatusLine(Static):
         super().__init__(**kwargs)
         self._status = status
         self._elapsed = 0
-        self._agent_order: List[str] = []
-        self._agent_letters: Dict[str, str] = {}
-        self._agent_active: Dict[str, bool] = {}
+        self._agent_order: list[str] = []
+        self._agent_letters: dict[str, str] = {}
+        self._agent_active: dict[str, bool] = {}
 
-    def set_agents(self, agent_ids: List[str]) -> None:
+    def set_agents(self, agent_ids: list[str]) -> None:
         """Register the inner agents for activity display."""
         self._agent_order = list(agent_ids)
         self._agent_letters.clear()
@@ -356,7 +447,7 @@ class _AgentTimelineProxy:
         self._panel = panel
         self._timeline_id = timeline_id
 
-    def _get_timeline(self) -> Optional[TimelineSection]:
+    def _get_timeline(self) -> TimelineSection | None:
         try:
             return self._panel.query_one(f"#{self._timeline_id}", TimelineSection)
         except Exception:
@@ -410,15 +501,15 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
     def __init__(
         self,
         subagent: SubagentDisplayData,
-        ribbon: Optional[AgentStatusRibbon] = None,
+        ribbon: AgentStatusRibbon | None = None,
         *,
-        id: Optional[str] = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self.agent_id = subagent.id  # For compatibility with BaseTUILayoutMixin
         self._subagent = subagent
         self._ribbon = ribbon
-        self._active_timeline_id: Optional[str] = None
+        self._active_timeline_id: str | None = None
 
         # Per-inner-agent task plan hosts (created in mount_agent_timelines)
         from massgen.frontend.displays.textual_widgets.task_plan_host import (
@@ -426,8 +517,8 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
         )
 
         self._TaskPlanHost = TaskPlanHost  # Store class ref for later instantiation
-        self._task_plan_hosts: Dict[str, "TaskPlanHost"] = {}
-        self._active_task_plan_agent: Optional[str] = None
+        self._task_plan_hosts: dict[str, "TaskPlanHost"] = {}
+        self._active_task_plan_agent: str | None = None
 
         # Initialize content pipeline from mixin
         self.init_content_pipeline()
@@ -451,7 +542,7 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
     # Multi-timeline management
     # -------------------------------------------------------------------------
 
-    def mount_agent_timelines(self, agent_ids: List[str]) -> None:
+    def mount_agent_timelines(self, agent_ids: list[str]) -> None:
         """Mount one timeline and one TaskPlanHost per inner agent. All start hidden except the first."""
         # Remove any existing timelines and task plan hosts first
         for tl in list(self.query(TimelineSection)):
@@ -541,7 +632,7 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
     # BaseTUILayoutMixin abstract method implementations
     # -------------------------------------------------------------------------
 
-    def _get_timeline(self) -> Optional[TimelineSection]:
+    def _get_timeline(self) -> TimelineSection | None:
         """Get the active TimelineSection widget (implements BaseTUILayoutMixin)."""
         if not self._active_timeline_id:
             return None
@@ -550,7 +641,7 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
         except Exception:
             return None
 
-    def _get_ribbon(self) -> Optional[AgentStatusRibbon]:
+    def _get_ribbon(self) -> AgentStatusRibbon | None:
         """Get the AgentStatusRibbon widget (implements BaseTUILayoutMixin)."""
         return self._ribbon
 
@@ -560,7 +651,7 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
         for tph in self._task_plan_hosts.values():
             tph.set_ribbon(ribbon)
 
-    def update_task_plan(self, tasks: List[Dict[str, Any]], plan_id: Optional[str] = None, operation: str = "create") -> None:
+    def update_task_plan(self, tasks: list[dict[str, Any]], plan_id: str | None = None, operation: str = "create") -> None:
         """Update the active task plan for this subagent panel."""
         host = self._task_plan_host
         if host:
@@ -568,8 +659,8 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
 
     def _update_pinned_task_plan(
         self,
-        tasks: List[Dict[str, Any]],
-        focused_task_id: Optional[str] = None,
+        tasks: list[dict[str, Any]],
+        focused_task_id: str | None = None,
         operation: str = "update",
         show_notification: bool = True,
     ) -> None:
@@ -648,6 +739,30 @@ class SubagentView(Container):
     SubagentView #subagent-tab-bar #session_info {
         display: none;
     }
+
+    SubagentView #subagent-input-area {
+        dock: bottom;
+        height: auto;
+        width: 1fr;
+        padding: 0 1;
+        background: $background;
+    }
+
+    SubagentView #subagent-input-bar {
+        dock: none;
+        width: 1fr;
+        padding: 0;
+        background: transparent;
+    }
+
+    SubagentView .subagent-queued-input-region {
+        margin: 0 0 1 0;
+        padding: 0 0 1 0;
+    }
+
+    SubagentView #subagent-queue-spacer {
+        height: 1;
+    }
     """
 
     # Polling interval for live updates
@@ -656,12 +771,13 @@ class SubagentView(Container):
     def __init__(
         self,
         subagent: SubagentDisplayData,
-        all_subagents: Optional[List[SubagentDisplayData]] = None,
-        status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
+        all_subagents: list[SubagentDisplayData] | None = None,
+        status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
         auto_return_on_completion: bool = False,
         auto_return_prompt_delay_seconds: float = 2.0,
         auto_return_timeout_seconds: int = 8,
-        id: Optional[str] = None,
+        send_message_callback: Callable[..., bool] | None = None,
+        id: str | None = None,
     ) -> None:
         """Initialize the subagent screen.
 
@@ -669,6 +785,8 @@ class SubagentView(Container):
             subagent: The subagent to display
             all_subagents: All subagents for navigation (tab bar)
             status_callback: Callback to get updated status
+            send_message_callback: Callback(subagent_id, content, target_agents=...) to send a message
+                to a running subagent
         """
         super().__init__(id=id)
         self._subagent = subagent
@@ -682,42 +800,52 @@ class SubagentView(Container):
                 break
 
         self._status_callback = status_callback
-        self._poll_timer: Optional[Timer] = None
-        self._event_reader: Optional[EventReader] = None
+        self._send_message_callback = send_message_callback
+        self._poll_timer: Timer | None = None
+        self._event_reader: EventReader | None = None
         self._round_number = 1
-        self._final_answer: Optional[str] = None
+        self._final_answer: str | None = None
 
         # Per-agent adapters (keyed by agent_id)
-        self._event_adapters: Dict[str, TimelineEventAdapter] = {}
+        self._event_adapters: dict[str, TimelineEventAdapter] = {}
         self._agents_loaded: set[str] = set()
         self._final_answer_locked: set[str] = set()  # Agents with final answer lock applied
-        self._inner_winner: Optional[str] = None  # Winner agent ID (persists across rebuilds)
+        self._inner_winner: str | None = None  # Winner agent ID (persists across rebuilds)
 
         # References to widgets (set after compose)
-        self._header: Optional[SubagentHeader] = None
-        self._tab_bar: Optional[AgentTabBar] = None
-        self._inner_tab_bar: Optional[AgentTabBar] = None
-        self._ribbon: Optional[AgentStatusRibbon] = None
-        self._panel: Optional[SubagentPanel] = None
-        self._status_line: Optional[SubagentStatusLine] = None
+        self._header: SubagentHeader | None = None
+        self._tab_bar: AgentTabBar | None = None
+        self._inner_tab_bar: AgentTabBar | None = None
+        self._ribbon: AgentStatusRibbon | None = None
+        self._panel: SubagentPanel | None = None
+        self._status_line: SubagentStatusLine | None = None
 
         # Inner agent tracking
-        self._inner_agents: List[str] = []
+        self._inner_agents: list[str] = []
         self._agent_active_set: set[str] = set()
-        self._inner_agent_models: Dict[str, str] = {}
-        self._current_inner_agent: Optional[str] = None
-        self._tool_call_agent_map: Dict[str, str] = {}
+        self._inner_agent_models: dict[str, str] = {}
+        self._current_inner_agent: str | None = None
+        self._tool_call_agent_map: dict[str, str] = {}
         self._auto_return_on_completion = auto_return_on_completion
         self._auto_return_prompt_delay_seconds = max(0.0, float(auto_return_prompt_delay_seconds))
         self._auto_return_timeout_seconds = max(1, int(auto_return_timeout_seconds))
-        self._auto_return_prompt_timer: Optional[Timer] = None
+        self._auto_return_prompt_timer: Timer | None = None
         self._auto_return_prompt_shown = False
         self._auto_return_prompt_cancelled = False
+
+        # Runtime message queue strip state (subagent input parity with main TUI).
+        self._queued_runtime_banner: QueuedInputBanner | None = None
+        self._queued_runtime_region: Vertical | None = None
+        self._queue_cancel_latest_button: Button | None = None
+        self._queue_clear_button: Button | None = None
+        self._queued_runtime_messages: list[dict[str, Any]] = []
+        self._queued_runtime_pending_by_agent: dict[str, int] = {}
+        self._next_runtime_message_id: int = 1
 
     def compose(self) -> ComposeResult:
         # Build agent IDs and models for tab bar
         agent_ids = [sa.id for sa in self._all_subagents]
-        agent_models: Dict[str, str] = {}  # Would come from config
+        agent_models: dict[str, str] = {}  # Would come from config
 
         # Header with back button
         yield SubagentHeader(self._subagent, id="subagent-header")
@@ -754,11 +882,43 @@ class SubagentView(Container):
         with Vertical(id="subagent-content"):
             yield SubagentPanel(self._subagent, id="subagent-panel")
 
+        # Runtime queued-input strip (for parity with main TUI), shown above status line.
+        if self._send_message_callback:
+            with Vertical(id="queued_input_region", classes="subagent-queued-input-region"):
+                with Horizontal(id="queued_input_row"):
+                    yield QueuedInputBanner(id="queued_input_banner")
+                    with Horizontal(id="queued_input_actions"):
+                        yield Button("Cancel latest", id="queue_cancel_latest_button")
+                        yield Button("Clear queue", id="queue_clear_button")
+            yield Static("", id="subagent-queue-spacer")
+
         # Execution status line
         yield SubagentStatusLine(
             status=self._subagent.status,
             id="subagent-status-line",
         )
+
+        # Message input bar (only when callback is available)
+        if self._send_message_callback:
+            from .message_input_bar import MessageInputBar
+
+            with Vertical(id="subagent-input-area"):
+
+                # Inherit vim mode from the main app if available
+                vim_mode = False
+                try:
+                    vim_mode = getattr(self.app, "question_input", None) and self.app.question_input.vim_mode
+                except Exception:
+                    pass
+
+                input_bar = MessageInputBar(
+                    placeholder="Send message to subagent... (Enter to send)",
+                    vim_mode=bool(vim_mode),
+                    id="subagent-input-bar",
+                )
+                if self._subagent.status not in ("running", "pending"):
+                    input_bar.display = False
+                yield input_bar
 
     def on_mount(self) -> None:
         """Initialize event reader and load events."""
@@ -806,6 +966,44 @@ class SubagentView(Container):
         if self._status_line and self._inner_agents:
             self._status_line.set_agents(self._inner_agents)
 
+        # Update message input bar with detected inner agent targets
+        if self._send_message_callback and self._inner_agents:
+            try:
+                from .message_input_bar import MessageInputBar
+
+                input_bar = self.query_one("#subagent-input-bar", MessageInputBar)
+                input_bar.set_targets(self._inner_agents)
+            except Exception:
+                pass
+
+        if self._send_message_callback:
+            try:
+                self._queued_runtime_region = self.query_one("#queued_input_region", Vertical)
+            except Exception:
+                self._queued_runtime_region = None
+            try:
+                self._queued_runtime_banner = self.query_one(
+                    "#queued_input_banner",
+                    QueuedInputBanner,
+                )
+            except Exception:
+                self._queued_runtime_banner = None
+            try:
+                self._queue_cancel_latest_button = self.query_one(
+                    "#queue_cancel_latest_button",
+                    Button,
+                )
+            except Exception:
+                self._queue_cancel_latest_button = None
+            try:
+                self._queue_clear_button = self.query_one(
+                    "#queue_clear_button",
+                    Button,
+                )
+            except Exception:
+                self._queue_clear_button = None
+            self._refresh_runtime_queue_banner()
+
         # Mount one timeline per inner agent
         if self._panel:
             self._panel.mount_agent_timelines(self._inner_agents)
@@ -828,7 +1026,48 @@ class SubagentView(Container):
             self._auto_return_prompt_timer.stop()
             self._auto_return_prompt_timer = None
 
-    def _detect_inner_agents(self) -> tuple[List[str], Dict[str, str]]:
+    @staticmethod
+    def _normalize_context_paths(raw_paths: Any) -> list[str]:
+        if not raw_paths:
+            return []
+        if not isinstance(raw_paths, list):
+            raw_paths = [raw_paths]
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for entry in raw_paths:
+            path_value = ""
+            if isinstance(entry, str):
+                path_value = entry.strip()
+            elif isinstance(entry, dict):
+                candidate = entry.get("path")
+                if candidate is not None:
+                    path_value = str(candidate).strip()
+            elif entry is not None:
+                path_value = str(entry).strip()
+
+            if not path_value or path_value in seen:
+                continue
+            seen.add(path_value)
+            normalized.append(path_value)
+
+        return normalized
+
+    def _hydrate_context_paths_from_metadata(self, metadata: dict[str, Any]) -> None:
+        """Populate context paths on the active subagent from execution metadata."""
+        existing_paths = self._normalize_context_paths(getattr(self._subagent, "context_paths", []))
+        if existing_paths:
+            return
+
+        config = metadata.get("config", {}) if isinstance(metadata, dict) else {}
+        orchestrator_cfg = config.get("orchestrator", {}) if isinstance(config, dict) else {}
+        context_paths = self._normalize_context_paths(orchestrator_cfg.get("context_paths", []))
+        if not context_paths:
+            return
+
+        self._subagent.context_paths = context_paths
+
+    def _detect_inner_agents(self) -> tuple[list[str], dict[str, str]]:
         """Detect agent IDs and models from the subagent's logs.
 
         Tries multiple sources:
@@ -841,14 +1080,14 @@ class SubagentView(Container):
         """
         import yaml
 
-        agent_ids: List[str] = []
-        agent_models: Dict[str, str] = {}
+        agent_ids: list[str] = []
+        agent_models: dict[str, str] = {}
 
         from pathlib import Path
 
         # Try to read from execution_metadata.yaml using resolved events path
         try:
-            metadata_file: Optional[Path] = None
+            metadata_file: Path | None = None
             events_file = self._resolve_events_file()
             if events_file and events_file.exists():
                 candidate = events_file.parent / "execution_metadata.yaml"
@@ -877,6 +1116,7 @@ class SubagentView(Container):
             if metadata_file and metadata_file.exists():
                 with open(metadata_file, encoding="utf-8") as f:
                     metadata = yaml.safe_load(f)
+                self._hydrate_context_paths_from_metadata(metadata)
 
                 # Extract agents from config
                 # Note: agents is a LIST, not a dict - each item has 'id' and 'backend' keys
@@ -945,7 +1185,7 @@ class SubagentView(Container):
                 f"[SubagentScreen] Events file does not exist: {events_file}",
             )
 
-    def _resolve_events_file(self) -> Optional[Path]:
+    def _resolve_events_file(self) -> Path | None:
         """Resolve the events.jsonl file for the current subagent."""
         # 1) Use explicit log_path if provided (file or directory)
         if self._subagent.log_path:
@@ -1032,7 +1272,7 @@ class SubagentView(Container):
         self._auto_return_prompt_shown = True
         modal = ReturnToMainPromptModal(timeout_seconds=self._auto_return_timeout_seconds)
 
-        def _on_dismiss(result: Optional[bool]) -> None:
+        def _on_dismiss(result: bool | None) -> None:
             if result is False:
                 self._auto_return_prompt_cancelled = True
                 return
@@ -1060,7 +1300,7 @@ class SubagentView(Container):
             self._show_auto_return_prompt,
         )
 
-    def _detect_and_apply_winner(self, events: List[MassGenEvent]) -> None:
+    def _detect_and_apply_winner(self, events: list[MassGenEvent]) -> None:
         """Scan events for presentation_start/final_presentation_start and apply winner crown."""
         for event in events:
             if event.event_type in ("presentation_start", "final_presentation_start") and event.agent_id:
@@ -1090,6 +1330,7 @@ class SubagentView(Container):
             if new_events:
                 self._update_tool_call_agent_map(new_events)
                 self._update_activity_dots(new_events)
+                self._update_runtime_queue_from_events(new_events)
                 for agent_id in list(self._agents_loaded):
                     if agent_id in self._event_adapters:
                         filtered = self._filter_events_for_agent(new_events, agent_id)
@@ -1122,6 +1363,16 @@ class SubagentView(Container):
                 for aid in self._inner_agents:
                     self._status_line.set_agent_active(aid, False)
 
+            # Hide message input bar
+            try:
+                input_bar = self.query_one("#subagent-input-bar")
+                input_bar.display = False
+            except Exception:
+                pass
+            self._queued_runtime_messages = []
+            self._queued_runtime_pending_by_agent = {}
+            self._refresh_runtime_queue_banner()
+
             if self._poll_timer:
                 self._poll_timer.stop()
                 self._poll_timer = None
@@ -1132,6 +1383,9 @@ class SubagentView(Container):
         agent_id = self._current_inner_agent
         adapter = self._event_adapters.get(agent_id) if agent_id else None
         current_round = adapter.round_number if adapter else self._round_number
+
+        if self._header:
+            self._header.update_subagent(self._subagent)
 
         if self._status_line:
             self._status_line.update_status(
@@ -1147,7 +1401,7 @@ class SubagentView(Container):
         if self._tab_bar:
             self._tab_bar.update_agent_status(self._subagent.id, self._subagent.status)
 
-    def _update_activity_dots(self, events: List[MassGenEvent]) -> None:
+    def _update_activity_dots(self, events: list[MassGenEvent]) -> None:
         """Update agent activity dots based on new events."""
         if not self._status_line:
             return
@@ -1182,6 +1436,9 @@ class SubagentView(Container):
             self._final_answer_locked.clear()
             self._tool_call_agent_map.clear()
             self._inner_winner = None
+            self._queued_runtime_messages = []
+            self._queued_runtime_pending_by_agent = {}
+            self._refresh_runtime_queue_banner()
 
             # Remove old timelines
             if self._panel:
@@ -1266,7 +1523,7 @@ class SubagentView(Container):
         if self._inner_tab_bar:
             self._inner_tab_bar.set_active(agent_id)
 
-    def _load_events_for_agent(self, agent_id: Optional[str]) -> None:
+    def _load_events_for_agent(self, agent_id: str | None) -> None:
         """Load events filtered by agent ID into that agent's dedicated timeline.
 
         Args:
@@ -1320,8 +1577,8 @@ class SubagentView(Container):
             return
 
         is_running = self._subagent.status in ("running", "pending")
-        card: Optional[FinalPresentationCard] = None
-        card_id: Optional[str] = None
+        card: FinalPresentationCard | None = None
+        card_id: str | None = None
 
         # Prefer card created by TimelineEventAdapter answer_locked flow.
         adapter_card = getattr(adapter, "_final_presentation_card", None)
@@ -1374,7 +1631,7 @@ class SubagentView(Container):
         self._final_answer_locked.add(agent_id)
         logger.info(f"[SubagentScreen] Final answer lock applied for agent {agent_id}")
 
-    def _filter_events_for_agent(self, events: List[MassGenEvent], agent_id: str) -> List[MassGenEvent]:
+    def _filter_events_for_agent(self, events: list[MassGenEvent], agent_id: str) -> list[MassGenEvent]:
         """Filter structured events to those relevant for a specific inner agent.
 
         Routing rules:
@@ -1383,7 +1640,7 @@ class SubagentView(Container):
         - All other structured events: match on event.agent_id
         - Legacy stream_chunk events: skip (handled by ContentProcessor as no-ops)
         """
-        filtered: List[MassGenEvent] = []
+        filtered: list[MassGenEvent] = []
         seen_rounds: set = set()
 
         for event in events:
@@ -1405,7 +1662,7 @@ class SubagentView(Container):
 
         return filtered
 
-    def _update_tool_call_agent_map(self, events: List[MassGenEvent]) -> None:
+    def _update_tool_call_agent_map(self, events: list[MassGenEvent]) -> None:
         """Update tool_id -> agent_id mapping from structured tool_start events."""
         for event in events:
             if event.event_type == "tool_start":
@@ -1422,7 +1679,7 @@ class SubagentView(Container):
                     if tool_call_id and source and self._is_agent_source(source):
                         self._tool_call_agent_map.setdefault(tool_call_id, source)
 
-    def _is_agent_source(self, source: Optional[str]) -> bool:
+    def _is_agent_source(self, source: str | None) -> bool:
         """Check if a source string looks like an inner agent ID (not MCP/hook/system)."""
         if not source:
             return False
@@ -1437,10 +1694,244 @@ class SubagentView(Container):
             return False
         return True
 
+    def on_subagent_header_context_path_clicked(self, event: SubagentHeader.ContextPathClicked) -> None:
+        """Handle context path click from the subagent header."""
+        event.stop()
+        self._open_context_path(event.path)
+
+    def _open_context_path(self, path_str: str) -> None:
+        """Open a context path from the header."""
+        if not path_str:
+            self.notify("Context path is empty", severity="warning", timeout=2)
+            return
+
+        path = Path(path_str).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+
+        if not path.exists():
+            self.notify(f"Context path not found: {path}", severity="warning", timeout=3)
+            return
+
+        try:
+            from massgen.frontend.displays.textual import (
+                FileInspectionModal,
+                TextContentModal,
+            )
+
+            if path.is_dir():
+                self.app.push_screen(FileInspectionModal(workspace_path=path, app=self.app))
+                return
+
+            content = path.read_text(encoding="utf-8", errors="replace")
+            if len(content) > 500000:
+                content = content[:500000] + "\n\n... [truncated]"
+            self.app.push_screen(TextContentModal(title=f"Context: {path}", content=content))
+        except Exception as e:
+            self.notify(f"Cannot open context path: {e}", severity="error", timeout=3)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle header back button press."""
         if event.button.id == "back_btn":
             self._request_close()
+        elif event.button.id == "queue_cancel_latest_button":
+            event.stop()
+            self._cancel_latest_runtime_queue_message()
+        elif event.button.id == "queue_clear_button":
+            event.stop()
+            self._clear_runtime_queue_messages()
+
+    def _set_runtime_queue_region_visible(self, visible: bool) -> None:
+        if self._queued_runtime_region is None:
+            try:
+                self._queued_runtime_region = self.query_one("#queued_input_region", Vertical)
+            except Exception:
+                self._queued_runtime_region = None
+        if not self._queued_runtime_region:
+            return
+        if visible:
+            self._queued_runtime_region.add_class("visible")
+        else:
+            self._queued_runtime_region.remove_class("visible")
+
+        if self._queue_cancel_latest_button is None:
+            try:
+                self._queue_cancel_latest_button = self.query_one(
+                    "#queue_cancel_latest_button",
+                    Button,
+                )
+            except Exception:
+                self._queue_cancel_latest_button = None
+        if self._queue_clear_button is None:
+            try:
+                self._queue_clear_button = self.query_one(
+                    "#queue_clear_button",
+                    Button,
+                )
+            except Exception:
+                self._queue_clear_button = None
+
+        for button in (self._queue_cancel_latest_button, self._queue_clear_button):
+            if button is not None:
+                button.disabled = not visible
+
+    def _recompute_runtime_pending_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {aid: 0 for aid in self._inner_agents}
+        for message in self._queued_runtime_messages:
+            for aid in message.get("pending_agents", []) or []:
+                counts[aid] = counts.get(aid, 0) + 1
+        self._queued_runtime_pending_by_agent = counts
+        return counts
+
+    def _refresh_runtime_queue_banner(self) -> None:
+        if self._queued_runtime_banner is None:
+            try:
+                self._queued_runtime_banner = self.query_one(
+                    "#queued_input_banner",
+                    QueuedInputBanner,
+                )
+            except Exception:
+                self._queued_runtime_banner = None
+        counts = self._recompute_runtime_pending_counts()
+        if self._queued_runtime_banner:
+            try:
+                self._queued_runtime_banner.set_messages(self._queued_runtime_messages)
+                self._queued_runtime_banner.set_pending_counts(counts)
+            except Exception as e:
+                tui_log(f"[SubagentScreen] Failed to update runtime queue banner: {e}")
+        self._set_runtime_queue_region_visible(bool(self._queued_runtime_messages))
+
+    def _queue_runtime_message(self, content: str, target: str) -> None:
+        if target == "all":
+            pending_agents = list(self._inner_agents)
+            if not pending_agents:
+                fallback_agent = self._current_inner_agent or self._subagent.id
+                pending_agents = [fallback_agent] if fallback_agent else []
+            target_label = "all agents"
+        else:
+            pending_agents = [target] if target else []
+            target_label = target
+
+        unique_pending = list(dict.fromkeys([aid for aid in pending_agents if aid]))
+        message = {
+            "id": self._next_runtime_message_id,
+            "content": content,
+            "target_label": target_label,
+            "pending_agents": unique_pending,
+        }
+        self._next_runtime_message_id += 1
+        self._queued_runtime_messages.append(message)
+        self._refresh_runtime_queue_banner()
+
+    def _cancel_latest_runtime_queue_message(self) -> None:
+        if not self._queued_runtime_messages:
+            return
+        removed = self._queued_runtime_messages.pop()
+        self._refresh_runtime_queue_banner()
+        preview = " ".join(str(removed.get("content", "")).split())
+        if len(preview) > 56:
+            preview = preview[:53] + "..."
+        self.notify(f'Cancelled latest queued message: "{preview}"', timeout=3)
+
+    def _clear_runtime_queue_messages(self) -> None:
+        if not self._queued_runtime_messages:
+            return
+        self._queued_runtime_messages = []
+        self._queued_runtime_pending_by_agent = {}
+        self._refresh_runtime_queue_banner()
+        self.notify("Cleared queued runtime messages", timeout=2)
+
+    @staticmethod
+    def _normalize_runtime_message_text(raw: str) -> str:
+        return " ".join((raw or "").split())
+
+    @staticmethod
+    def _extract_human_input_payload(injection_content: str) -> str:
+        content = injection_content or ""
+        marker = "[Human Input]:"
+        idx = content.find(marker)
+        if idx >= 0:
+            content = content[idx + len(marker) :]
+        return content.strip()
+
+    def _mark_runtime_messages_delivered_for_agent(
+        self,
+        agent_id: str,
+        injection_content: str | None = None,
+    ) -> None:
+        changed = False
+        normalized_payload = self._normalize_runtime_message_text(
+            self._extract_human_input_payload(injection_content or ""),
+        )
+        updated_messages: list[dict[str, Any]] = []
+
+        candidate_indices: list[int] = []
+        for idx, message in enumerate(self._queued_runtime_messages):
+            pending_agents = list(message.get("pending_agents", []) or [])
+            if agent_id in pending_agents:
+                candidate_indices.append(idx)
+
+        matched_indices: set[int] = set()
+        if normalized_payload:
+            for idx in candidate_indices:
+                message_content = self._normalize_runtime_message_text(
+                    str(self._queued_runtime_messages[idx].get("content", "")),
+                )
+                if message_content and message_content in normalized_payload:
+                    matched_indices.add(idx)
+
+        # Fallback: if no text match is available, mark only the oldest pending message.
+        if not matched_indices and candidate_indices:
+            matched_indices.add(candidate_indices[0])
+
+        for message_idx, message in enumerate(self._queued_runtime_messages):
+            pending_agents = list(message.get("pending_agents", []) or [])
+            if message_idx in matched_indices and agent_id in pending_agents:
+                pending_agents = [aid for aid in pending_agents if aid != agent_id]
+                changed = True
+            message["pending_agents"] = pending_agents
+            if pending_agents:
+                updated_messages.append(message)
+            else:
+                changed = True
+
+        if changed:
+            self._queued_runtime_messages = updated_messages
+            self._refresh_runtime_queue_banner()
+
+    def _update_runtime_queue_from_events(self, events: list[MassGenEvent]) -> None:
+        for event in events:
+            if event.event_type != "hook_execution":
+                continue
+            hook_info = event.data.get("hook_info", {}) if isinstance(event.data, dict) else {}
+            if hook_info.get("hook_name") != "human_input_hook":
+                continue
+            injection_content = hook_info.get("injection_content")
+            if not injection_content:
+                continue
+            if event.agent_id:
+                self._mark_runtime_messages_delivered_for_agent(
+                    event.agent_id,
+                    injection_content=str(injection_content),
+                )
+
+    def on_message_input_bar_submitted(self, event: Any) -> None:
+        """Handle message submission from the MessageInputBar."""
+        if not self._send_message_callback:
+            return
+        event.stop()
+        subagent_id = self._subagent.id
+        target = event.target
+        if target == "all":
+            success = self._send_message_callback(subagent_id, event.value, target_agents=None)
+        else:
+            success = self._send_message_callback(subagent_id, event.value, target_agents=[target])
+        if success:
+            self._queue_runtime_message(event.value, target=target)
+            label = "all agents" if target == "all" else target
+            self.notify(f"Message sent to {label}", timeout=2)
+        else:
+            self.notify("Failed to send message", severity="warning", timeout=3)
 
     def on__footer_action_clicked(self, event: _FooterAction.Clicked) -> None:
         """Handle footer action clicks."""
@@ -1750,15 +2241,17 @@ class SubagentScreen(Screen):
     def __init__(
         self,
         subagent: SubagentDisplayData,
-        all_subagents: Optional[List[SubagentDisplayData]] = None,
-        status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
+        all_subagents: list[SubagentDisplayData] | None = None,
+        status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
         auto_return_on_completion: bool = False,
+        send_message_callback: Callable[..., bool] | None = None,
     ) -> None:
         super().__init__()
         self._subagent = subagent
         self._all_subagents = all_subagents
         self._status_callback = status_callback
         self._auto_return_on_completion = auto_return_on_completion
+        self._send_message_callback = send_message_callback
 
     def compose(self) -> ComposeResult:
         yield SubagentView(
@@ -1766,6 +2259,7 @@ class SubagentScreen(Screen):
             all_subagents=self._all_subagents,
             status_callback=self._status_callback,
             auto_return_on_completion=self._auto_return_on_completion,
+            send_message_callback=self._send_message_callback,
             id="subagent-view",
         )
 

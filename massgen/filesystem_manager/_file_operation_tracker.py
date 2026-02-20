@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 File Operation Tracker for MassGen
 
@@ -8,7 +7,6 @@ It ensures agents can only delete files they have read or understood first.
 
 import fnmatch
 from pathlib import Path
-from typing import Set
 
 from ..logger_config import logger
 from ._constants import PATTERNS_TO_IGNORE_FOR_TRACKING
@@ -33,8 +31,8 @@ class FileOperationTracker:
         Args:
             enforce_read_before_delete: Whether to enforce read-before-delete policy
         """
-        self._read_files: Set[Path] = set()
-        self._created_files: Set[Path] = set()  # Files created by agent (exempt from read requirement)
+        self._read_files: set[Path] = set()
+        self._created_files: set[Path] = set()  # Files created by agent (exempt from read requirement)
         self.enforce_read_before_delete = enforce_read_before_delete
 
         logger.info(f"[FileOperationTracker] Initialized with enforce_read_before_delete={enforce_read_before_delete}")

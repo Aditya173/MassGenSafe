@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Video generation backends: OpenAI Sora, Google Veo.
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """System message builder for MassGen orchestration.
 
 This module provides the SystemMessageBuilder class which centralizes all system
@@ -10,7 +9,7 @@ reduce coupling between orchestration logic and prompt construction.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -63,10 +62,10 @@ class SystemMessageBuilder:
         self,
         config,  # CoordinationConfig type
         message_templates,  # MessageTemplates type
-        agents: Dict[str, Any],  # Dict[str, ChatAgent]
-        snapshot_storage: Optional[str] = None,
-        session_id: Optional[str] = None,
-        agent_temporary_workspace: Optional[str] = None,
+        agents: dict[str, Any],  # Dict[str, ChatAgent]
+        snapshot_storage: str | None = None,
+        session_id: str | None = None,
+        agent_temporary_workspace: str | None = None,
     ):
         """Initialize the system message builder.
 
@@ -93,9 +92,9 @@ class SystemMessageBuilder:
 
     @staticmethod
     def _filter_skills_by_enabled_names(
-        all_skills: List[Dict[str, Any]],
-        enabled_skill_names: Optional[List[str]],
-    ) -> List[Dict[str, Any]]:
+        all_skills: list[dict[str, Any]],
+        enabled_skill_names: list[str] | None,
+    ) -> list[dict[str, Any]]:
         """Filter discovered skills using an optional runtime allowlist.
 
         Args:
@@ -114,7 +113,7 @@ class SystemMessageBuilder:
         if not enabled:
             return []
 
-        filtered: List[Dict[str, Any]] = []
+        filtered: list[dict[str, Any]] = []
         for skill in all_skills:
             skill_name = str(skill.get("name", "")).strip().lower()
             if skill_name in enabled:
@@ -137,28 +136,28 @@ class SystemMessageBuilder:
         self,
         agent,  # ChatAgent
         agent_id: str,
-        answers: Optional[Dict[str, str]],
+        answers: dict[str, str] | None,
         planning_mode_enabled: bool,
         use_skills: bool,
         enable_memory: bool,
         enable_task_planning: bool,
-        previous_turns: List[Dict[str, Any]],
-        human_qa_history: Optional[List[Dict[str, str]]] = None,
+        previous_turns: list[dict[str, Any]],
+        human_qa_history: list[dict[str, str]] | None = None,
         vote_only: bool = False,
-        agent_mapping: Optional[Dict[str, str]] = None,
-        voting_sensitivity_override: Optional[str] = None,
-        voting_threshold: Optional[int] = None,
+        agent_mapping: dict[str, str] | None = None,
+        voting_sensitivity_override: str | None = None,
+        voting_threshold: int | None = None,
         checklist_require_gap_report: bool = True,
         gap_report_mode: str = "changedoc",
         answers_used: int = 0,
-        answer_cap: Optional[int] = None,
+        answer_cap: int | None = None,
         coordination_mode: str = "voting",
-        agent_subtask: Optional[str] = None,
-        worktree_paths: Optional[Dict[str, str]] = None,
-        branch_name: Optional[str] = None,
-        other_branches: Optional[Dict[str, str]] = None,
-        branch_diff_summaries: Optional[Dict[str, str]] = None,
-        novelty_pressure_data: Optional[Dict[str, Any]] = None,
+        agent_subtask: str | None = None,
+        worktree_paths: dict[str, str] | None = None,
+        branch_name: str | None = None,
+        other_branches: dict[str, str] | None = None,
+        branch_diff_summaries: dict[str, str] | None = None,
+        novelty_pressure_data: dict[str, Any] | None = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -242,12 +241,6 @@ class SystemMessageBuilder:
             voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
             answer_novelty_requirement = self.message_templates._answer_novelty_requirement
             round_number = len(previous_turns) + 1 if previous_turns else 1
-            # Check if evaluator subagent type is available (for mandatory check directive)
-            has_evaluator_subagent = False
-            _enable_subagents = getattr(self.config.coordination_config, "enable_subagents", False) if hasattr(self.config, "coordination_config") else False
-            if _enable_subagents:
-                specialized_types = self._discover_specialized_subagents()
-                has_evaluator_subagent = any(t.name == "evaluator" for t in specialized_types)
 
             builder.add_section(
                 EvaluationSection(
@@ -261,7 +254,6 @@ class SystemMessageBuilder:
                     answers_used=answers_used,
                     answer_cap=answer_cap,
                     has_changedoc=changedoc_enabled,
-                    has_evaluator_subagent=has_evaluator_subagent,
                 ),
             )
 
@@ -545,8 +537,8 @@ class SystemMessageBuilder:
     def build_presentation_message(
         self,
         agent,  # ChatAgent
-        all_answers: Dict[str, str],
-        previous_turns: List[Dict[str, Any]],
+        all_answers: dict[str, str],
+        previous_turns: list[dict[str, Any]],
         enable_image_generation: bool = False,
         enable_audio_generation: bool = False,
         enable_file_generation: bool = False,
@@ -556,7 +548,7 @@ class SystemMessageBuilder:
         docker_mode: bool = False,
         enable_sudo: bool = False,
         concurrent_tool_execution: bool = False,
-        agent_mapping: Optional[Dict[str, str]] = None,
+        agent_mapping: dict[str, str] | None = None,
     ) -> str:
         """Build system message for final presentation phase.
 
@@ -689,9 +681,9 @@ This makes the work reusable for similar future tasks."""
     def build_post_evaluation_message(
         self,
         agent,  # ChatAgent
-        all_answers: Dict[str, str],
-        previous_turns: List[Dict[str, Any]],
-        agent_mapping: Optional[Dict[str, str]] = None,
+        all_answers: dict[str, str],
+        previous_turns: list[dict[str, Any]],
+        agent_mapping: dict[str, str] | None = None,
     ) -> str:
         """Build system message for post-evaluation phase.
 
@@ -757,7 +749,7 @@ This makes the work reusable for similar future tasks."""
         return "\n\n".join(parts)
 
     @staticmethod
-    def _get_tool_category_overrides(agent) -> Dict[str, str]:
+    def _get_tool_category_overrides(agent) -> dict[str, str]:
         """Get tool_category_overrides for an agent's backend."""
         from massgen.backend.native_tool_mixin import NativeToolBackendMixin
 
@@ -768,15 +760,15 @@ This makes the work reusable for similar future tasks."""
     def _build_filesystem_sections(
         self,
         agent,  # ChatAgent
-        all_answers: Dict[str, str],
-        previous_turns: List[Dict[str, Any]],
+        all_answers: dict[str, str],
+        previous_turns: list[dict[str, Any]],
         enable_command_execution: bool,
         docker_mode: bool = False,
         enable_sudo: bool = False,
         concurrent_tool_execution: bool = False,
-        agent_mapping: Optional[Dict[str, str]] = None,
+        agent_mapping: dict[str, str] | None = None,
         decomposition_mode: bool = False,
-    ) -> Tuple[Any, Any, Optional[Any]]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
+    ) -> tuple[Any, Any, Any | None]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
         """Build filesystem-related sections.
 
         This consolidates the duplicated logic across all three builder methods
@@ -850,7 +842,7 @@ This makes the work reusable for similar future tasks."""
 
         return fs_ops, fs_best, cmd_exec
 
-    def _get_all_memories(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _get_all_memories(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Read all memories from all agents' workspaces.
 
         Returns:
@@ -898,7 +890,7 @@ This makes the work reusable for similar future tasks."""
 
         return short_term_memories, long_term_memories
 
-    def _load_archived_memories(self) -> Dict[str, Dict[str, Any]]:
+    def _load_archived_memories(self) -> dict[str, dict[str, Any]]:
         """Load all archived memories from sessions directory with deduplication.
 
         Deduplicate by filename - for memories with the same name across multiple archives,
@@ -918,7 +910,7 @@ This makes the work reusable for similar future tasks."""
 
         # Track all memories by filename with metadata for deduplication
         # Format: {tier: {filename: [{"content": str, "source": str, "timestamp": float, "path": Path}, ...]}}
-        all_memories: Dict[str, Dict[str, list]] = {"short_term": {}, "long_term": {}}
+        all_memories: dict[str, dict[str, list]] = {"short_term": {}, "long_term": {}}
 
         # Scan all archived answer directories
         for archive_dir in sorted(archive_base.iterdir()):
@@ -971,7 +963,7 @@ This makes the work reusable for similar future tasks."""
 
         return deduplicated
 
-    def _load_temp_workspace_memories(self) -> List[Dict[str, Any]]:
+    def _load_temp_workspace_memories(self) -> list[dict[str, Any]]:
         """Load all memories from temp workspace directories.
 
         Returns:
@@ -1048,7 +1040,7 @@ This makes the work reusable for similar future tasks."""
         return temp_memories
 
     @staticmethod
-    def _parse_memory_file(file_path: Path) -> Optional[Dict[str, Any]]:
+    def _parse_memory_file(file_path: Path) -> dict[str, Any] | None:
         """Parse a memory markdown file with YAML frontmatter.
 
         Args:

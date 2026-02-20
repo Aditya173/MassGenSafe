@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Comprehensive unit tests for planning tools.
 

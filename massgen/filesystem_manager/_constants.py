@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Centralized constants for filesystem operations.
 
 This module defines common patterns for directories and files that should be

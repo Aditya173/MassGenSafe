@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for skills validation in the orchestrator.
 
 Verifies:
@@ -9,7 +8,7 @@ Verifies:
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -34,7 +33,7 @@ def _make_mock_agent(
     return agent
 
 
-def _make_orchestrator(agents: Dict[str, Any], skills_dir: str = ".agent/skills") -> Any:
+def _make_orchestrator(agents: dict[str, Any], skills_dir: str = ".agent/skills") -> Any:
     """Create a minimal orchestrator for testing _validate_skills_config."""
     from massgen.orchestrator import Orchestrator
 

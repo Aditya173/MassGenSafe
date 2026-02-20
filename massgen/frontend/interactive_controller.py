@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 """Unified Interactive Session Controller for MassGen."""
 
 import asyncio
 import logging
 import queue
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +31,14 @@ class TurnResult:
         error: Exception if turn failed
     """
 
-    answer_text: Optional[str] = None
+    answer_text: str | None = None
     was_cancelled: bool = False
-    updated_session_id: Optional[str] = None
+    updated_session_id: str | None = None
     updated_turn: int = 0
-    selected_agent: Optional[str] = None
-    vote_results: Optional[Dict[str, Any]] = None
+    selected_agent: str | None = None
+    vote_results: dict[str, Any] | None = None
     partial_saved: bool = False
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
 
 @dataclass
@@ -56,12 +56,12 @@ class CommandResult:
     """
 
     should_exit: bool = False
-    message: Optional[str] = None
+    message: str | None = None
     reset_session_state: bool = False
     reset_ui_view: bool = False
     handled: bool = True
-    ui_action: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
+    ui_action: str | None = None
+    data: dict[str, Any] | None = None
 
 
 @dataclass
@@ -81,16 +81,16 @@ class SessionContext:
         incomplete_turn_workspaces: Dict of agent_id -> workspace path for incomplete turns
     """
 
-    session_id: Optional[str] = None
+    session_id: str | None = None
     current_turn: int = 0
-    conversation_history: List[Dict[str, str]] = field(default_factory=list)
-    previous_turns: List[Dict[str, Any]] = field(default_factory=list)
-    winning_agents_history: List[Dict[str, Any]] = field(default_factory=list)
-    agents: Dict[str, Any] = field(default_factory=dict)
-    config_path: Optional[str] = None
-    original_config: Optional[Dict[str, Any]] = None
-    orchestrator_cfg: Optional[Dict[str, Any]] = None
-    incomplete_turn_workspaces: Dict[str, Any] = field(default_factory=dict)
+    conversation_history: list[dict[str, str]] = field(default_factory=list)
+    previous_turns: list[dict[str, Any]] = field(default_factory=list)
+    winning_agents_history: list[dict[str, Any]] = field(default_factory=list)
+    agents: dict[str, Any] = field(default_factory=dict)
+    config_path: str | None = None
+    original_config: dict[str, Any] | None = None
+    orchestrator_cfg: dict[str, Any] | None = None
+    incomplete_turn_workspaces: dict[str, Any] = field(default_factory=dict)
 
 
 # =============================================================================
@@ -106,7 +106,7 @@ class QuestionSource(Protocol):
     - TextualThreadQueueQuestionSource: Queue-based for Textual TUI
     """
 
-    async def get_next(self) -> Optional[str]:
+    async def get_next(self) -> str | None:
         """Get the next question/command from the source.
 
         Returns:
@@ -244,7 +244,7 @@ class RichStdinQuestionSource:
     def __init__(
         self,
         prompt: str = "\n\033[94m👤 User:\033[0m ",
-        read_input_func: Optional[Callable[..., str]] = None,
+        read_input_func: Callable[..., str] | None = None,
     ):
         """Initialize the stdin question source.
 
@@ -256,7 +256,7 @@ class RichStdinQuestionSource:
         self._closed = False
         self._read_input_func = read_input_func
 
-    async def get_next(self) -> Optional[str]:
+    async def get_next(self) -> str | None:
         """Read the next question from stdin.
 
         Returns:
@@ -311,7 +311,7 @@ class TextualThreadQueueQuestionSource:
         self._queue: queue.Queue = queue.Queue()
         self._closed = False
 
-    async def get_next(self) -> Optional[str]:
+    async def get_next(self) -> str | None:
         """Get the next question from the queue.
 
         Returns:
@@ -367,7 +367,7 @@ class RichInteractiveAdapter(UIAdapter):
     BRIGHT_BLUE = "\033[94m"
     RESET = "\033[0m"
 
-    def __init__(self, agents: Dict[str, Any], config_path: Optional[str] = None):
+    def __init__(self, agents: dict[str, Any], config_path: str | None = None):
         """Initialize the Rich adapter.
 
         Args:
@@ -575,7 +575,7 @@ class TextualInteractiveAdapter(UIAdapter):
         self,
         *,
         prefer_execution_scope: bool = False,
-    ) -> Optional[tuple]:
+    ) -> tuple | None:
         """Find and parse plan.json from agent workspace.
 
         Returns:
@@ -648,7 +648,7 @@ class TextualInteractiveAdapter(UIAdapter):
     def _merge_chunk_updates_into_workspace(
         self,
         plan_session: Any,
-        chunk_tasks: List[Dict[str, Any]],
+        chunk_tasks: list[dict[str, Any]],
     ) -> None:
         """Merge chunk task updates into workspace/plan.json for checkpoint persistence."""
         import json
@@ -701,7 +701,7 @@ class TextualInteractiveAdapter(UIAdapter):
         progress = evaluate_chunk_progress(chunk_tasks)
         self._merge_chunk_updates_into_workspace(plan_session, chunk_tasks)
 
-        retry_counts: Dict[str, int] = {}
+        retry_counts: dict[str, int] = {}
         if isinstance(metadata.resumable_state, dict):
             saved = metadata.resumable_state.get("retry_counts", {})
             if isinstance(saved, dict):
@@ -879,7 +879,7 @@ class SlashCommandDispatcher:
         self,
         context: SessionContext,
         adapter: UIAdapter,
-        on_agents_reload: Optional[Callable[[], None]] = None,
+        on_agents_reload: Callable[[], None] | None = None,
     ):
         """Initialize the command dispatcher.
 
@@ -1245,7 +1245,7 @@ class InteractiveSessionController:
         adapter: UIAdapter,
         context: SessionContext,
         turn_runner: Callable[..., TurnResult],
-        ui_config: Optional[Dict[str, Any]] = None,
+        ui_config: dict[str, Any] | None = None,
         debug: bool = False,
     ):
         """Initialize the controller.
@@ -1275,7 +1275,7 @@ class InteractiveSessionController:
         self._running = False
 
     @property
-    def session_id(self) -> Optional[str]:
+    def session_id(self) -> str | None:
         """Get the current session ID."""
         return self._context.session_id
 
@@ -1285,7 +1285,7 @@ class InteractiveSessionController:
         return self._context.current_turn
 
     @property
-    def conversation_history(self) -> List[Dict[str, str]]:
+    def conversation_history(self) -> list[dict[str, str]]:
         """Get the conversation history."""
         return self._context.conversation_history
 
@@ -1463,6 +1463,12 @@ class InteractiveSessionController:
                 )
                 self._context.conversation_history.append(
                     {"role": "assistant", "content": result.answer_text},
+                )
+            elif result.was_cancelled:
+                # Preserve the submitted prompt so queued/fallback input survives
+                # into future turns even when this turn is cancelled.
+                self._context.conversation_history.append(
+                    {"role": "user", "content": question},
                 )
 
             self._adapter.on_turn_end(self._context.current_turn, result)

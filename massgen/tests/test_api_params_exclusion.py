@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for API parameter exclusion lists.
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for Docker skills directory write access during final presentation.
 
 Covers:

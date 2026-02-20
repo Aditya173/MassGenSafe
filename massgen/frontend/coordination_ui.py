@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MassGen Coordination UI
 
@@ -11,7 +10,7 @@ import logging
 import queue
 import re
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..cancellation import CancellationRequested
 from ..logger_config import get_event_emitter
@@ -52,8 +51,8 @@ class CoordinationUI:
 
     def __init__(
         self,
-        display: Optional[BaseDisplay] = None,
-        logger: Optional[Any] = None,
+        display: BaseDisplay | None = None,
+        logger: Any | None = None,
         display_type: str = "textual_terminal",
         enable_final_presentation: bool = False,
         preserve_display: bool = False,
@@ -99,7 +98,7 @@ class CoordinationUI:
         # Per-agent content buffer for filtering workspace tool JSON
         # Streaming sends small chunks that individually don't match patterns,
         # so we buffer until we see a complete line or JSON block
-        self._agent_content_buffers: Dict[str, str] = {}
+        self._agent_content_buffers: dict[str, str] = {}
 
     def _process_reasoning_summary(self, chunk_type: str, summary_delta: str, source: str) -> str:
         """Process reasoning summary content using display's shared logic."""
@@ -137,7 +136,7 @@ class CoordinationUI:
                     setattr(self, reasoning_active_key, False)
                 return reasoning_delta
 
-    def _parse_chunk_data(self, chunk: Any, content: Any) -> Optional[Dict[str, Any]]:
+    def _parse_chunk_data(self, chunk: Any, content: Any) -> dict[str, Any] | None:
         """Parse structured data from a chunk.
 
         Tries in order:
@@ -697,7 +696,7 @@ class CoordinationUI:
                 try:
                     # Give the task a chance to complete
                     await asyncio.wait_for(self._answer_timeout_task, timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
+                except (TimeoutError, asyncio.CancelledError):
                     # If it takes too long or was cancelled, force flush
                     try:
                         if hasattr(self, "_answer_buffer") and self._answer_buffer and not self._final_answer_shown:
@@ -813,7 +812,7 @@ class CoordinationUI:
         if self.display and hasattr(self.display, "begin_restart"):
             self.display.begin_restart(attempt, max_attempts, reason, instructions)
 
-    async def coordinate(self, orchestrator, question: str, agent_ids: Optional[List[str]] = None) -> str:
+    async def coordinate(self, orchestrator, question: str, agent_ids: list[str] | None = None) -> str:
         """Coordinate agents with visual display.
 
         Args:
@@ -1374,7 +1373,7 @@ class CoordinationUI:
                 try:
                     # Give the task a chance to complete
                     await asyncio.wait_for(self._answer_timeout_task, timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
+                except (TimeoutError, asyncio.CancelledError):
                     # If it takes too long or was cancelled, force flush
                     try:
                         if hasattr(self, "_answer_buffer") and self._answer_buffer and not self._final_answer_shown:
@@ -1447,8 +1446,8 @@ class CoordinationUI:
         self,
         orchestrator,
         question: str,
-        messages: List[Dict[str, Any]],
-        agent_ids: Optional[List[str]] = None,
+        messages: list[dict[str, Any]],
+        agent_ids: list[str] | None = None,
     ) -> str:
         """Coordinate agents with conversation context and visual display.
 
@@ -1902,7 +1901,7 @@ class CoordinationUI:
                 try:
                     # Give the task a chance to complete
                     await asyncio.wait_for(self._answer_timeout_task, timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
+                except (TimeoutError, asyncio.CancelledError):
                     # If it takes too long or was cancelled, force flush
                     try:
                         if hasattr(self, "_answer_buffer") and self._answer_buffer and not self._final_answer_shown:
@@ -1962,7 +1961,7 @@ class CoordinationUI:
 
                 logging.getLogger("massgen").warning(f"Failed to save coordination logs: {e}")
 
-    def _display_vote_results(self, vote_results: Dict[str, Any]):
+    def _display_vote_results(self, vote_results: dict[str, Any]):
         """Display voting results in a formatted table."""
         print("\n🗳️  VOTING RESULTS")
         print("=" * 50)
@@ -2000,7 +1999,7 @@ class CoordinationUI:
         print(f"\n📈 Summary: {agents_voted}/{total_votes} agents voted")
         print("=" * 50)
 
-    async def _process_content(self, source: Optional[str], content: str, chunk_type: str = "thinking"):
+    async def _process_content(self, source: str | None, content: str, chunk_type: str = "thinking"):
         """Process content from coordination stream."""
         # Handle agent content
         if source in self.agent_ids:
@@ -2206,7 +2205,7 @@ class CoordinationUI:
             if self.logger:
                 self.logger.log_agent_content(agent_id, content, chunk_type)
 
-    def _parse_workspace_action(self, content: str) -> Optional[tuple]:
+    def _parse_workspace_action(self, content: str) -> tuple | None:
         """Parse workspace action from JSON content.
 
         Returns:
@@ -2511,7 +2510,7 @@ class CoordinationUI:
             # On any error, fallback to immediate display
             print(content, end="", flush=True)
 
-    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[Any]:
+    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Any | None:
         """Prompt human for response to a broadcast question.
 
         Args:
@@ -2544,7 +2543,7 @@ class CoordinationUI:
         else:
             return await self._prompt_simple_fallback(broadcast_request)
 
-    async def _prompt_simple_fallback(self, broadcast_request: Any) -> Optional[str]:
+    async def _prompt_simple_fallback(self, broadcast_request: Any) -> str | None:
         """Fallback terminal prompt for simple free-form questions.
 
         Args:
@@ -2580,14 +2579,14 @@ class CoordinationUI:
                 print("\n⏭️  Skipped (no response)\n")
                 return None
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print("\n⏱️  Timeout - no response submitted\n")
             return None
         except Exception as e:
             print(f"\n❌ Error getting response: {e}\n")
             return None
 
-    async def _prompt_structured_fallback(self, broadcast_request: Any) -> Optional[List]:
+    async def _prompt_structured_fallback(self, broadcast_request: Any) -> list | None:
         """Fallback terminal prompt for structured questions with options.
 
         Args:
@@ -2683,7 +2682,7 @@ class CoordinationUI:
                 )
                 responses.append(response)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 print("\n⏱️  Timeout - skipping remaining questions\n")
                 return responses if responses else None
             except Exception as e:

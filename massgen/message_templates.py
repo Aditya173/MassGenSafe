@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-
 """
 Message templates for MassGen framework following input_cases_reference.md
 Implements proven binary decision framework that eliminates perfectionism loops.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class MessageTemplates:
@@ -57,7 +55,7 @@ Otherwise, do additional work first, then use the `new_answer` tool to record a 
     # USER MESSAGE TEMPLATES
     # =============================================================================
 
-    def format_original_message(self, task: str, paraphrase: Optional[str] = None) -> str:
+    def format_original_message(self, task: str, paraphrase: str | None = None) -> str:
         """Format the original message section."""
         if "format_original_message" in self._template_overrides:
             override = self._template_overrides["format_original_message"]
@@ -74,7 +72,7 @@ Otherwise, do additional work first, then use the `new_answer` tool to record a 
             return f"{original_block}\n{paraphrase_block}"
         return original_block
 
-    def format_conversation_history(self, conversation_history: List[Dict[str, str]]) -> str:
+    def format_conversation_history(self, conversation_history: list[dict[str, str]]) -> str:
         """Format conversation history for agent context."""
         if "format_conversation_history" in self._template_overrides:
             override = self._template_overrides["format_conversation_history"]
@@ -99,7 +97,7 @@ Otherwise, do additional work first, then use the `new_answer` tool to record a 
         lines.append("<END OF CONVERSATION_HISTORY>")
         return "\n".join(lines)
 
-    def system_message_with_context(self, conversation_history: Optional[List[Dict[str, str]]] = None) -> str:
+    def system_message_with_context(self, conversation_history: list[dict[str, str]] | None = None) -> str:
         """Evaluation system message with conversation context awareness."""
         if "system_message_with_context" in self._template_overrides:
             override = self._template_overrides["system_message_with_context"]
@@ -128,10 +126,10 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
 
     def format_current_answers_with_summaries(
         self,
-        agent_summaries: Dict[str, str],
-        agent_mapping: Optional[Dict[str, str]] = None,
-        agent_changedocs: Optional[Dict[str, str]] = None,
-        answer_label_mapping: Optional[Dict[str, str]] = None,
+        agent_summaries: dict[str, str],
+        agent_mapping: dict[str, str] | None = None,
+        agent_changedocs: dict[str, str] | None = None,
+        answer_label_mapping: dict[str, str] | None = None,
     ) -> str:
         """Format current answers section with agent summaries (Case 2) using anonymous agent IDs.
 
@@ -172,7 +170,7 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
         lines.append("<END OF CURRENT ANSWERS>")
         return "\n".join(lines)
 
-    def enforcement_message(self, buffer_content: Optional[str] = None) -> str:
+    def enforcement_message(self, buffer_content: str | None = None) -> str:
         """Enforcement message for Case 3 (non-workflow responses).
 
         Args:
@@ -213,11 +211,11 @@ Use your available tools to analyze the existing answers, then call the `vote` t
 
 IMPORTANT: The only workflow action available to you is `vote`. You cannot submit new answers."""
 
-    def tool_error_message(self, error_msg: str) -> Dict[str, str]:
+    def tool_error_message(self, error_msg: str) -> dict[str, str]:
         """Create a tool role message for tool usage errors."""
         return {"role": "tool", "content": error_msg}
 
-    def enforcement_user_message(self, buffer_content: Optional[str] = None) -> Dict[str, str]:
+    def enforcement_user_message(self, buffer_content: str | None = None) -> dict[str, str]:
         """Create a user role message for enforcement.
 
         Args:
@@ -229,7 +227,7 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
     # TOOL DEFINITIONS
     # =============================================================================
 
-    def get_new_answer_tool(self) -> Dict[str, Any]:
+    def get_new_answer_tool(self) -> dict[str, Any]:
         """Get new_answer tool definition.
 
         TODO: Consider extending with optional context parameters for stateful backends:
@@ -265,7 +263,7 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
             },
         }
 
-    def get_vote_tool(self, valid_agent_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    def get_vote_tool(self, valid_agent_ids: list[str] | None = None) -> dict[str, Any]:
         """Get vote tool definition with anonymous agent IDs."""
         if "vote_tool" in self._template_overrides:
             override = self._template_overrides["vote_tool"]
@@ -302,7 +300,7 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
 
         return tool_def
 
-    def get_stop_tool(self) -> Dict[str, Any]:
+    def get_stop_tool(self) -> dict[str, Any]:
         """Get stop tool definition for decomposition mode."""
         return {
             "type": "function",
@@ -327,7 +325,7 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
             },
         }
 
-    def get_standard_tools(self, valid_agent_ids: Optional[List[str]] = None, decomposition_mode: bool = False) -> List[Dict[str, Any]]:
+    def get_standard_tools(self, valid_agent_ids: list[str] | None = None, decomposition_mode: bool = False) -> list[dict[str, Any]]:
         """Get standard tools for MassGen framework."""
         if decomposition_mode:
             return [self.get_new_answer_tool(), self.get_stop_tool()]
@@ -335,7 +333,7 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
 
     def final_presentation_system_message(
         self,
-        original_system_message: Optional[str] = None,
+        original_system_message: str | None = None,
         enable_image_generation: bool = False,
         enable_audio_generation: bool = False,
         enable_file_generation: bool = False,
@@ -566,7 +564,7 @@ When you have composed your final answer, submit it using the `new_answer` tool.
         else:
             return presentation_instructions
 
-    def format_restart_context(self, reason: str, instructions: str, previous_answer: Optional[str] = None, workspace_populated: bool = False, branch_info: Optional[Dict[str, Any]] = None) -> str:
+    def format_restart_context(self, reason: str, instructions: str, previous_answer: str | None = None, workspace_populated: bool = False, branch_info: dict[str, Any] | None = None) -> str:
         """Format restart context for subsequent orchestration attempts.
 
         This context is added to agent messages (like multi-turn context) on restart attempts.
@@ -630,7 +628,7 @@ Please address these specific issues in your coordination and final answer.
     # COMPLETE MESSAGE BUILDERS
     # =============================================================================
 
-    def build_case1_user_message(self, task: str, paraphrase: Optional[str] = None) -> str:
+    def build_case1_user_message(self, task: str, paraphrase: str | None = None) -> str:
         """Build Case 1 user message (no summaries exist)."""
         return f"""{self.format_original_message(task, paraphrase)}
 
@@ -639,11 +637,11 @@ Please address these specific issues in your coordination and final answer.
     def build_case2_user_message(
         self,
         task: str,
-        agent_summaries: Dict[str, str],
-        paraphrase: Optional[str] = None,
-        agent_mapping: Optional[Dict[str, str]] = None,
-        agent_changedocs: Optional[Dict[str, str]] = None,
-        answer_label_mapping: Optional[Dict[str, str]] = None,
+        agent_summaries: dict[str, str],
+        paraphrase: str | None = None,
+        agent_mapping: dict[str, str] | None = None,
+        agent_changedocs: dict[str, str] | None = None,
+        answer_label_mapping: dict[str, str] | None = None,
     ) -> str:
         """Build Case 2 user message (summaries exist).
 
@@ -665,11 +663,11 @@ Please address these specific issues in your coordination and final answer.
     def build_evaluation_message(
         self,
         task: str,
-        agent_answers: Optional[Dict[str, str]] = None,
-        paraphrase: Optional[str] = None,
-        agent_mapping: Optional[Dict[str, str]] = None,
-        agent_changedocs: Optional[Dict[str, str]] = None,
-        answer_label_mapping: Optional[Dict[str, str]] = None,
+        agent_answers: dict[str, str] | None = None,
+        paraphrase: str | None = None,
+        agent_mapping: dict[str, str] | None = None,
+        agent_changedocs: dict[str, str] | None = None,
+        answer_label_mapping: dict[str, str] | None = None,
     ) -> str:
         """Build evaluation user message for any case.
 
@@ -691,12 +689,12 @@ Please address these specific issues in your coordination and final answer.
     def build_coordination_context(
         self,
         current_task: str,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        agent_answers: Optional[Dict[str, str]] = None,
-        paraphrase: Optional[str] = None,
-        agent_mapping: Optional[Dict[str, str]] = None,
-        agent_changedocs: Optional[Dict[str, str]] = None,
-        answer_label_mapping: Optional[Dict[str, str]] = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        agent_answers: dict[str, str] | None = None,
+        paraphrase: str | None = None,
+        agent_mapping: dict[str, str] | None = None,
+        agent_changedocs: dict[str, str] | None = None,
+        answer_label_mapping: dict[str, str] | None = None,
     ) -> str:
         """Build coordination context including conversation history and current state.
 
@@ -747,15 +745,15 @@ Please address these specific issues in your coordination and final answer.
     def build_initial_conversation(
         self,
         task: str,
-        agent_summaries: Optional[Dict[str, str]] = None,
-        valid_agent_ids: Optional[List[str]] = None,
-        base_system_message: Optional[str] = None,
-        paraphrase: Optional[str] = None,
-        agent_mapping: Optional[Dict[str, str]] = None,
+        agent_summaries: dict[str, str] | None = None,
+        valid_agent_ids: list[str] | None = None,
+        base_system_message: str | None = None,
+        paraphrase: str | None = None,
+        agent_mapping: dict[str, str] | None = None,
         decomposition_mode: bool = False,
-        agent_changedocs: Optional[Dict[str, str]] = None,
-        answer_label_mapping: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        agent_changedocs: dict[str, str] | None = None,
+        answer_label_mapping: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Build complete initial conversation for MassGen evaluation.
 
         Args:
@@ -791,16 +789,16 @@ Please address these specific issues in your coordination and final answer.
     def build_conversation_with_context(
         self,
         current_task: str,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        agent_summaries: Optional[Dict[str, str]] = None,
-        valid_agent_ids: Optional[List[str]] = None,
-        base_system_message: Optional[str] = None,
-        paraphrase: Optional[str] = None,
-        agent_mapping: Optional[Dict[str, str]] = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        agent_summaries: dict[str, str] | None = None,
+        valid_agent_ids: list[str] | None = None,
+        base_system_message: str | None = None,
+        paraphrase: str | None = None,
+        agent_mapping: dict[str, str] | None = None,
         decomposition_mode: bool = False,
-        agent_changedocs: Optional[Dict[str, str]] = None,
-        answer_label_mapping: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        agent_changedocs: dict[str, str] | None = None,
+        answer_label_mapping: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Build complete conversation with conversation history context for MassGen evaluation.
 
         Args:
@@ -847,9 +845,9 @@ Please address these specific issues in your coordination and final answer.
         self,
         original_task: str,
         vote_summary: str,
-        all_answers: Dict[str, str],
+        all_answers: dict[str, str],
         selected_agent_id: str,
-        agent_changedocs: Optional[Dict[str, str]] = None,
+        agent_changedocs: dict[str, str] | None = None,
     ) -> str:
         """Build final presentation message for winning agent."""
         # Format all answers with clear marking
@@ -873,9 +871,9 @@ Based on the coordination process above, present your final answer:"""
 
     def add_enforcement_message(
         self,
-        conversation_messages: List[Dict[str, str]],
-        buffer_content: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
+        conversation_messages: list[dict[str, str]],
+        buffer_content: str | None = None,
+    ) -> list[dict[str, str]]:
         """Add enforcement message to existing conversation (Case 3).
 
         Args:
@@ -922,17 +920,17 @@ Based on the coordination process above, present your final answer:"""
 
     def filesystem_system_message(
         self,
-        main_workspace: Optional[str] = None,
-        temp_workspace: Optional[str] = None,
-        context_paths: Optional[List[Dict[str, str]]] = None,
-        previous_turns: Optional[List[Dict[str, Any]]] = None,
+        main_workspace: str | None = None,
+        temp_workspace: str | None = None,
+        context_paths: list[dict[str, str]] | None = None,
+        previous_turns: list[dict[str, Any]] | None = None,
         workspace_prepopulated: bool = False,
         enable_image_generation: bool = False,
-        agent_answers: Optional[Dict[str, str]] = None,
+        agent_answers: dict[str, str] | None = None,
         enable_command_execution: bool = False,
         docker_mode: bool = False,
         enable_sudo: bool = False,
-        agent_mapping: Optional[Dict[str, str]] = None,
+        agent_mapping: dict[str, str] | None = None,
     ) -> str:
         """Generate filesystem access instructions for agents with filesystem support.
 
@@ -1262,28 +1260,28 @@ def set_templates(templates: MessageTemplates) -> None:
 
 
 # Convenience functions for common operations
-def build_case1_conversation(task: str) -> Dict[str, Any]:
+def build_case1_conversation(task: str) -> dict[str, Any]:
     """Build Case 1 conversation (no summaries exist)."""
     return get_templates().build_initial_conversation(task)
 
 
 def build_case2_conversation(
     task: str,
-    agent_summaries: Dict[str, str],
-    valid_agent_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    agent_summaries: dict[str, str],
+    valid_agent_ids: list[str] | None = None,
+) -> dict[str, Any]:
     """Build Case 2 conversation (summaries exist)."""
     return get_templates().build_initial_conversation(task, agent_summaries, valid_agent_ids)
 
 
 def get_standard_tools(
-    valid_agent_ids: Optional[List[str]] = None,
-) -> List[Dict[str, Any]]:
+    valid_agent_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Get standard MassGen tools."""
     return get_templates().get_standard_tools(valid_agent_ids)
 
 
-def get_enforcement_message(buffer_content: Optional[str] = None) -> str:
+def get_enforcement_message(buffer_content: str | None = None) -> str:
     """Get enforcement message for Case 3.
 
     Args:

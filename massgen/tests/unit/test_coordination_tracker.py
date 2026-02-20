@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for core CoordinationTracker behaviors."""
 
 from massgen.coordination_tracker import CoordinationTracker

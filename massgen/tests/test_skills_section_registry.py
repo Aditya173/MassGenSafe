@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for SkillsSection registry integration and recently-added fallback.
 
 Covers:

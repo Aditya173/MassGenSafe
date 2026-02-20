@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for plan-mode default chunk behavior."""
 
 import pytest

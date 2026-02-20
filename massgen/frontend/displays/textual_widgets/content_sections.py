@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Content Section Widgets for MassGen TUI.
 
@@ -19,7 +18,7 @@ import time
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -72,10 +71,10 @@ class ToolSection(Vertical):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, id: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self._id_prefix = f"{id}_" if id else ""
-        self._tools: Dict[str, ToolCallCard] = {}
+        self._tools: dict[str, ToolCallCard] = {}
         self.add_class("collapsed")
         self.add_class("hidden")  # Start hidden until first tool
 
@@ -214,7 +213,7 @@ class ToolSection(Vertical):
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
 
-    def get_tool(self, tool_id: str) -> Optional[ToolCallCard]:
+    def get_tool(self, tool_id: str) -> ToolCallCard | None:
         """Get a tool card by ID."""
         return self._tools.get(tool_id)
 
@@ -266,7 +265,7 @@ class ReasoningSection(Vertical):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, id: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self._items: list = []
         # Start expanded (not collapsed) but hidden until content arrives
@@ -419,26 +418,26 @@ class TimelineSection(ScrollableContainer):
     SCROLL_DEBOUNCE_MS = 25  # Minimum gap between scroll operations (reduced for responsiveness)
     SCROLL_ANIMATION_THRESHOLD_MS = 300  # Threshold for animation vs instant scroll
 
-    def __init__(self, id: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self._id_prefix = f"{id}_" if id else ""
-        self._tools: Dict[str, ToolCallCard] = {}
-        self._batches: Dict[str, ToolBatchCard] = {}  # batch_id -> ToolBatchCard
-        self._tool_to_batch: Dict[str, str] = {}  # tool_id -> batch_id mapping
-        self._tool_rounds: Dict[str, int] = {}  # tool_id -> round_number
+        self._tools: dict[str, ToolCallCard] = {}
+        self._batches: dict[str, ToolBatchCard] = {}  # batch_id -> ToolBatchCard
+        self._tool_to_batch: dict[str, str] = {}  # tool_id -> batch_id mapping
+        self._tool_rounds: dict[str, int] = {}  # tool_id -> round_number
         self._item_count = 0
         self._reasoning_section_id = f"reasoning_{id}" if id else "reasoning_section"
         # Scroll mode: when True, auto-scroll is paused (user is reading history)
         self._scroll_mode = False
         self._new_content_count = 0  # Count of new items since entering scroll mode
         # Removed widgets cache for scroll-back (widget ID -> widget)
-        self._removed_widgets: Dict[str, any] = {}
+        self._removed_widgets: dict[str, any] = {}
         self._truncation_shown = False  # Track if we've shown truncation message
         # Phase 12: View-based round navigation
         self._viewed_round: int = 1  # Which round is currently being displayed
         # Content batch: accumulates consecutive thinking/content into single card
-        self._current_reasoning_card: Optional[CollapsibleTextCard] = None
-        self._current_batch_label: Optional[str] = None  # Track label for batch switching
+        self._current_reasoning_card: CollapsibleTextCard | None = None
+        self._current_batch_label: str | None = None  # Track label for batch switching
         # Scroll detection flags (moved from TimelineScrollContainer)
         self._user_scrolled_up = False
         self._auto_scrolling = False
@@ -457,7 +456,7 @@ class TimelineSection(ScrollableContainer):
         self._debounce_timer = None
         # Answer lock mode: when True, timeline shows only the final answer card
         self._answer_lock_mode = False
-        self._locked_card_id: Optional[str] = None
+        self._locked_card_id: str | None = None
         # Track if Round 1 banner has been shown
         self._round_1_shown = False
         # Track highest round separator shown (for dedup)
@@ -467,7 +466,7 @@ class TimelineSection(ScrollableContainer):
         # Track which rounds already have banners
         self._shown_round_banners: set[int] = set()
         # Track deferred round banners (round_number -> (label, subtitle))
-        self._deferred_round_banners: Dict[int, tuple[str, Optional[str]]] = {}
+        self._deferred_round_banners: dict[int, tuple[str, str | None]] = {}
 
     def compose(self) -> ComposeResult:
         # Scroll mode indicator (hidden by default)
@@ -497,7 +496,7 @@ class TimelineSection(ScrollableContainer):
         """Ensure Round 1 banner is shown before any content."""
         self._ensure_round_banner(1)
 
-    def defer_round_banner(self, round_number: int, label: str, subtitle: Optional[str] = None) -> None:
+    def defer_round_banner(self, round_number: int, label: str, subtitle: str | None = None) -> None:
         """Defer a round banner until the first item of that round is rendered."""
         if round_number in self._shown_round_banners:
             return
@@ -555,7 +554,7 @@ class TimelineSection(ScrollableContainer):
             tui_log(f"[ContentSections] {e}")
         return False
 
-    def _first_content_child(self) -> Optional[Any]:
+    def _first_content_child(self) -> Any | None:
         """Get the first timeline child after the scroll indicator, if any."""
         indicator = self._get_scroll_indicator()
 
@@ -565,7 +564,7 @@ class TimelineSection(ScrollableContainer):
             return child
         return None
 
-    def _find_insert_before_for_round(self, round_number: int) -> Optional[Any]:
+    def _find_insert_before_for_round(self, round_number: int) -> Any | None:
         """Find the earliest widget belonging to a later round.
 
         This allows late-arriving items from an earlier round to be inserted
@@ -657,7 +656,7 @@ class TimelineSection(ScrollableContainer):
         """Reset scroll mode tracking state."""
         self._user_scrolled_up = False
 
-    def _get_scroll_indicator(self) -> Optional[Static]:
+    def _get_scroll_indicator(self) -> Static | None:
         """Return the scroll indicator widget without throwing if absent."""
         for widget in self.query("#scroll_mode_indicator"):
             if isinstance(widget, Static):
@@ -1148,7 +1147,7 @@ class TimelineSection(ScrollableContainer):
 
         self._auto_scroll()
 
-    def get_tool(self, tool_id: str) -> Optional[ToolCallCard]:
+    def get_tool(self, tool_id: str) -> ToolCallCard | None:
         """Get a tool card by ID."""
         return self._tools.get(tool_id)
 
@@ -1158,7 +1157,7 @@ class TimelineSection(ScrollableContainer):
         return running_foreground + self.get_background_tools_count()
 
     @staticmethod
-    def _extract_background_statuses_from_payload(payload: Any) -> Dict[str, str]:
+    def _extract_background_statuses_from_payload(payload: Any) -> dict[str, str]:
         """Extract job_id -> status mappings from status/result/list payloads."""
         parsed: Any = payload
         if isinstance(payload, str):
@@ -1172,7 +1171,7 @@ class TimelineSection(ScrollableContainer):
         if not isinstance(parsed, dict):
             return {}
 
-        extracted: Dict[str, str] = {}
+        extracted: dict[str, str] = {}
         entries = []
         if isinstance(parsed.get("jobs"), list):
             entries.extend(item for item in parsed.get("jobs", []) if isinstance(item, dict))
@@ -1186,9 +1185,9 @@ class TimelineSection(ScrollableContainer):
                 extracted[job_id] = status
         return extracted
 
-    def _collect_known_background_statuses(self) -> Dict[str, str]:
+    def _collect_known_background_statuses(self) -> dict[str, str]:
         """Collect latest known background status per job_id across tool cards."""
-        known: Dict[str, str] = {}
+        known: dict[str, str] = {}
         for card in self._tools.values():
             for payload in (card._result_full, card._result):
                 known.update(self._extract_background_statuses_from_payload(payload))
@@ -1411,11 +1410,11 @@ class TimelineSection(ScrollableContainer):
             tui_log(f"[ContentSections] {e}")
         return True
 
-    def get_batch(self, batch_id: str) -> Optional[ToolBatchCard]:
+    def get_batch(self, batch_id: str) -> ToolBatchCard | None:
         """Get a batch card by ID."""
         return self._batches.get(batch_id)
 
-    def get_tool_batch(self, tool_id: str) -> Optional[str]:
+    def get_tool_batch(self, tool_id: str) -> str | None:
         """Get the batch ID for a tool, if it's in a batch."""
         return self._tool_to_batch.get(tool_id)
 
@@ -1426,7 +1425,7 @@ class TimelineSection(ScrollableContainer):
         batch_id: str,
         server_name: str,
         round_number: int = 1,
-    ) -> Optional[ToolBatchCard]:
+    ) -> ToolBatchCard | None:
         """Convert a standalone tool card to a batch and add a second tool.
 
         This is called when a second consecutive MCP tool from the same server arrives.
@@ -1520,7 +1519,7 @@ class TimelineSection(ScrollableContainer):
 
         return batch_card
 
-    def add_hook_to_tool(self, tool_call_id: Optional[str], hook_info: dict) -> None:
+    def add_hook_to_tool(self, tool_call_id: str | None, hook_info: dict) -> None:
         """Add hook execution info to a tool card.
 
         Args:
@@ -1660,8 +1659,8 @@ class TimelineSection(ScrollableContainer):
         round_number: int = 1,
         subtitle: str = "",
         *,
-        before: Optional[Any] = None,
-        after: Optional[Any] = None,
+        before: Any | None = None,
+        after: Any | None = None,
     ) -> None:
         """Add a visual separator to the timeline.
 
@@ -2064,7 +2063,7 @@ class ThinkingSection(Vertical):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, id: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self._line_count = 0
         self._auto_collapsed = False  # Track if we auto-collapsed
@@ -2234,7 +2233,7 @@ class ResponseSection(Vertical):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, id: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self._content_parts: list = []
         self.add_class("hidden")  # Start hidden until content arrives
@@ -2319,7 +2318,7 @@ class StatusBadge(Static):
     def __init__(
         self,
         initial_status: str = "waiting",
-        id: Optional[str] = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self.status = initial_status
@@ -2357,7 +2356,7 @@ class CompletionFooter(Static):
     is_visible = reactive(False)
     status = reactive("completed")
 
-    def __init__(self, id: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self.add_class("hidden")
 
@@ -2415,7 +2414,7 @@ class RestartBanner(Static):
     # CSS moved to base.tcss for theme support
     DEFAULT_CSS = ""
 
-    def __init__(self, label: str = "", subtitle: str = "", id: Optional[str] = None) -> None:
+    def __init__(self, label: str = "", subtitle: str = "", id: str | None = None) -> None:
         super().__init__(id=id)
         self._label = label
         self._subtitle = subtitle
@@ -2570,7 +2569,7 @@ class AttemptBanner(Vertical):
     }
     """
 
-    def __init__(self, attempt: int = 2, reason: str = "", instructions: str = "", id: Optional[str] = None) -> None:
+    def __init__(self, attempt: int = 2, reason: str = "", instructions: str = "", id: str | None = None) -> None:
         super().__init__(id=id)
         self._attempt = attempt
         self._reason = reason
@@ -2726,11 +2725,11 @@ class FinalPresentationCard(Vertical):
         self,
         agent_id: str,
         model_name: str = "",
-        vote_results: Optional[Dict] = None,
-        context_paths: Optional[Dict] = None,
-        workspace_path: Optional[str] = None,
+        vote_results: dict | None = None,
+        context_paths: dict | None = None,
+        workspace_path: str | None = None,
         completion_only: bool = False,
-        id: Optional[str] = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id or "final_presentation_card")
         self.agent_id = agent_id
@@ -2751,10 +2750,10 @@ class FinalPresentationCard(Vertical):
         self._update_timer = None
         self._stream_buffer: list[str] = []
         self._stream_text: str = ""
-        self._cached_full_text: Optional[str] = None  # Cache to avoid repeated joins
-        self._answer_content: Optional[str] = None
+        self._cached_full_text: str | None = None  # Cache to avoid repeated joins
+        self._answer_content: str | None = None
         self._pending_finalize = False
-        self._review_status: Optional[str] = None  # "approved" | "rejected" | None
+        self._review_status: str | None = None  # "approved" | "rejected" | None
         self._workspace_open_cooldown_s = 0.75
         self._last_workspace_open_at = 0.0
         self._markdown_render_max_chars = self._DEFAULT_MARKDOWN_RENDER_MAX_CHARS
@@ -2881,7 +2880,7 @@ class FinalPresentationCard(Vertical):
         return f"Votes: {counts_str}"
 
     @classmethod
-    def _limit_context_paths(cls, context_paths: Optional[Dict]) -> tuple[list[str], list[str], int]:
+    def _limit_context_paths(cls, context_paths: dict | None) -> tuple[list[str], list[str], int]:
         """Return bounded context-path rows for fast final-card mount."""
         context_paths = context_paths or {}
         new_paths = list(context_paths.get("new", []))
@@ -3425,7 +3424,7 @@ class FinalPresentationCard(Vertical):
             )
 
     @staticmethod
-    def _find_final_workspace(base_dir: Path, agent_id: str) -> Optional[Path]:
+    def _find_final_workspace(base_dir: Path, agent_id: str) -> Path | None:
         """Look for final/<agent_id>/workspace under base_dir."""
         final_dir = base_dir / "final"
         if not final_dir.exists() or not final_dir.is_dir():

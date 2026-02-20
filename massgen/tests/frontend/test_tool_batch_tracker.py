@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for ToolBatchTracker timeline batching behavior."""
 
 from datetime import datetime, timezone

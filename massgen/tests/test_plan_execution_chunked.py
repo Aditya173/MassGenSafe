@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for chunked plan execution helpers."""
 
 import json

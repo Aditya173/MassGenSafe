@@ -56,6 +56,32 @@ Timeout behavior:
 * Maximum timeout is 600 seconds
 * Timeout returns a success payload with ``ready: false`` and ``timed_out: true``
 
+Wait Interruption by Runtime Input
+----------------------------------
+
+``custom_tool__wait_for_background_tool`` can return early when runtime-injection content becomes available.
+
+Interruption payload shape:
+
+.. code-block:: json
+
+   {
+     "success": true,
+     "ready": false,
+     "interrupted": true,
+     "interrupt_reason": "runtime_injection_available",
+     "injected_content": "...",
+     "waited_seconds": 4.231
+   }
+
+Notes:
+
+* ``interrupt_reason`` may be ``runtime_injection_available`` (new context ready) or ``turn_cancelled``.
+* ``injected_content`` contains the runtime context to incorporate before proceeding.
+* Runtime input delivered this way is persisted for that agent within the current turn, so if the agent round restarts, the same instruction context is still present.
+* If runtime input is queued just before the wait call starts, MassGen now signals an interrupt immediately after wait activation so the input is not stranded in queue.
+* After handling injected context, you can continue foreground work or call wait again.
+
 Result Delivery and Polling
 ---------------------------
 

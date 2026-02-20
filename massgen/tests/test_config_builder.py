@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Comprehensive tests for config_builder.py - Agent cloning and preset application.
 

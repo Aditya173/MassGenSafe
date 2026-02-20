@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Subagent Card Widget for MassGen TUI.
 
@@ -12,9 +11,10 @@ from __future__ import annotations
 import json
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -29,16 +29,16 @@ from massgen.subagent.models import SubagentDisplayData, SubagentResult
 
 @dataclass
 class _ToolCache:
-    path: Optional[Path]
+    path: Path | None
     size: int
-    tools: List[str]
+    tools: list[str]
 
 
 @dataclass
 class _PlanCache:
-    path: Optional[Path]
+    path: Path | None
     mtime: float
-    summary: Optional[str]
+    summary: str | None
 
 
 class SubagentColumn(Vertical, can_focus=True):
@@ -50,11 +50,11 @@ class SubagentColumn(Vertical, can_focus=True):
     def __init__(
         self,
         subagent: SubagentDisplayData,
-        all_subagents: List[SubagentDisplayData],
+        all_subagents: list[SubagentDisplayData],
         summary: str,
-        tools: List[str],
-        open_callback: Callable[[SubagentDisplayData, List[SubagentDisplayData]], None],
-        id: Optional[str] = None,
+        tools: list[str],
+        open_callback: Callable[[SubagentDisplayData, list[SubagentDisplayData]], None],
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self._subagent = subagent
@@ -83,7 +83,7 @@ class SubagentColumn(Vertical, can_focus=True):
     def on_click(self) -> None:
         self._open_callback(self._subagent, self._all_subagents)
 
-    def update_content(self, subagent: SubagentDisplayData, summary: str, tools: List[str]) -> None:
+    def update_content(self, subagent: SubagentDisplayData, summary: str, tools: list[str]) -> None:
         self._subagent = subagent
         self._summary = summary
         self._tools = tools
@@ -223,7 +223,7 @@ class SubagentColumn(Vertical, can_focus=True):
 
     def _measure_progress_bar_width(self, suffix_width: int = 0) -> int:
         """Measure available characters for the bar body, excluding optional suffix text."""
-        candidate_widths: List[int] = []
+        candidate_widths: list[int] = []
 
         try:
             progress_widget = self.query_one("#progress_bar", Static)
@@ -242,7 +242,7 @@ class SubagentColumn(Vertical, can_focus=True):
 
         return max(8, available - max(0, suffix_width))
 
-    def _split_tools(self, tools: List[str]) -> Tuple[str, List[str]]:
+    def _split_tools(self, tools: list[str]) -> tuple[str, list[str]]:
         if not tools:
             return "", []
         current = f"› {tools[0]}"
@@ -270,7 +270,7 @@ class SubagentCard(Vertical, can_focus=True):
     class OpenModal(Message):
         """Message posted when user clicks to open subagent view."""
 
-        def __init__(self, subagent: SubagentDisplayData, all_subagents: List[SubagentDisplayData]) -> None:
+        def __init__(self, subagent: SubagentDisplayData, all_subagents: list[SubagentDisplayData]) -> None:
             self.subagent = subagent
             self.all_subagents = all_subagents
             super().__init__()
@@ -305,22 +305,22 @@ class SubagentCard(Vertical, can_focus=True):
 
     def __init__(
         self,
-        subagents: Optional[List[SubagentDisplayData]] = None,
-        tool_call_id: Optional[str] = None,
-        status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
-        id: Optional[str] = None,
+        subagents: list[SubagentDisplayData] | None = None,
+        tool_call_id: str | None = None,
+        status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self._subagents = subagents or []
         self._tool_call_id = tool_call_id
         self._status_callback = status_callback
-        self._poll_timer: Optional[Timer] = None
-        self._tool_cache: Dict[str, _ToolCache] = {}
-        self._plan_cache: Dict[str, _PlanCache] = {}
-        self._columns: Dict[str, SubagentColumn] = {}
+        self._poll_timer: Timer | None = None
+        self._tool_cache: dict[str, _ToolCache] = {}
+        self._plan_cache: dict[str, _PlanCache] = {}
+        self._columns: dict[str, SubagentColumn] = {}
         self._selected_index = 0
         # Track start times for elapsed computation
-        self._start_times: Dict[str, float] = {}
+        self._start_times: dict[str, float] = {}
         now = time.monotonic()
         for sa in self._subagents:
             if sa.status in ("running", "pending"):
@@ -383,7 +383,7 @@ class SubagentCard(Vertical, can_focus=True):
             self._poll_timer.stop()
             self._poll_timer = None
 
-    def _request_open(self, subagent: SubagentDisplayData, all_subagents: List[SubagentDisplayData]) -> None:
+    def _request_open(self, subagent: SubagentDisplayData, all_subagents: list[SubagentDisplayData]) -> None:
         try:
             self._selected_index = self._subagents.index(subagent)
         except ValueError:
@@ -398,7 +398,7 @@ class SubagentCard(Vertical, can_focus=True):
 
     def _poll_status(self) -> None:
         updated = False
-        new_subagents: List[SubagentDisplayData] = []
+        new_subagents: list[SubagentDisplayData] = []
 
         if self._status_callback:
             for sa in self._subagents:
@@ -489,7 +489,7 @@ class SubagentCard(Vertical, can_focus=True):
 
         return status_label
 
-    def _get_plan_summary(self, sa: SubagentDisplayData) -> Optional[str]:
+    def _get_plan_summary(self, sa: SubagentDisplayData) -> str | None:
         if not sa.workspace_path:
             return None
         workspace = Path(sa.workspace_path)
@@ -499,7 +499,7 @@ class SubagentCard(Vertical, can_focus=True):
 
         try:
             mtime = plan_path.stat().st_mtime
-        except (OSError, IOError):
+        except OSError:
             return None
 
         cached = self._plan_cache.get(sa.id)
@@ -514,20 +514,20 @@ class SubagentCard(Vertical, can_focus=True):
             if total > 0:
                 completed = sum(1 for t in tasks if t.get("status") in ("completed", "verified"))
                 summary = f"{completed}/{total} done"
-        except (OSError, IOError, json.JSONDecodeError, TypeError):
+        except (OSError, json.JSONDecodeError, TypeError):
             summary = None
 
         self._plan_cache[sa.id] = _PlanCache(path=plan_path, mtime=mtime, summary=summary)
         return summary
 
-    def _get_tool_lines(self, sa: SubagentDisplayData) -> List[str]:
+    def _get_tool_lines(self, sa: SubagentDisplayData) -> list[str]:
         events_path = self._resolve_events_path(sa)
         if not events_path or not events_path.exists():
             return []
 
         try:
             size = events_path.stat().st_size
-        except (OSError, IOError):
+        except OSError:
             return []
 
         cached = self._tool_cache.get(sa.id)
@@ -538,7 +538,7 @@ class SubagentCard(Vertical, can_focus=True):
         self._tool_cache[sa.id] = _ToolCache(path=events_path, size=size, tools=tools)
         return tools
 
-    def _resolve_events_path(self, sa: SubagentDisplayData) -> Optional[Path]:
+    def _resolve_events_path(self, sa: SubagentDisplayData) -> Path | None:
         if not sa.log_path:
             return None
         log_path = Path(sa.log_path)
@@ -549,17 +549,17 @@ class SubagentCard(Vertical, can_focus=True):
             return Path(resolved) if resolved else None
         return log_path
 
-    def _extract_tools_from_events(self, path: Path, max_tools: int = 3) -> List[str]:
+    def _extract_tools_from_events(self, path: Path, max_tools: int = 3) -> list[str]:
         try:
             tail_lines: deque[str] = deque(maxlen=200)
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            with open(path, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     if line.strip():
                         tail_lines.append(line)
-        except (OSError, IOError):
+        except OSError:
             return []
 
-        tools: List[str] = []
+        tools: list[str] = []
         seen: set[str] = set()
 
         for line in reversed(tail_lines):
@@ -590,7 +590,7 @@ class SubagentCard(Vertical, can_focus=True):
         return tools
 
     @staticmethod
-    def status_icon_and_style(status: str) -> Tuple[str, str]:
+    def status_icon_and_style(status: str) -> tuple[str, str]:
         icon = SubagentCard.STATUS_ICONS.get(status, "○")
         style = SubagentCard.STATUS_STYLES.get(status, "#6e7681")
         return icon, style
@@ -602,15 +602,15 @@ class SubagentCard(Vertical, can_focus=True):
         return text[: max_len - 3] + "..."
 
     @property
-    def subagents(self) -> List[SubagentDisplayData]:
+    def subagents(self) -> list[SubagentDisplayData]:
         return self._subagents
 
     @property
-    def tool_call_id(self) -> Optional[str]:
+    def tool_call_id(self) -> str | None:
         """Tool call identifier used to correlate start/complete lifecycle updates."""
         return self._tool_call_id
 
-    def update_subagents(self, subagents: List[SubagentDisplayData]) -> None:
+    def update_subagents(self, subagents: list[SubagentDisplayData]) -> None:
         self._subagents = subagents
         self._refresh_columns()
         self._start_polling_if_needed()
@@ -622,7 +622,7 @@ class SubagentCard(Vertical, can_focus=True):
                 break
         self._refresh_columns()
 
-    def set_status_callback(self, callback: Callable[[str], Optional[SubagentDisplayData]]) -> None:
+    def set_status_callback(self, callback: Callable[[str], SubagentDisplayData | None]) -> None:
         self._status_callback = callback
         self._start_polling_if_needed()
 
@@ -656,10 +656,10 @@ class SubagentCard(Vertical, can_focus=True):
     @classmethod
     def from_spawn_result(
         cls,
-        result: Dict[str, Any],
-        tool_call_id: Optional[str] = None,
-        status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
-    ) -> "SubagentCard":
+        result: dict[str, Any],
+        tool_call_id: str | None = None,
+        status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
+    ) -> SubagentCard:
         subagents = []
         spawned = result.get("results", result.get("spawned_subagents", result.get("subagents", [])))
         for sa_data in spawned:

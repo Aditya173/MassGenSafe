@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests for novelty injection feature (Change 6).
 
 Tests cover:

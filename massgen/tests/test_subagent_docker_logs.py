@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for subagent log directory creation and Docker mount injection.
 
@@ -16,6 +15,8 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 from massgen.subagent.manager import SubagentManager
 from massgen.subagent.models import SpecializedSubagentConfig
@@ -298,6 +299,21 @@ class TestSubagentMcpConfigEnv:
             path = Path(path_str).resolve()
             assert str(path).startswith(str(workspace_root))
             assert path.exists()
+
+    def test_subagent_mcp_config_raises_on_invalid_specialized_profile(self, tmp_path, monkeypatch):
+        """Schema errors in specialized profiles should surface as explicit failures."""
+        orch, agent = self._make_orchestrator_and_agent(tmp_path)
+
+        def _raise_profile_error():
+            raise ValueError("Unsupported specialized subagent frontmatter fields")
+
+        monkeypatch.setattr(
+            "massgen.subagent.type_scanner.scan_subagent_types",
+            _raise_profile_error,
+        )
+
+        with pytest.raises(ValueError, match="Failed to discover specialized subagent types"):
+            orch._create_subagent_mcp_config("test_agent", agent)
 
     def test_subagent_mcp_agent_config_preserves_command_line_inheritance(self, tmp_path):
         """Parent backend command-line settings should be serialized for subagent inheritance."""

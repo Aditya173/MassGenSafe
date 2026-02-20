@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TUI debug logging utilities.
 
 Single source of truth for TUI debug logging. Previously located in:

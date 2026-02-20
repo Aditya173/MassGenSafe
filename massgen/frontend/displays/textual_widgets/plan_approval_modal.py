@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Plan Review Modal Widget for MassGen TUI.
 
@@ -8,7 +7,7 @@ Shown after planning completes to support iterative planning review before execu
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -27,9 +26,9 @@ class PlanApprovalResult:
 
     approved: bool
     action: str  # "continue", "quick_edit", "finalize", "finalize_manual", "cancel"
-    feedback: Optional[str] = None
-    plan_data: Optional[Dict[str, Any]] = None
-    plan_path: Optional[Path] = None
+    feedback: str | None = None
+    plan_data: dict[str, Any] | None = None
+    plan_path: Path | None = None
 
 
 class PlanJsonEditorModal(ModalScreen[Optional[str]]):
@@ -44,9 +43,9 @@ class PlanJsonEditorModal(ModalScreen[Optional[str]]):
     def __init__(
         self,
         initial_json: str,
-        name: Optional[str] = None,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
         self._json_value = initial_json
@@ -132,13 +131,13 @@ class PlanApprovalModal(ReworkControlsMixin, ModalScreen[PlanApprovalResult]):
 
     def __init__(
         self,
-        tasks: List[Dict[str, Any]],
+        tasks: list[dict[str, Any]],
         plan_path: Path,
-        plan_data: Dict[str, Any],
-        revision: Optional[int] = None,
-        name: Optional[str] = None,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        plan_data: dict[str, Any],
+        revision: int | None = None,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
     ):
         super().__init__(name=name, id=id, classes=classes)
         plan_tasks = plan_data.get("tasks", [])
@@ -162,10 +161,10 @@ class PlanApprovalModal(ReworkControlsMixin, ModalScreen[PlanApprovalResult]):
 
     @staticmethod
     def _group_tasks_by_chunk(
-        tasks: List[Dict[str, Any]],
-    ) -> tuple[List[str], Dict[str, List[Dict[str, Any]]]]:
-        chunk_order: List[str] = []
-        tasks_by_chunk: Dict[str, List[Dict[str, Any]]] = {}
+        tasks: list[dict[str, Any]],
+    ) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
+        chunk_order: list[str] = []
+        tasks_by_chunk: dict[str, list[dict[str, Any]]] = {}
         for task in tasks:
             chunk = str(task.get("chunk", "")).strip() or "unassigned"
             if chunk not in tasks_by_chunk:
@@ -254,7 +253,7 @@ class PlanApprovalModal(ReworkControlsMixin, ModalScreen[PlanApprovalResult]):
                 if self._rework_action_status:
                     yield Static(self._rework_action_status, classes="plan-action-status")
 
-    def _format_task_row(self, task: Dict[str, Any]) -> Text:
+    def _format_task_row(self, task: dict[str, Any]) -> Text:
         text = Text()
 
         status = str(task.get("status", "pending")).lower()
@@ -279,7 +278,7 @@ class PlanApprovalModal(ReworkControlsMixin, ModalScreen[PlanApprovalResult]):
 
         return text
 
-    def _feedback_text(self) -> Optional[str]:
+    def _feedback_text(self) -> str | None:
         return self._rework_feedback_text()
 
     def _has_feedback(self) -> bool:
@@ -297,7 +296,7 @@ class PlanApprovalModal(ReworkControlsMixin, ModalScreen[PlanApprovalResult]):
         self._snapshot_input_values()
         editor = PlanJsonEditorModal(self._plan_json_value)
 
-        def _on_dismiss(updated_json: Optional[str]) -> None:
+        def _on_dismiss(updated_json: str | None) -> None:
             if updated_json is None:
                 return
             self._plan_json_value = updated_json

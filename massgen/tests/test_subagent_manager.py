@@ -1,16 +1,21 @@
-# -*- coding: utf-8 -*-
 """
-Unit tests for SubagentManager callback mechanism.
+Unit tests for SubagentManager callback mechanism and runtime messaging.
 
 Tests for the async subagent execution feature (MAS-214):
 - Callback registration
 - Callback invocation on completion
 - Callback invocation on timeout
 - Multiple callback support
+
+Tests for runtime message routing (MAS-310):
+- send_message_to_subagent file creation
+- Atomic write pattern
+- Unknown/non-running subagent handling
+- get_running_subagent_ids
 """
 
+import json
 from pathlib import Path
-from typing import List, Tuple
 from unittest.mock import MagicMock
 
 import pytest
@@ -104,7 +109,7 @@ class TestSubagentManagerCallbackInvocation:
         )
 
         # Track callback invocations
-        invocations: List[Tuple[str, SubagentResult]] = []
+        invocations: list[tuple[str, SubagentResult]] = []
 
         def track_callback(subagent_id: str, result: SubagentResult):
             invocations.append((subagent_id, result))
@@ -140,7 +145,7 @@ class TestSubagentManagerCallbackInvocation:
             parent_agent_configs=[],
         )
 
-        invocations: List[Tuple[str, SubagentResult]] = []
+        invocations: list[tuple[str, SubagentResult]] = []
 
         def track_callback(subagent_id: str, result: SubagentResult):
             invocations.append((subagent_id, result))
@@ -175,7 +180,7 @@ class TestSubagentManagerCallbackInvocation:
             parent_agent_configs=[],
         )
 
-        invocations: List[Tuple[str, SubagentResult]] = []
+        invocations: list[tuple[str, SubagentResult]] = []
 
         def track_callback(subagent_id: str, result: SubagentResult):
             invocations.append((subagent_id, result))
@@ -926,3 +931,133 @@ class TestSubagentRuntimeIsolationRouting:
             assert result.success is False
             assert result.status == "error"
             assert "subagent_runtime_fallback_mode" in (result.error or "")
+
+
+# =============================================================================
+# Runtime Message Routing Tests (MAS-310)
+# =============================================================================
+
+
+class TestSendMessageToSubagent:
+    """Tests for SubagentManager.send_message_to_subagent()."""
+
+    def _make_manager(self, tmp_path):
+        from massgen.subagent.manager import SubagentManager
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+        return SubagentManager(
+            parent_workspace=str(workspace),
+            parent_agent_id="test-agent",
+            orchestrator_id="test-orch",
+            parent_agent_configs=[],
+        )
+
+    def _register_running_subagent(self, manager, subagent_id, workspace_path):
+        """Register a fake running subagent in manager state."""
+        from massgen.subagent.models import SubagentConfig, SubagentState
+
+        config = SubagentConfig(id=subagent_id, task="test task", parent_agent_id="test-agent")
+        state = SubagentState(
+            config=config,
+            status="running",
+            workspace_path=str(workspace_path),
+        )
+        manager._subagents[subagent_id] = state
+
+    def test_send_message_creates_inbox_file(self, tmp_path):
+        """Verify file written to {workspace}/.massgen/runtime_inbox/."""
+        manager = self._make_manager(tmp_path)
+        sub_workspace = tmp_path / "workspace" / "subagents" / "sub1" / "workspace"
+        sub_workspace.mkdir(parents=True, exist_ok=True)
+        self._register_running_subagent(manager, "sub1", sub_workspace)
+
+        result = manager.send_message_to_subagent("sub1", "focus on performance")
+        assert result is True
+
+        inbox = sub_workspace / ".massgen" / "runtime_inbox"
+        assert inbox.exists()
+        msg_files = list(inbox.glob("msg_*.json"))
+        assert len(msg_files) == 1
+
+        data = json.loads(msg_files[0].read_text())
+        assert data["content"] == "focus on performance"
+        assert data["source"] == "parent"
+        assert "timestamp" in data
+
+    def test_send_message_returns_false_for_unknown_subagent(self, tmp_path):
+        """Nonexistent ID → False."""
+        manager = self._make_manager(tmp_path)
+        result = manager.send_message_to_subagent("nonexistent", "hello")
+        assert result is False
+
+    def test_send_message_returns_false_for_non_running_subagent(self, tmp_path):
+        """Completed subagent → False."""
+        from massgen.subagent.models import SubagentConfig, SubagentState
+
+        manager = self._make_manager(tmp_path)
+        config = SubagentConfig(id="done1", task="test", parent_agent_id="test-agent")
+        state = SubagentState(
+            config=config,
+            status="completed",
+            workspace_path=str(tmp_path / "done_workspace"),
+        )
+        manager._subagents["done1"] = state
+
+        result = manager.send_message_to_subagent("done1", "hello")
+        assert result is False
+
+    def test_send_message_atomic_write(self, tmp_path):
+        """Verify .tmp → rename pattern (no partial reads)."""
+        manager = self._make_manager(tmp_path)
+        sub_workspace = tmp_path / "workspace" / "subagents" / "sub2" / "workspace"
+        sub_workspace.mkdir(parents=True, exist_ok=True)
+        self._register_running_subagent(manager, "sub2", sub_workspace)
+
+        result = manager.send_message_to_subagent("sub2", "test atomic")
+        assert result is True
+
+        inbox = sub_workspace / ".massgen" / "runtime_inbox"
+        # No .tmp files should remain
+        tmp_files = list(inbox.glob("*.tmp"))
+        assert tmp_files == [], "No .tmp files should remain after atomic write"
+
+    def test_multiple_messages_create_separate_files(self, tmp_path):
+        """Two sends → two files with incrementing sequence."""
+        manager = self._make_manager(tmp_path)
+        sub_workspace = tmp_path / "workspace" / "subagents" / "sub3" / "workspace"
+        sub_workspace.mkdir(parents=True, exist_ok=True)
+        self._register_running_subagent(manager, "sub3", sub_workspace)
+
+        manager.send_message_to_subagent("sub3", "message one")
+        manager.send_message_to_subagent("sub3", "message two")
+
+        inbox = sub_workspace / ".massgen" / "runtime_inbox"
+        msg_files = sorted(inbox.glob("msg_*.json"))
+        assert len(msg_files) == 2
+
+        contents = [json.loads(f.read_text())["content"] for f in msg_files]
+        assert "message one" in contents
+        assert "message two" in contents
+
+
+class TestGetRunningSubagentIds:
+    """Tests for SubagentManager.get_running_subagent_ids()."""
+
+    def test_returns_running_ids(self, tmp_path):
+        from massgen.subagent.manager import SubagentManager
+        from massgen.subagent.models import SubagentConfig, SubagentState
+
+        manager = SubagentManager(
+            parent_workspace=str(tmp_path / "workspace"),
+            parent_agent_id="test-agent",
+            orchestrator_id="test-orch",
+            parent_agent_configs=[],
+        )
+
+        for sid, status in [("a", "running"), ("b", "completed"), ("c", "running"), ("d", "failed")]:
+            config = SubagentConfig(id=sid, task="test", parent_agent_id="test-agent")
+            manager._subagents[sid] = SubagentState(config=config, status=status, workspace_path="")
+
+        running = manager.get_running_subagent_ids()
+        assert sorted(running) == ["a", "c"]

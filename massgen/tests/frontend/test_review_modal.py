@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
 """Unit tests for GitDiffReviewModal — the change review modal for applying isolated changes."""
-
 
 import pytest
 

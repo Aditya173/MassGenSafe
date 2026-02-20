@@ -1080,6 +1080,66 @@ HeaderWidget.hidden {
     background: $background;
 }
 
+#queued_input_region {
+    layout: vertical;
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    align: left top;
+    display: none;
+}
+
+#queued_input_region.visible {
+    display: block;
+}
+
+#queued_input_row {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: left top;
+    margin: 0 1;
+    padding: 0;
+    background: $panel;
+    border: none;
+    border-left: thick $primary-lighten-1;
+}
+
+#queued_input_actions {
+    layout: horizontal;
+    width: auto;
+    height: 1;
+    min-height: 1;
+    align: right top;
+    margin: 0 1 0 0;
+    padding: 0;
+}
+
+#queued_input_actions > Button {
+    margin-left: 1;
+}
+
+#queue_cancel_latest_button,
+#queue_clear_button {
+    height: 1;
+    min-height: 1;
+    width: auto;
+    border: none;
+    margin-left: 1;
+    padding: 0 1;
+    background: $surface;
+    color: $text-muted;
+}
+
+#queue_cancel_latest_button:hover,
+#queue_clear_button:hover,
+#queue_cancel_latest_button:focus,
+#queue_clear_button:focus {
+    background: $panel;
+    color: $text;
+}
+
 /* Execution bar - hidden (keeping input area consistent in all states) */
 #execution_bar {
     display: none;
@@ -1173,29 +1233,45 @@ SuggestionRow.selected {
 }
 
 /* Question input - multi-line TextArea with rounded card style */
-#question_input {
-    background: transparent;
+#question_input_row,
+.shared-question-input-row {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: left middle;
+    margin: 0 1;
+    padding: 0 1;
     border: round $surface-lighten-2;
+    background: transparent;
+}
+
+#question_input,
+.shared-question-input {
+    background: transparent;
+    border: none;
+    width: 1fr;
     height: auto;
     min-height: 1;
     max-height: 10;
-    margin: 0 1;
+    margin: 0;
     margin-top: 0;
-    padding: 0 1;
+    padding: 0 1 0 0;
 }
 
-#question_input:focus {
-    /* Subtle border on focus - main blue line is at top of input_header */
-    border: round $primary-lighten-1;
+#question_input:focus,
+.shared-question-input:focus {
     background: transparent;
+    border: none;
 }
 
 /* Hide line numbers in the question input */
-#question_input .text-area--line-number-gutter {
+#question_input .text-area--line-number-gutter,
+.shared-question-input .text-area--line-number-gutter {
     display: none;
 }
 
-#question_input .text-area--placeholder {
+#question_input .text-area--placeholder,
+.shared-question-input .text-area--placeholder {
     color: $text-muted;
     text-style: italic;
 }
@@ -1241,6 +1317,14 @@ SuggestionRow.selected {
     overflow-y: hidden;
 }
 
+#input_meta_primary {
+    layout: horizontal;
+    width: auto;
+    height: 1;
+    align: right middle;
+    overflow: hidden hidden;
+}
+
 #input_modes_row.meta-stacked #mode_bar {
     width: 100%;
 }
@@ -1256,6 +1340,35 @@ SuggestionRow.selected {
     width: auto;
     min-width: 0;
     text-align: right;
+}
+
+#inject_target_button,
+.shared-inject-target-button {
+    height: 1;
+    min-height: 1;
+    width: auto;
+    min-width: 10;
+    margin-left: 1;
+    margin-right: 0;
+    padding: 0 1;
+    border: none;
+    background: transparent;
+    color: $text-muted;
+    align: right middle;
+}
+
+#inject_target_button:hover,
+#inject_target_button:focus,
+.shared-inject-target-button:hover,
+.shared-inject-target-button:focus {
+    background: $surface;
+    color: $text;
+}
+
+#inject_target_button.mode-current,
+.shared-inject-target-button.mode-current {
+    background: $primary 18%;
+    color: $text;
 }
 
 #input_modes_row.meta-stacked #input_meta_panel Static {
@@ -1319,25 +1432,26 @@ SuggestionRow.selected {
 }
 
 /* Vim normal mode - input border */
-#question_input.vim-normal {
+#question_input.vim-normal,
+.shared-question-input.vim-normal {
     border: solid $warning;
 }
 
-#question_input.vim-normal:focus {
+#question_input.vim-normal:focus,
+.shared-question-input.vim-normal:focus {
     border: solid $warning;
 }
 
 /* === Queued Input Banner === */
 /* Shows above input bar when input is queued for injection during execution */
 #queued_input_banner {
-    height: auto;
-    max-height: 5;
-    background: $panel;
-    border: solid $surface-lighten-1;
-    border-left: thick $primary;
+    height: 1;
+    width: 1fr;
+    background: transparent;
+    border: none;
     padding: 0 1;
-    margin-left: 1;
-    margin-bottom: 0;
+    margin: 0;
+    overflow: hidden hidden;
     display: none;
 }
 
@@ -1346,14 +1460,13 @@ SuggestionRow.selected {
 }
 
 QueuedInputBanner {
-    height: auto;
-    max-height: 5;
-    background: $panel;
-    border: solid $surface-lighten-1;
-    border-left: thick $primary;
+    height: 1;
+    width: 1fr;
+    background: transparent;
+    border: none;
     padding: 0 1;
-    margin-left: 1;
-    margin-bottom: 0;
+    margin: 0;
+    overflow: hidden hidden;
     display: none;
 }
 

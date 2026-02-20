@@ -25,7 +25,7 @@ Behavior:
   - with no fallback: launch fails with actionable diagnostics
   - with `subagent_runtime_fallback_mode: inherited`: launch proceeds in inherited mode and emits an explicit warning
 - `inherited` runs subagents in the same runtime boundary as the parent
-- Codex + Docker default: if fallback is unset and `subagent_runtime_mode` is `isolated`, orchestrator forwards `subagent_runtime_fallback_mode: inherited` automatically to avoid hard-fail launch behavior in containerized Codex runs
+- Codex difference: in Docker mode, if fallback is unset and `subagent_runtime_mode` is `isolated`, orchestrator auto-uses `subagent_runtime_fallback_mode: inherited`; other backends keep strict isolated behavior unless fallback is explicitly set
 
 ## Context Contract
 
@@ -37,6 +37,37 @@ Behavior:
 - Use `["./"]` for parent workspace read access
 
 This is validated at the subagent MCP gateway (`_subagent_mcp_server.py`), not only by prompt guidance.
+
+## Specialized Subagent Profiles
+
+MassGen supports specialized `subagent_type` profiles that inject role-specific prompt + skills.
+
+Built-in profiles:
+
+- `explorer`: repo exploration and discovery
+- `researcher`: external-source research and evidence gathering
+- `evaluator`: high-volume procedural verification
+
+Profile discovery:
+
+- Built-ins are read from `massgen/subagent_types/*/SUBAGENT.md`
+- Project overrides are read from `.agent/subagent_types/*/SUBAGENT.md`
+- Project definitions override built-ins on case-insensitive name collisions
+- Template directories such as `massgen/subagent_types/_template/` are excluded from discovery
+
+Profile schema (strict):
+
+- Allowed frontmatter keys: `name`, `description`, `skills`, `expected_input`
+- Legacy keys (for example `default_background`, `default_refine`, `mcp_servers`) are rejected
+
+Runtime validation:
+
+- Unknown `subagent_type` fails fast at the MCP gateway with an explicit error listing available types
+- Known `subagent_type` injects `system_prompt` and `skills` before spawn
+
+Authoring template:
+
+- Use `massgen/subagent_types/_template/SUBAGENT_TEMPLATE.md` as the canonical scaffold for new profiles
 
 ## Timeout Layering
 

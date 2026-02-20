@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Unit tests for planning MCP recovery behavior.
 

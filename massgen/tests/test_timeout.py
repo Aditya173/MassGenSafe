@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Simple test script to verify timeout mechanisms work correctly.
 This creates a fast timeout config and runs a test to demonstrate the timeout fallback.

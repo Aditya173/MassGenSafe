@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Image generation backends: OpenAI, Google Imagen, OpenRouter.
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Frontend tests for generalized background-job tracking in the TUI."""
 
 from __future__ import annotations

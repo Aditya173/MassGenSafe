@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool categorization and display utilities.
 
 Single source of truth for tool category definitions, icons, colors, and

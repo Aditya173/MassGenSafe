@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Subagent Modal Widget for MassGen TUI.
 
@@ -6,8 +5,8 @@ Full-screen modal overlay for viewing detailed subagent information,
 live log streaming, workspace files, and final answers.
 """
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -79,8 +78,8 @@ class SubagentModal(ModalScreen[None]):
     def __init__(
         self,
         subagent: SubagentDisplayData,
-        all_subagents: Optional[List[SubagentDisplayData]] = None,
-        status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
+        all_subagents: list[SubagentDisplayData] | None = None,
+        status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
     ) -> None:
         """Initialize the modal.
 
@@ -100,8 +99,8 @@ class SubagentModal(ModalScreen[None]):
                 break
 
         self._status_callback = status_callback
-        self._log_streamer: Optional[LogStreamer] = None
-        self._poll_timer: Optional[Timer] = None
+        self._log_streamer: LogStreamer | None = None
+        self._poll_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         with Container():

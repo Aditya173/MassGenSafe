@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Transcribe audio file(s) to text using OpenAI's Transcription API or Gemini.
 
@@ -17,7 +16,6 @@ import json
 import mimetypes
 import os
 from pathlib import Path
-from typing import List, Optional
 
 from dotenv import load_dotenv
 
@@ -26,7 +24,7 @@ from massgen.tool._multimodal_tools.backend_selector import get_backend
 from massgen.tool._result import ExecutionResult, TextContent
 
 
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -> None:
     """
     Validate that a path is within allowed directories.
 
@@ -122,7 +120,7 @@ async def _process_with_gemini(
 
 async def _process_with_openai(
     audio_path: Path,
-    prompt: Optional[str] = None,
+    prompt: str | None = None,
     model: str = "gpt-4o-transcribe",
 ) -> str:
     """
@@ -157,13 +155,13 @@ async def _process_with_openai(
 
 
 async def understand_audio(
-    audio_paths: List[str],
-    prompt: Optional[str] = None,
-    model: Optional[str] = None,
-    backend_type: Optional[str] = None,
-    allowed_paths: Optional[List[str]] = None,
-    agent_cwd: Optional[str] = None,
-    task_context: Optional[str] = None,
+    audio_paths: list[str],
+    prompt: str | None = None,
+    model: str | None = None,
+    backend_type: str | None = None,
+    allowed_paths: list[str] | None = None,
+    agent_cwd: str | None = None,
+    task_context: str | None = None,
 ) -> ExecutionResult:
     """
     Transcribe/analyze audio file(s) using the best available backend.

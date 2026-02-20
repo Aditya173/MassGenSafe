@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for TaskDecomposer parsing helpers."""
 
 import importlib.util

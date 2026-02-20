@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 GitHub Copilot backend implementation using github-copilot-sdk.
 
 Reimplemented to use MCP server integration similar to Codex and Claude Code backends.
 Supports custom tools and MCP servers via the SDK's native mcpServers configuration.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,8 +14,9 @@ import os
 import shutil
 import sys
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     from copilot import CopilotClient, Tool
@@ -35,7 +36,7 @@ from .native_tool_mixin import NativeToolBackendMixin
 class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
     """GitHub Copilot backend integration with native MCP support."""
 
-    def __init__(self, api_key: Optional[str] = None, **kwargs):
+    def __init__(self, api_key: str | None = None, **kwargs):
         if not COPILOT_SDK_AVAILABLE:
             raise ImportError(
                 "github-copilot-sdk is required for CopilotBackend. " "Install it with: pip install github-copilot-sdk",
@@ -45,8 +46,8 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         self.__init_native_tool_mixin__()
 
         self.client = CopilotClient()
-        self.sessions: Dict[str, Any] = {}
-        self._session_signatures: Dict[str, str] = {}
+        self.sessions: dict[str, Any] = {}
+        self._session_signatures: dict[str, str] = {}
         self._started = False
 
         config_mcp_servers = self.config.get("mcp_servers", [])
@@ -57,8 +58,8 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         else:
             self._cwd = str(Path(str(self.filesystem_manager.get_current_workspace())).resolve())
 
-        self._custom_tool_specs_path: Optional[Path] = None
-        self._custom_tools_config: List[Dict[str, Any]] = []
+        self._custom_tool_specs_path: Path | None = None
+        self._custom_tools_config: list[dict[str, Any]] = []
         custom_tools = list(kwargs.get("custom_tools", []))
 
         enable_multimodal = self.config.get("enable_multimodal_tools", False) or kwargs.get("enable_multimodal_tools", False)
@@ -77,10 +78,10 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
     def get_filesystem_support(self) -> FilesystemSupport:
         return FilesystemSupport.MCP
 
-    def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
+    def get_disallowed_tools(self, config: dict[str, Any]) -> list[str]:
         return []
 
-    def get_tool_category_overrides(self) -> Dict[str, str]:
+    def get_tool_category_overrides(self) -> dict[str, str]:
         return {}
 
     def is_mcp_tool_call(self, tool_name: str) -> bool:
@@ -121,7 +122,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                 raise
 
     @staticmethod
-    def _extract_auth_status_fields(auth_status: Any) -> Tuple[Optional[bool], Optional[str]]:
+    def _extract_auth_status_fields(auth_status: Any) -> tuple[bool | None, str | None]:
         """Extract auth fields from SDK response with backward compatibility."""
         if auth_status is None:
             return None, None
@@ -141,7 +142,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         return is_auth, status_message
 
     @staticmethod
-    def _build_auth_error_message(status_message: Optional[str] = None) -> str:
+    def _build_auth_error_message(status_message: str | None = None) -> str:
         base = "Copilot authentication is required. Run `copilot login` for this user/session " "and retry."
         if status_message:
             return f"{base} (SDK status: {status_message})"
@@ -156,7 +157,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
     def _is_invalid_request_body_error(message: str) -> bool:
         return "invalid_request_body" in str(message).lower()
 
-    def _resolve_working_directory(self, explicit_cwd: Optional[str] = None) -> str:
+    def _resolve_working_directory(self, explicit_cwd: str | None = None) -> str:
         if explicit_cwd:
             return str(Path(str(explicit_cwd)).resolve())
         if self.filesystem_manager:
@@ -167,8 +168,8 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         self,
         *,
         agent_id: str,
-        working_dir: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str]]:
+        working_dir: str | None = None,
+    ) -> tuple[bool, str | None]:
         """Ensure custom tool specs are present and MCP config points to the current workspace."""
         if not self._custom_tools_config:
             return True, None
@@ -231,7 +232,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
         return True, None
 
-    async def _query_auth_status(self, *, context: str) -> Tuple[Optional[bool], Optional[str]]:
+    async def _query_auth_status(self, *, context: str) -> tuple[bool | None, str | None]:
         try:
             auth_status = await self.client.get_auth_status()
         except Exception as e:
@@ -252,7 +253,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         self._started = False
         await self._ensure_started()
 
-    async def _ensure_authenticated_with_retry(self, agent_id: str) -> Tuple[bool, Optional[str]]:
+    async def _ensure_authenticated_with_retry(self, agent_id: str) -> tuple[bool, str | None]:
         is_auth, status_message = await self._query_auth_status(context=f"{agent_id}:initial")
         if is_auth is True:
             return True, status_message
@@ -278,7 +279,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         )
         return False, final_status
 
-    def _setup_custom_tools_mcp(self, custom_tools: List[Dict[str, Any]]) -> None:
+    def _setup_custom_tools_mcp(self, custom_tools: list[dict[str, Any]]) -> None:
         """Wrap MassGen custom tools as an MCP server and add to mcp_servers."""
         self._custom_tools_config = custom_tools
         ready, error_msg = self._ensure_custom_tools_specs_ready(
@@ -290,7 +291,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
             return
         logger.info(f"Custom tools MCP server configured with {len(custom_tools)} tool configs")
 
-    def _build_custom_tools_mcp_env(self) -> Dict[str, str]:
+    def _build_custom_tools_mcp_env(self) -> dict[str, str]:
         env_vars = {"FASTMCP_SHOW_CLI_BANNER": "false"}
 
         if not self.config:
@@ -300,10 +301,10 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         if not creds:
             return env_vars
 
-        def _load_env_file(env_file_path: Path) -> Dict[str, str]:
-            loaded: Dict[str, str] = {}
+        def _load_env_file(env_file_path: Path) -> dict[str, str]:
+            loaded: dict[str, str] = {}
             try:
-                with open(env_file_path, "r") as f:
+                with open(env_file_path) as f:
                     for line_num, line in enumerate(f, start=1):
                         line = line.strip()
                         if not line or line.startswith("#") or "=" not in line:
@@ -349,7 +350,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         return env_vars
 
     @staticmethod
-    def _normalize_string_list(value: Any) -> Optional[List[str]]:
+    def _normalize_string_list(value: Any) -> list[str] | None:
         """Normalize config values that can be a string or list of strings."""
         if value is None:
             return None
@@ -359,7 +360,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         if isinstance(value, (set, tuple)):
             value = list(value)
         if isinstance(value, list):
-            normalized: List[str] = []
+            normalized: list[str] = []
             for item in value:
                 if item is None:
                     continue
@@ -369,7 +370,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
             return normalized
         return None
 
-    def _resolve_backend_tool_filters(self, kwargs: Dict[str, Any]) -> Tuple[Optional[List[str]], Optional[List[str]]]:
+    def _resolve_backend_tool_filters(self, kwargs: dict[str, Any]) -> tuple[list[str] | None, list[str] | None]:
         """Resolve backend-level tool filters from kwargs/config with kwargs precedence."""
         raw_allowed = kwargs.get("allowed_tools") if "allowed_tools" in kwargs else self.config.get("allowed_tools")
         raw_excluded = kwargs.get("exclude_tools") if "exclude_tools" in kwargs else self.config.get("exclude_tools")
@@ -384,7 +385,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
         return available_tools, excluded_tools
 
-    def _resolve_system_message_mode(self, kwargs: Dict[str, Any]) -> str:
+    def _resolve_system_message_mode(self, kwargs: dict[str, Any]) -> str:
         """Resolve Copilot system_message mode with safe default."""
         raw_mode = kwargs.get("copilot_system_message_mode")
         if raw_mode is None and "system_message_mode" in kwargs:
@@ -406,7 +407,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         )
         return "append"
 
-    def _resolve_permission_policy(self, kwargs: Dict[str, Any]) -> str:
+    def _resolve_permission_policy(self, kwargs: dict[str, Any]) -> str:
         """Resolve permission policy into approved/denied decision modes."""
         raw_policy = kwargs.get("copilot_permission_policy")
         if raw_policy is None and "permission_policy" in kwargs:
@@ -447,9 +448,9 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _build_workflow_tools_signature_payload(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _build_workflow_tools_signature_payload(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize workflow tool schemas for stable signature generation."""
-        normalized: List[Dict[str, Any]] = []
+        normalized: list[dict[str, Any]] = []
         for tool_def in tools or []:
             if not isinstance(tool_def, dict):
                 continue
@@ -473,13 +474,13 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         self,
         *,
         model: str,
-        system_message: Optional[str],
+        system_message: str | None,
         system_message_mode: str,
-        workflow_tools: List[Dict[str, Any]],
-        mcp_servers: Dict[str, Any],
-        working_directory: Optional[str],
-        available_tools: Optional[List[str]],
-        excluded_tools: Optional[List[str]],
+        workflow_tools: list[dict[str, Any]],
+        mcp_servers: dict[str, Any],
+        working_directory: str | None,
+        available_tools: list[str] | None,
+        excluded_tools: list[str] | None,
         permission_policy: str,
     ) -> str:
         """Build a stable signature for session cache invalidation."""
@@ -496,7 +497,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         }
         return self._hash_payload(payload)
 
-    def _resolve_mcp_tools_for_server(self, server_name: str, server: Dict[str, Any]) -> List[str]:
+    def _resolve_mcp_tools_for_server(self, server_name: str, server: dict[str, Any]) -> list[str]:
         """Resolve MCP tool filtering for Copilot SDK (allowlist-style tools)."""
         if "tools" in server:
             base_tools = self._normalize_string_list(server.get("tools"))
@@ -536,9 +537,9 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
     def _build_sdk_tools(
         self,
-        tools: List[Dict[str, Any]],
+        tools: list[dict[str, Any]],
         queue: asyncio.Queue,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Convert MassGen workflow tool defs (OpenAI format) to SDK Tool objects.
 
         Tool handlers push a tuple into the shared queue so stream_with_tools
@@ -577,7 +578,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
         return sdk_tools
 
-    def _build_mcp_servers_dict(self) -> Dict[str, Any]:
+    def _build_mcp_servers_dict(self) -> dict[str, Any]:
         """Build SDK-format MCP servers dict from config + internal servers."""
         all_mcp_servers = []
 
@@ -610,7 +611,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                 )
                 server_type = "local"
 
-            sdk_config: Dict[str, Any] = {"type": server_type}
+            sdk_config: dict[str, Any] = {"type": server_type}
 
             if server_type == "local":
                 for key in ("command", "args", "env", "cwd"):
@@ -664,7 +665,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                         f"[Copilot] Ignoring invalid timeout={timeout_value!r} on MCP server '{name}'",
                     )
             else:
-                timeout_seconds: List[float] = []
+                timeout_seconds: list[float] = []
                 for key in ("tool_timeout_sec", "startup_timeout_sec"):
                     raw_seconds = server.get(key)
                     if raw_seconds is None:
@@ -697,10 +698,10 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
     async def stream_with_tools(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
         **kwargs,
-    ) -> AsyncGenerator[StreamChunk, None]:
+    ) -> AsyncGenerator[StreamChunk]:
         await self._ensure_started()
 
         agent_id = kwargs.get("agent_id", self.config.get("agent_id") or "default")
@@ -785,7 +786,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
             session = None
 
         if session is None:
-            session_config: Dict[str, Any] = {
+            session_config: dict[str, Any] = {
                 "model": model,
                 "streaming": True,
                 "mcp_servers": mcp_servers,
@@ -826,15 +827,15 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
         unsubscribe = session.on(lambda event: queue.put_nowait(event))
 
         seen_event_ids: set = set()
-        accumulated_content: List[str] = []
+        accumulated_content: list[str] = []
         workflow_tool_called = False
         first_content = True
-        usage_data: Dict[str, Any] = {}
+        usage_data: dict[str, Any] = {}
         stream_success = True
 
         try:
             logger.debug(f"[Copilot] Sending prompt to session for {agent_id} (length={len(prompt)})")
-            send_auth_error: Optional[str] = None
+            send_auth_error: str | None = None
             send_timeout_value = kwargs.get(
                 "session_send_timeout_seconds",
                 self.config.get("session_send_timeout_seconds", 60),
@@ -856,7 +857,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                     session.send({"prompt": prompt}),
                     timeout=send_timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 send_auth_error = "Session send timeout while connecting to tools. " "Check Copilot auth (`copilot login`) and MCP server startup."
                 logger.error(
                     f"[Copilot] session.send timed out after {send_timeout_seconds}s for {agent_id}. " "(check MCP command paths, env inheritance, and npx/network availability).",
@@ -880,7 +881,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                 while True:
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=300)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         stream_success = False
                         yield StreamChunk(type="error", error="Response timeout", source=agent_id)
                         await self._destroy_session(agent_id)

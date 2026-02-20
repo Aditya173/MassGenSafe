@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Subagent MCP Server for MassGen
 
@@ -22,7 +21,7 @@ import os
 import signal
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import fastmcp
 
@@ -32,25 +31,25 @@ from massgen.subagent.models import SUBAGENT_DEFAULT_TIMEOUT, SubagentOrchestrat
 logger = logging.getLogger(__name__)
 
 # Global storage for subagent manager (initialized per server instance)
-_manager: Optional[SubagentManager] = None
+_manager: SubagentManager | None = None
 
 # Server configuration
-_workspace_path: Optional[Path] = None
-_parent_agent_id: Optional[str] = None
-_orchestrator_id: Optional[str] = None
-_parent_agent_configs: List[Dict[str, Any]] = []
-_subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None
-_log_directory: Optional[str] = None
+_workspace_path: Path | None = None
+_parent_agent_id: str | None = None
+_orchestrator_id: str | None = None
+_parent_agent_configs: list[dict[str, Any]] = []
+_subagent_orchestrator_config: SubagentOrchestratorConfig | None = None
+_log_directory: str | None = None
 _max_concurrent: int = 3
 _default_timeout: int = SUBAGENT_DEFAULT_TIMEOUT
 _min_timeout: int = 60
 _max_timeout: int = 600
 _subagent_runtime_mode: str = "isolated"
-_subagent_runtime_fallback_mode: Optional[str] = None
-_subagent_host_launch_prefix: List[str] = []
-_parent_context_paths: List[Dict[str, str]] = []
-_parent_coordination_config: Dict[str, Any] = {}
-_specialized_subagents: Dict[str, Dict[str, Any]] = {}  # name -> type config dict
+_subagent_runtime_fallback_mode: str | None = None
+_subagent_host_launch_prefix: list[str] = []
+_parent_context_paths: list[dict[str, str]] = []
+_parent_coordination_config: dict[str, Any] = {}
+_specialized_subagents: dict[str, dict[str, Any]] = {}  # name -> type config dict
 
 
 def _get_manager() -> SubagentManager:
@@ -223,6 +222,12 @@ async def create_server() -> fastmcp.FastMCP:
         default="[]",
         help="JSON-encoded command prefix for host-isolated launch in containerized runtimes",
     )
+    parser.add_argument(
+        "--hook-dir",
+        type=str,
+        default=None,
+        help="Optional path to directory for hook IPC files (PostToolUse injection).",
+    )
     args = parser.parse_args()
 
     # Set global configuration
@@ -298,20 +303,21 @@ async def create_server() -> fastmcp.FastMCP:
     _specialized_subagents = {}
     if args.specialized_subagents_file:
         try:
+            from massgen.subagent.models import SpecializedSubagentConfig
+
             with open(args.specialized_subagents_file) as f:
                 types_data = json.load(f)
             if isinstance(types_data, list):
                 for td in types_data:
-                    name = td.get("name", "")
-                    if name:
-                        _specialized_subagents[name.lower()] = td
+                    config = SpecializedSubagentConfig.from_dict(td)
+                    _specialized_subagents[config.name.lower()] = config.to_dict()
             # Clean up the temp file after reading
             try:
                 os.unlink(args.specialized_subagents_file)
             except OSError:
                 pass
             logger.info(f"[SubagentMCP] Loaded {len(_specialized_subagents)} specialized subagent types")
-        except (json.JSONDecodeError, FileNotFoundError, OSError) as e:
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError, FileNotFoundError, OSError) as e:
             logger.warning(f"Failed to load specialized subagent types from {args.specialized_subagents_file}: {e}")
             _specialized_subagents = {}
 
@@ -346,9 +352,16 @@ async def create_server() -> fastmcp.FastMCP:
     # Create the FastMCP server
     mcp = fastmcp.FastMCP("Subagent Spawning")
 
+    # Attach hook middleware for PostToolUse injection if hook_dir is configured
+    if args.hook_dir:
+        from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+        mcp.add_middleware(MassGenHookMiddleware(Path(args.hook_dir)))
+        logger.info("Hook middleware attached (hook_dir=%s)", args.hook_dir)
+
     @mcp.tool()
     def spawn_subagents(
-        tasks: List[Dict[str, Any]],
+        tasks: list[dict[str, Any]],
         background: bool = False,
         refine: bool = True,
         # NOTE: timeout_seconds parameter intentionally removed from MCP interface.
@@ -357,7 +370,7 @@ async def create_server() -> fastmcp.FastMCP:
         # - Subagents are blocking, so retries would be problematic
         # - Better to use the configured default from YAML (subagent_default_timeout)
         # timeout_seconds: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         f"""
         Spawn subagents to work on INDEPENDENT tasks in PARALLEL.
 
@@ -518,18 +531,26 @@ async def create_server() -> fastmcp.FastMCP:
             # Resolve specialized subagent types
             for t in normalized_tasks:
                 subagent_type = t.get("subagent_type", "")
-                if subagent_type and _specialized_subagents:
-                    type_config = _specialized_subagents.get(subagent_type.lower())
-                    if type_config:
-                        # Inject system_prompt from type definition
-                        if "system_prompt" not in t and type_config.get("system_prompt"):
-                            t["system_prompt"] = type_config["system_prompt"]
-                        # Inject skills list for the manager to configure
-                        if "skills" not in t and type_config.get("skills"):
-                            t["skills"] = type_config["skills"]
-                        logger.info(f"[SubagentMCP] Resolved subagent_type '{subagent_type}' for task {t['subagent_id']}")
-                    else:
-                        logger.warning(f"[SubagentMCP] Unknown subagent_type '{subagent_type}', proceeding with defaults")
+                if not subagent_type:
+                    continue
+
+                type_config = _specialized_subagents.get(subagent_type.lower())
+                if not type_config:
+                    available_types = sorted(_specialized_subagents.keys())
+                    available_text = ", ".join(available_types) if available_types else "(none configured)"
+                    return {
+                        "success": False,
+                        "operation": "spawn_subagents",
+                        "error": (f"Unknown subagent_type '{subagent_type}' for task '{t['subagent_id']}'. " f"Available subagent types: {available_text}."),
+                    }
+
+                # Inject system_prompt from type definition
+                if "system_prompt" not in t and type_config.get("system_prompt"):
+                    t["system_prompt"] = type_config["system_prompt"]
+                # Inject skills list for the manager to configure
+                if "skills" not in t and type_config.get("skills"):
+                    t["skills"] = type_config["skills"]
+                logger.info(f"[SubagentMCP] Resolved subagent_type '{subagent_type}' for task {t['subagent_id']}")
 
             task_ids = [t["subagent_id"] for t in normalized_tasks]
             logger.info(f"[SubagentMCP] Spawning {len(normalized_tasks)} subagents: {task_ids}")
@@ -641,7 +662,7 @@ async def create_server() -> fastmcp.FastMCP:
             }
 
     @mcp.tool()
-    def list_subagents() -> Dict[str, Any]:
+    def list_subagents() -> dict[str, Any]:
         """
         List all subagents spawned by this agent with their current status.
 
@@ -686,8 +707,8 @@ async def create_server() -> fastmcp.FastMCP:
     def continue_subagent(
         subagent_id: str,
         message: str,
-        timeout_seconds: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
         """
         Continue a previously spawned subagent with a new message.
 
@@ -789,12 +810,68 @@ async def create_server() -> fastmcp.FastMCP:
                 "error": str(e),
             }
 
+    @mcp.tool()
+    def send_message_to_subagent(
+        subagent_id: str,
+        message: str,
+        target_agents: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Send a runtime message to a currently running background subagent.
+
+        Unlike continue_subagent (which resumes finished subagents), this delivers
+        a message to a subagent that is CURRENTLY RUNNING. The message is injected
+        into the subagent's next tool call or enforcement checkpoint.
+
+        Use this to steer a background subagent's direction without waiting for it
+        to finish — e.g., "focus on performance metrics" or "skip the CSS audit".
+
+        Args:
+            subagent_id: ID of the running subagent
+            message: Message content to deliver
+            target_agents: Optional list of inner agent IDs to target.
+                None broadcasts to all inner agents within the subagent.
+        """
+        try:
+            manager = _get_manager()
+
+            if not subagent_id or not subagent_id.strip():
+                return {
+                    "success": False,
+                    "operation": "send_message",
+                    "error": "Missing required 'subagent_id' parameter",
+                }
+
+            if not message or not message.strip():
+                return {
+                    "success": False,
+                    "operation": "send_message",
+                    "error": "Missing required 'message' parameter",
+                }
+
+            success = manager.send_message_to_subagent(
+                subagent_id,
+                message,
+                target_agents=target_agents,
+            )
+            return {
+                "success": success,
+                "subagent_id": subagent_id,
+                "operation": "send_message",
+            }
+
+        except Exception as e:
+            logger.error(f"[SubagentMCP] Error sending message to subagent: {e}")
+            return {
+                "success": False,
+                "operation": "send_message",
+                "error": str(e),
+            }
+
     return mcp
 
 
 async def _cleanup_on_shutdown():
     """Clean up subagent processes on shutdown."""
-    global _manager
     if _manager is not None:
         logger.info("[SubagentMCP] Shutting down - cancelling active subagents...")
         cancelled = await _manager.cancel_all_subagents()
@@ -817,7 +894,6 @@ def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 
 def _sync_cleanup():
     """Synchronous cleanup for atexit handler."""
-    global _manager
     if _manager is not None and _manager._active_processes:
         logger.info("[SubagentMCP] atexit cleanup - terminating active subagents...")
         for subagent_id, process in list(_manager._active_processes.items()):

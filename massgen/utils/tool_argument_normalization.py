@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """Utilities for normalizing tool argument payloads across backends."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
-def _repair_missing_json_closers(raw: str) -> Optional[str]:
+def _repair_missing_json_closers(raw: str) -> str | None:
     """Attempt minimal JSON repair by appending missing closing delimiters.
 
     This intentionally applies only a narrow, deterministic repair:
@@ -67,7 +66,7 @@ def normalize_json_object_argument(
     *,
     field_name: str = "arguments",
     max_decode_passes: int = 2,
-) -> Tuple[Dict[str, Any], int]:
+) -> tuple[dict[str, Any], int]:
     """Normalize a tool argument payload into a JSON object.
 
     This accepts:

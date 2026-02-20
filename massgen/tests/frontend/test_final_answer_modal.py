@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for FinalAnswerModal — the tabbed final answer + review changes modal."""
 
 from unittest.mock import MagicMock, patch

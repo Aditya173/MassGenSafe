@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for write_mode unified workspace with in-worktree scratch.
 

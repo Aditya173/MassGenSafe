@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Agent Status Ribbon Widget for MassGen TUI.
 
@@ -7,7 +6,7 @@ activity indicator, timeout display, tasks progress, and token/cost tracking.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -29,7 +28,7 @@ class ViewSelected(Message):
         self,
         view_type: str,
         agent_id: str,
-        round_number: Optional[int] = None,
+        round_number: int | None = None,
     ) -> None:
         """Initialize ViewSelected message.
 
@@ -207,9 +206,9 @@ class ViewDropdown(Vertical):
     def __init__(
         self,
         agent_id: str,
-        rounds: List[Tuple[int, bool]],
+        rounds: list[tuple[int, bool]],
         current_round: int,
-        viewed_round: Optional[int],
+        viewed_round: int | None,
         has_final_answer: bool = False,
         viewing_final_answer: bool = False,
         **kwargs,
@@ -483,31 +482,31 @@ class AgentStatusRibbon(Widget):
         self,
         agent_id: str = "",
         *,
-        id: Optional[str] = None,
-        classes: Optional[str] = None,
+        id: str | None = None,
+        classes: str | None = None,
     ) -> None:
         super().__init__(id=id, classes=classes)
         self.current_agent = agent_id
-        self._rounds: Dict[str, List[Tuple[int, bool]]] = {}  # agent_id -> [(round_num, is_context_reset)]
-        self._current_round: Dict[str, int] = {}  # agent_id -> current round (live)
-        self._viewed_round: Dict[str, int] = {}  # agent_id -> round being viewed
-        self._tasks_complete: Dict[str, int] = {}
-        self._tasks_total: Dict[str, int] = {}
-        self._background_jobs: Dict[str, int] = {}
-        self._tokens: Dict[str, int] = {}
-        self._cost: Dict[str, float] = {}
-        self._timeout_remaining: Dict[str, Optional[int]] = {}
-        self._timeout_state: Dict[str, Dict[str, Any]] = {}  # agent_id -> full timeout state from orchestrator
-        self._start_time: Optional[float] = None
+        self._rounds: dict[str, list[tuple[int, bool]]] = {}  # agent_id -> [(round_num, is_context_reset)]
+        self._current_round: dict[str, int] = {}  # agent_id -> current round (live)
+        self._viewed_round: dict[str, int] = {}  # agent_id -> round being viewed
+        self._tasks_complete: dict[str, int] = {}
+        self._tasks_total: dict[str, int] = {}
+        self._background_jobs: dict[str, int] = {}
+        self._tokens: dict[str, int] = {}
+        self._cost: dict[str, float] = {}
+        self._timeout_remaining: dict[str, int | None] = {}
+        self._timeout_state: dict[str, dict[str, Any]] = {}  # agent_id -> full timeout state from orchestrator
+        self._start_time: float | None = None
         self._timer_handle = None
-        self._agent_start_times: Dict[str, float] = {}  # agent_id -> start timestamp for total elapsed time
-        self._round_start_times: Dict[str, float] = {}  # agent_id -> start timestamp for current round
-        self._frozen_round_elapsed: Dict[str, int] = {}  # agent_id -> frozen elapsed seconds (when stopped)
+        self._agent_start_times: dict[str, float] = {}  # agent_id -> start timestamp for total elapsed time
+        self._round_start_times: dict[str, float] = {}  # agent_id -> start timestamp for current round
+        self._frozen_round_elapsed: dict[str, int] = {}  # agent_id -> frozen elapsed seconds (when stopped)
 
         # View state tracking
-        self._has_final_answer: Dict[str, bool] = {}  # agent_id -> has final answer
-        self._viewing_final_answer: Dict[str, bool] = {}  # agent_id -> viewing final answer
-        self._final_presentation_rounds: Dict[str, Set[int]] = {}  # agent_id -> set of final presentation round numbers
+        self._has_final_answer: dict[str, bool] = {}  # agent_id -> has final answer
+        self._viewing_final_answer: dict[str, bool] = {}  # agent_id -> viewing final answer
+        self._final_presentation_rounds: dict[str, set[int]] = {}  # agent_id -> set of final presentation round numbers
         self._dropdown_open = False
 
     def compose(self) -> ComposeResult:
@@ -722,7 +721,7 @@ class AgentStatusRibbon(Widget):
         if agent_id == self.current_agent:
             self._update_round_display()
 
-    def get_view_state(self, agent_id: str) -> Tuple[str, Optional[int]]:
+    def get_view_state(self, agent_id: str) -> tuple[str, int | None]:
         """Get the current view state for an agent.
 
         Returns:
@@ -857,7 +856,7 @@ class AgentStatusRibbon(Widget):
         except Exception:
             pass
 
-    def set_timeout(self, agent_id: str, remaining_seconds: Optional[int]) -> None:
+    def set_timeout(self, agent_id: str, remaining_seconds: int | None) -> None:
         """Set the timeout remaining for an agent (legacy, called from update_agent_timeout).
 
         Args:
@@ -889,7 +888,7 @@ class AgentStatusRibbon(Widget):
         for agent_id in list(self._round_start_times.keys()):
             self.stop_round_timer(agent_id)
 
-    def set_timeout_state(self, agent_id: str, timeout_state: Dict[str, Any]) -> None:
+    def set_timeout_state(self, agent_id: str, timeout_state: dict[str, Any]) -> None:
         """Set the full timeout state for an agent.
 
         Args:
@@ -903,7 +902,7 @@ class AgentStatusRibbon(Widget):
         if agent_id == self.current_agent:
             self._update_timeout_display()
 
-    def _get_total_elapsed(self, agent_id: str) -> Optional[int]:
+    def _get_total_elapsed(self, agent_id: str) -> int | None:
         """Get total elapsed time in seconds since agent first started."""
         if agent_id not in self._agent_start_times:
             return None

@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 """Filesystem management utilities for MassGen backend."""
+
 from ._base import Permission
 from ._change_applier import ChangeApplier, ReviewResult
 from ._file_operation_tracker import FileOperationTracker

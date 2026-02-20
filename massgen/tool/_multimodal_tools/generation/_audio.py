@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Audio generation backends: OpenAI TTS.
 

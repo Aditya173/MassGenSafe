@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Create variations based on multiple input images using OpenAI's gpt-4.1 API.
 """
@@ -8,7 +7,6 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -16,7 +14,7 @@ from openai import AsyncOpenAI
 from massgen.tool._result import ExecutionResult, TextContent
 
 
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
+def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -> None:
     """
     Validate that a path is within allowed directories.
 
@@ -42,12 +40,12 @@ def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None
 
 
 async def image_to_image_generation(
-    base_image_paths: List[str],
+    base_image_paths: list[str],
     prompt: str = "Create a variation of the provided images",
     model: str = "gpt-4.1",
-    storage_path: Optional[str] = None,
-    allowed_paths: Optional[List[str]] = None,
-    agent_cwd: Optional[str] = None,
+    storage_path: str | None = None,
+    allowed_paths: list[str] | None = None,
+    agent_cwd: str | None = None,
 ) -> ExecutionResult:
     """
     Create variations based on multiple input images using OpenAI's gpt-4.1 API.

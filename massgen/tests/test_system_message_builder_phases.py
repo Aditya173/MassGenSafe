@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Unit tests for SystemMessageBuilder phase methods.
 
 Tests cover:
@@ -14,7 +13,6 @@ Tests cover:
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 from massgen.system_message_builder import SystemMessageBuilder
@@ -68,7 +66,7 @@ def _make_config(
     use_skills: bool = False,
     enable_memory: bool = False,
     enable_subagents: bool = False,
-    planning_mode_instruction: Optional[str] = None,
+    planning_mode_instruction: str | None = None,
     broadcast: bool = False,
 ):
     """Create a minimal config stub."""
