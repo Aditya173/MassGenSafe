@@ -139,6 +139,8 @@ class SubagentColumn(Vertical, can_focus=True):
 
         # Right-align elapsed time + click arrow
         elapsed = int(self._subagent.elapsed_seconds)
+        subagent_type = str(getattr(self._subagent, "subagent_type", "") or "").strip().lower()
+        type_label = f"[{subagent_type}]" if subagent_type else ""
         suffix_parts = []
         if elapsed > 0:
             if elapsed >= 60:
@@ -147,16 +149,40 @@ class SubagentColumn(Vertical, can_focus=True):
                 suffix_parts.append(f"{elapsed}s")
 
         suffix = " ".join(suffix_parts)
+        combined_suffix = " ".join(part for part in [type_label, suffix] if part)
         arrow = " ▸"
         name_len = len(label) + 2  # icon + space + label
-        total_suffix = len(suffix) + len(arrow)
-        padding = max(1, 28 - name_len - total_suffix)
+        total_suffix = len(combined_suffix) + len(arrow)
+        header_width = self._measure_header_width()
+        padding = max(1, header_width - name_len - total_suffix)
         text.append(" " * padding)
+        if type_label:
+            text.append(type_label, style="bold #58a6ff")
+            if suffix:
+                text.append(" ")
         if suffix:
             text.append(suffix, style="#8b949e")
         text.append(arrow, style="dim #6e7681")
 
         return text
+
+    def _measure_header_width(self) -> int:
+        """Measure available header width for right-aligned suffix content."""
+        candidate_widths: list[int] = []
+
+        try:
+            header_widget = self.query_one("#agent_header", Static)
+            if header_widget.size.width > 0:
+                candidate_widths.append(header_widget.size.width)
+        except Exception:
+            pass
+
+        if self.size.width > 0:
+            candidate_widths.append(max(0, self.size.width - 2))
+
+        if candidate_widths:
+            return max(candidate_widths)
+        return 28
 
     def _build_task_description(self) -> Text:
         """Build task description row (truncated)."""
@@ -711,6 +737,7 @@ class SubagentCard(Vertical, can_focus=True):
                     error=sa_data.get("error"),
                     answer_preview=(sa_data.get("answer", "") or "")[:200] or None,
                     log_path=sa_data.get("log_path"),
+                    subagent_type=sa_data.get("subagent_type"),
                 ),
             )
         return cls(subagents=subagents, tool_call_id=tool_call_id, status_callback=status_callback)

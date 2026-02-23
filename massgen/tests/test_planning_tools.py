@@ -7,6 +7,7 @@ and all MCP server operations.
 
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -560,6 +561,43 @@ class TestMCPServerIntegration:
 
         assert "simple strings" not in description
         assert "verification" in description
+
+    @pytest.mark.asyncio
+    async def test_planning_create_server_standalone_with_hook_dir(self, monkeypatch, tmp_path):
+        """Standalone file-path loading must support --hook-dir without import errors."""
+        import importlib.util
+
+        server_path = Path(__file__).parent.parent / "mcp_tools" / "planning" / "_planning_mcp_server.py"
+        assert server_path.exists(), f"Expected server file at {server_path}"
+
+        hook_dir = tmp_path / "hook_ipc"
+        hook_dir.mkdir(parents=True, exist_ok=True)
+
+        spec = importlib.util.spec_from_file_location("_planning_mcp_server", server_path)
+        assert spec is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["_planning_mcp_server"] = module
+        try:
+            spec.loader.exec_module(module)
+            monkeypatch.setattr(
+                sys,
+                "argv",
+                [
+                    "_planning_mcp_server.py",
+                    "--agent-id",
+                    "agent_a",
+                    "--orchestrator-id",
+                    "orch_1",
+                    "--hook-dir",
+                    str(hook_dir),
+                ],
+            )
+            server = await module.create_server()
+        finally:
+            sys.modules.pop("_planning_mcp_server", None)
+
+        available_tools = {tool.name for tool in server._tool_manager._tools.values()}
+        assert "create_task_plan" in available_tools
 
     def test_create_task_plan_simple(self):
         """Test creating a simple task plan via MCP."""

@@ -31,6 +31,7 @@ Features:
 - Keyboard shortcuts (Esc to close, Tab for agent switching)
 """
 
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -1022,6 +1023,8 @@ class SubagentView(Container):
         self._queued_runtime_messages: list[dict[str, Any]] = []
         self._queued_runtime_pending_by_agent: dict[str, int] = {}
         self._next_runtime_message_id: int = 1
+        self._runtime_inbox_dir: Path | None = None
+        self._runtime_inbox_seen_files: set[str] = set()
         self._continue_subagent_button: Button | None = None
 
     def _build_unique_tab_ids(self) -> list[str]:
@@ -1202,6 +1205,9 @@ class SubagentView(Container):
             except Exception:
                 self._queue_clear_button = None
             self._refresh_runtime_queue_banner()
+            self._runtime_inbox_dir = self._resolve_runtime_inbox_dir()
+            self._runtime_inbox_seen_files = set()
+            self._sync_runtime_queue_from_inbox()
 
         if self._continue_subagent_callback:
             try:
@@ -1645,6 +1651,9 @@ class SubagentView(Container):
         # Read new events and route to all loaded adapters
         if self._event_reader:
             new_events = self._event_reader.get_new_events()
+            # Parent runtime messages are file-backed and can arrive between
+            # event batches, so poll inbox every tick (not only when events arrive).
+            self._sync_runtime_queue_from_inbox()
             if new_events:
                 self._update_tool_call_agent_map(new_events)
                 self._update_activity_dots(new_events)
@@ -1769,6 +1778,8 @@ class SubagentView(Container):
             self._inner_winner = None
             self._queued_runtime_messages = []
             self._queued_runtime_pending_by_agent = {}
+            self._runtime_inbox_dir = self._resolve_runtime_inbox_dir()
+            self._runtime_inbox_seen_files = set()
             self._refresh_runtime_queue_banner()
 
             # Remove old timelines
@@ -2180,6 +2191,176 @@ class SubagentView(Container):
         self._queued_runtime_messages.append(message)
         self._refresh_runtime_queue_banner()
 
+    def _append_runtime_queue_status_note(
+        self,
+        content: str,
+        target: str,
+        source_label: str = "parent",
+        pending_agents: list[str] | None = None,
+        target_label_override: str | None = None,
+    ) -> None:
+        """Render an immediate timeline note when runtime input is queued.
+
+        Delivery still occurs at the next hook/checkpoint; this note confirms
+        the queue action in the subagent timeline right away.
+        """
+        if not self._panel:
+            return
+
+        payload = self._normalize_runtime_message_text(content)
+        if not payload:
+            return
+        if len(payload) > 180:
+            payload = payload[:177] + "..."
+
+        if pending_agents is not None:
+            target_agents = [aid for aid in pending_agents if aid]
+            target_label = target_label_override or (target if target else "selected agents")
+        elif target == "all":
+            target_agents = [aid for aid in self._inner_agents if aid]
+            if not target_agents:
+                fallback_agent = self._current_inner_agent or self._subagent.id
+                target_agents = [fallback_agent] if fallback_agent else []
+            target_label = target_label_override or "all agents"
+        else:
+            fallback_agent = self._current_inner_agent or self._subagent.id
+            target_agents = [target] if target else ([fallback_agent] if fallback_agent else [])
+            target_label = target_label_override or (target or "selected agent")
+
+        unique_agents = list(dict.fromkeys(target_agents))
+        if not unique_agents:
+            return
+
+        normalized_source = " ".join((source_label or "parent").split()) or "parent"
+        note = f"Runtime Injection -> Queued from {normalized_source} to {target_label}: {payload}"
+
+        try:
+            round_number = max(1, int(self._round_number or 1))
+        except Exception:
+            round_number = 1
+
+        for agent_id in unique_agents:
+            try:
+                timeline = self._panel.query_one(
+                    f"#subagent-timeline-{agent_id}",
+                    TimelineSection,
+                )
+            except Exception:
+                continue
+
+            try:
+                timeline.add_text(
+                    note,
+                    style="dim cyan",
+                    text_class="status runtime-injection",
+                    round_number=round_number,
+                )
+            except Exception as e:
+                tui_log(f"[SubagentScreen] Failed to add runtime queue status note: {e}")
+
+    def _resolve_runtime_inbox_dir(self) -> Path | None:
+        """Resolve this subagent's runtime inbox directory, if available."""
+        workspace_path = str(getattr(self._subagent, "workspace_path", "") or "").strip()
+        if not workspace_path:
+            return None
+
+        workspace = Path(workspace_path).expanduser()
+        if not workspace.is_absolute():
+            workspace = (Path.cwd() / workspace).resolve()
+        return workspace / ".massgen" / "runtime_inbox"
+
+    def _normalize_runtime_targets_from_inbox(self, target_agents: Any) -> tuple[list[str], str]:
+        """Convert runtime inbox target payload into pending agent IDs + label."""
+        parsed_targets: list[str] = []
+        if isinstance(target_agents, list):
+            for raw in target_agents:
+                value = str(raw or "").strip()
+                if value:
+                    parsed_targets.append(value)
+
+        if parsed_targets:
+            unique_targets = list(dict.fromkeys(parsed_targets))
+            return unique_targets, ", ".join(unique_targets)
+
+        broadcast_targets = [aid for aid in self._inner_agents if aid]
+        if not broadcast_targets:
+            fallback_agent = self._current_inner_agent or self._subagent.id
+            broadcast_targets = [fallback_agent] if fallback_agent else []
+        return list(dict.fromkeys(broadcast_targets)), "all agents"
+
+    def _sync_runtime_queue_from_inbox(self) -> None:
+        """Mirror pending runtime inbox files into queued banner/timeline state."""
+        if not self._send_message_callback:
+            return
+
+        if self._runtime_inbox_dir is None:
+            self._runtime_inbox_dir = self._resolve_runtime_inbox_dir()
+        inbox_dir = self._runtime_inbox_dir
+        if inbox_dir is None or not inbox_dir.exists() or not inbox_dir.is_dir():
+            return
+
+        changed = False
+        try:
+            inbox_files = sorted(inbox_dir.glob("msg_*.json"))
+        except Exception:
+            return
+
+        for message_file in inbox_files:
+            file_key = str(message_file.resolve())
+            if file_key in self._runtime_inbox_seen_files:
+                continue
+            self._runtime_inbox_seen_files.add(file_key)
+
+            try:
+                payload = json.loads(message_file.read_text(encoding="utf-8", errors="replace"))
+            except Exception:
+                continue
+
+            content = str(payload.get("content", "")).strip()
+            if not content:
+                continue
+
+            source_label = str(payload.get("source", "parent") or "parent").strip().lower() or "parent"
+            pending_agents, target_label = self._normalize_runtime_targets_from_inbox(payload.get("target_agents"))
+            if not pending_agents:
+                continue
+
+            normalized_content = self._normalize_runtime_message_text(content)
+            pending_set = set(pending_agents)
+            duplicate = False
+            for queued in self._queued_runtime_messages:
+                queued_content = self._normalize_runtime_message_text(str(queued.get("content", "")))
+                queued_source = str(queued.get("source_label", "human"))
+                queued_target_label = str(queued.get("target_label", ""))
+                queued_pending = {str(aid) for aid in queued.get("pending_agents", []) if str(aid)}
+                if queued_content == normalized_content and queued_source == source_label and queued_target_label == target_label and queued_pending == pending_set:
+                    duplicate = True
+                    break
+
+            if duplicate:
+                continue
+
+            self._queued_runtime_messages.append(
+                {
+                    "id": message_file.stem,
+                    "content": content,
+                    "target_label": target_label,
+                    "source_label": source_label,
+                    "pending_agents": pending_agents,
+                },
+            )
+            self._append_runtime_queue_status_note(
+                content,
+                target="all" if target_label == "all agents" else (pending_agents[0] if pending_agents else "all"),
+                source_label=source_label,
+                pending_agents=pending_agents,
+                target_label_override=target_label,
+            )
+            changed = True
+
+        if changed:
+            self._refresh_runtime_queue_banner()
+
     def _cancel_latest_runtime_queue_message(self) -> None:
         if not self._queued_runtime_messages:
             return
@@ -2322,19 +2503,26 @@ class SubagentView(Container):
 
     def _update_runtime_queue_from_events(self, events: list[MassGenEvent]) -> None:
         for event in events:
-            if event.event_type != "hook_execution":
+            if event.event_type == "hook_execution":
+                hook_info = event.data.get("hook_info", {}) if isinstance(event.data, dict) else {}
+                if hook_info.get("hook_name") != "human_input_hook":
+                    continue
+                injection_content = hook_info.get("injection_content")
+                if not injection_content:
+                    continue
+                if event.agent_id:
+                    self._mark_runtime_messages_delivered_for_agent(
+                        event.agent_id,
+                        injection_content=str(injection_content),
+                    )
                 continue
-            hook_info = event.data.get("hook_info", {}) if isinstance(event.data, dict) else {}
-            if hook_info.get("hook_name") != "human_input_hook":
-                continue
-            injection_content = hook_info.get("injection_content")
-            if not injection_content:
-                continue
-            if event.agent_id:
-                self._mark_runtime_messages_delivered_for_agent(
-                    event.agent_id,
-                    injection_content=str(injection_content),
-                )
+
+            if event.event_type == "injection_received" and event.agent_id:
+                event_data = event.data if isinstance(event.data, dict) else {}
+                injection_type = str(event_data.get("injection_type", "")).strip().lower()
+                source_agents = [str(source).strip().lower() for source in event_data.get("source_agents", []) or [] if str(source).strip()]
+                if injection_type in {"runtime_inbox_input", "hookless_human_input"} or "parent" in source_agents or "human" in source_agents:
+                    self._mark_runtime_messages_delivered_for_agent(event.agent_id)
 
     def on_message_input_bar_submitted(self, event: Any) -> None:
         """Handle message submission from the MessageInputBar."""
@@ -2348,7 +2536,13 @@ class SubagentView(Container):
         else:
             success = self._send_message_callback(subagent_id, event.value, target_agents=[target])
         if success:
-            self._queue_runtime_message(event.value, target=target, source_label="parent")
+            source_label = "parent"
+            self._queue_runtime_message(event.value, target=target, source_label=source_label)
+            self._append_runtime_queue_status_note(
+                event.value,
+                target=target,
+                source_label=source_label,
+            )
             label = "all agents" if target == "all" else target
             self.notify(f"Message sent to {label}", timeout=2)
         else:

@@ -1160,6 +1160,64 @@ class TestGetRunningSubagentIds:
         assert sorted(running) == ["a", "c"]
 
 
+class _FakeCancelableProcess:
+    """Minimal async subprocess stub for cancellation tests."""
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+
+class TestCancelAllSubagents:
+    """Tests for SubagentManager.cancel_all_subagents()."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_marks_running_subagents_cancelled(self, tmp_path):
+        from massgen.subagent.manager import SubagentManager
+        from massgen.subagent.models import SubagentState
+
+        manager = SubagentManager(
+            parent_workspace=str(tmp_path / "workspace"),
+            parent_agent_id="test-agent",
+            orchestrator_id="test-orch",
+            parent_agent_configs=[],
+        )
+
+        for subagent_id in ("sub_a", "sub_b"):
+            cfg = SubagentConfig(id=subagent_id, task="test", parent_agent_id="test-agent")
+            manager._subagents[subagent_id] = SubagentState(
+                config=cfg,
+                status="running",
+                workspace_path=str(tmp_path / subagent_id),
+                started_at=datetime.now(),
+            )
+            manager._active_processes[subagent_id] = _FakeCancelableProcess()
+
+        cancelled = await manager.cancel_all_subagents()
+
+        assert cancelled == 2
+        assert manager._active_processes == {}
+        for subagent_id in ("sub_a", "sub_b"):
+            state = manager._subagents[subagent_id]
+            assert state.status == "cancelled"
+            assert state.finished_at is not None
+            assert state.result is not None
+            assert state.result.error == "Subagent cancelled"
+
+
 class _FakeContinueProcess:
     """Minimal async subprocess stub for continue_subagent tests."""
 

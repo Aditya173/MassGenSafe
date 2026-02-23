@@ -1176,8 +1176,8 @@ class TestClaudeCodeNativeHookAdapter:
         )
 
         assert "hookSpecificOutput" in claude_format
-        assert claude_format["hookSpecificOutput"]["modifiedOutput"] == "Injected content"
-        assert claude_format["hookSpecificOutput"]["injectionStrategy"] == "tool_result"
+        assert claude_format["hookSpecificOutput"]["additionalContext"] == "Injected content"
+        assert "modifiedOutput" not in claude_format["hookSpecificOutput"]
 
     def test_convert_modified_input_to_claude_format(self):
         """Test converting PreToolUse modified input result to Claude SDK format."""
@@ -1197,6 +1197,37 @@ class TestClaudeCodeNativeHookAdapter:
         assert "hookSpecificOutput" in claude_format
         assert claude_format["hookSpecificOutput"]["updatedInput"] == {"modified_arg": "new_value"}
         assert claude_format["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+    @pytest.mark.asyncio
+    async def test_hook_wrapper_post_tool_use_injection_uses_additional_context(self):
+        """PostToolUse wrapper should emit additionalContext for injected content."""
+        from massgen.mcp_tools.native_hook_adapters import ClaudeCodeNativeHookAdapter
+
+        adapter = ClaudeCodeNativeHookAdapter()
+
+        def injecting_hook(event):
+            return HookResult(
+                allowed=True,
+                inject={"content": "Injected content", "strategy": "user_message"},
+            )
+
+        hook = PythonCallableHook("injector", injecting_hook, matcher="*")
+        native = adapter.convert_hook_to_native(hook, HookType.POST_TOOL_USE)
+        wrapper_func = native.hooks[0]
+
+        input_data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "notes.txt", "content": "hello"},
+            "tool_output": "File created",
+        }
+
+        result = await wrapper_func(input_data, "tool-use-123", None)
+
+        assert "hookSpecificOutput" in result
+        assert result["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+        assert result["hookSpecificOutput"]["additionalContext"] == "Injected content"
+        assert "modifiedOutput" not in result["hookSpecificOutput"]
 
     def test_convert_hook_to_native_returns_hook_matcher(self):
         """Test that convert_hook_to_native returns a HookMatcher."""

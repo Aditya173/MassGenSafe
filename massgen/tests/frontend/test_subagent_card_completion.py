@@ -26,6 +26,7 @@ def _make_subagent(
     task: str = "evaluate output",
     elapsed_seconds: float = 0.0,
     timeout_seconds: float = 300.0,
+    subagent_type: str | None = None,
 ) -> SubagentDisplayData:
     return SubagentDisplayData(
         id=subagent_id,
@@ -40,6 +41,7 @@ def _make_subagent(
         error=None,
         answer_preview=None,
         log_path=None,
+        subagent_type=subagent_type,
     )
 
 
@@ -289,6 +291,38 @@ def test_show_subagent_card_from_spawn_carries_context_paths(monkeypatch) -> Non
     assert getattr(card.subagents[0], "context_paths", None) == ["docs/brief.md", "src/components"]
 
 
+def test_show_subagent_card_from_spawn_carries_subagent_type(monkeypatch) -> None:
+    """Spawn callback cards should keep specialized subagent type labels for UI display."""
+    timeline = _SpawnTimeline(existing_cards=[])
+    panel = _SpawnPanel(timeline, current_round=2)
+
+    app_cls = textual_display_module.TextualApp
+    app = app_cls.__new__(app_cls)
+    app.agent_widgets = {"agent_a": panel}
+    app._build_spawn_status_callback = lambda agent_id, seed_subagents, card=None: None
+
+    monkeypatch.setattr(textual_display_module, "get_log_session_dir", lambda: None)
+
+    app.show_subagent_card_from_spawn(
+        agent_id="agent_a",
+        args={
+            "tasks": [
+                {
+                    "subagent_id": "explorer_scan",
+                    "task": "Analyze repository structure",
+                    "subagent_type": "explorer",
+                },
+            ],
+        },
+        call_id="call:type.1",
+    )
+
+    assert len(timeline.added_cards) == 1
+    card = timeline.added_cards[0]
+    assert isinstance(card, SubagentCard)
+    assert getattr(card.subagents[0], "subagent_type", None) == "explorer"
+
+
 def test_show_subagent_card_from_spawn_builds_card_scoped_status_callback(monkeypatch) -> None:
     """Spawn callback should scope status polling to the newly-created card."""
     timeline = _SpawnTimeline(existing_cards=[])
@@ -341,6 +375,22 @@ def test_build_subagent_display_data_preserves_existing_context_paths() -> None:
     )
 
     assert getattr(updated, "context_paths", None) == ["docs/brief.md"]
+
+
+def test_build_subagent_display_data_preserves_existing_subagent_type() -> None:
+    """Status refreshes should not drop previously-known specialized subagent type."""
+    existing = _make_subagent("explorer_scan", status="running", subagent_type="explorer")
+
+    updated = textual_display_module._build_subagent_display_data(
+        {
+            "subagent_id": "explorer_scan",
+            "status": "running",
+            "execution_time_seconds": 2.0,
+        },
+        existing,
+    )
+
+    assert getattr(updated, "subagent_type", None) == "explorer"
 
 
 def test_build_subagent_display_data_reads_subprocess_reference_error(tmp_path) -> None:
@@ -678,6 +728,50 @@ def test_completed_progress_bar_uses_available_width(monkeypatch) -> None:  # no
 
     bar = column._build_progress_bar()
     assert bar.plain == "━" * 37
+
+
+def test_subagent_column_header_includes_subagent_type_when_available() -> None:
+    """Subagent header should surface specialized type on the right side when present."""
+    subagent = _make_subagent(
+        "analysis_worker",
+        status="running",
+        elapsed_seconds=65.0,
+        subagent_type="explorer",
+    )
+    column = SubagentColumn(
+        subagent=subagent,
+        all_subagents=[subagent],
+        summary="running",
+        tools=[],
+        open_callback=lambda _subagent, _all_subagents: None,
+    )
+
+    header = column._build_header()
+    assert "explorer" in header.plain.lower()
+
+
+def test_subagent_column_header_right_aligns_type_and_timing(monkeypatch) -> None:  # noqa: ANN001 - pytest fixture type
+    """Type/timing suffix should be right-aligned in the header row."""
+    subagent = _make_subagent(
+        "analysis_worker",
+        status="running",
+        elapsed_seconds=65.0,
+        subagent_type="explorer",
+    )
+    column = SubagentColumn(
+        subagent=subagent,
+        all_subagents=[subagent],
+        summary="running",
+        tools=[],
+        open_callback=lambda _subagent, _all_subagents: None,
+    )
+
+    monkeypatch.setattr(column, "_measure_header_width", lambda: 40, raising=False)
+
+    header_plain = column._build_header().plain
+    assert len(header_plain) == 40
+    assert "[explorer]" in header_plain
+    assert header_plain.endswith("5s ▸")
 
 
 def test_subagent_card_open_modal_event_carries_source_card() -> None:

@@ -74,6 +74,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+video = [
+    "scenedetect[opencv]>=0.6.5",
+]
 observability = [
     "logfire>=3.0.0",
 ]

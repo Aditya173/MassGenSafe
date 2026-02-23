@@ -73,6 +73,7 @@ except ImportError:
     tomli_w = None
 
 from ..logger_config import get_event_emitter, logger
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import (
     FilesystemSupport,
     LLMBackend,
@@ -83,7 +84,7 @@ from .base import (
 from .native_tool_mixin import NativeToolBackendMixin
 
 
-class CodexBackend(NativeToolBackendMixin, LLMBackend):
+class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
     """OpenAI Codex backend using CLI subprocess with JSON event stream.
 
     Provides streaming interface to Codex with OAuth support and session
@@ -1190,14 +1191,21 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             if isinstance(text, list):
                 text_parts = [c.get("text", "") for c in text if c.get("type") == "text"]
                 text = "".join(text_parts)
+            if text:
+                self._append_to_streaming_buffer(text)
+                if self._execution_trace:
+                    self._execution_trace.add_content(text)
             return [StreamChunk(type="content", content=text)]
 
         # Reasoning / thinking
         if item_type in ("reasoning", "item.reasoning"):
+            reasoning_text = item.get("text") or item.get("content", "")
+            if reasoning_text:
+                self._append_reasoning_to_buffer(reasoning_text)
             return [
                 StreamChunk(
                     type="reasoning",
-                    reasoning_delta=item.get("text") or item.get("content", ""),
+                    reasoning_delta=reasoning_text,
                 ),
             ]
 
@@ -1211,6 +1219,9 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 # item.started — record start time, emit tool_start
                 self._tool_start_times[item_id] = time.time()
                 self._tool_id_to_name[item_id] = tool_name
+                self._append_tool_call_to_buffer(
+                    [{"name": tool_name, "arguments": {"command": command}}],
+                )
                 emitter = get_event_emitter()
                 if emitter:
                     emitter.emit_tool_start(
@@ -1243,6 +1254,11 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 is_error = exit_code is not None and exit_code != 0
                 suffix = f" (exit {exit_code})" if is_error else ""
                 result_str = f"$ {command}{suffix}\n{output}".rstrip()
+                self._append_tool_to_buffer(
+                    tool_name=tool_name,
+                    result_text=result_str,
+                    is_error=is_error,
+                )
 
                 elapsed = time.time() - self._tool_start_times.pop(item_id, time.time())
                 self._tool_id_to_name.pop(item_id, None)
@@ -1287,6 +1303,13 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 file_path = item.get("path", "unknown")
                 result_str = f"[File written: {file_path}]"
                 args = {"path": file_path}
+
+            self._append_tool_call_to_buffer([{"name": tool_name, "arguments": args}])
+            self._append_tool_to_buffer(
+                tool_name=tool_name,
+                result_text=result_str,
+                is_error=False,
+            )
 
             # Emit both start + complete (file_change only arrives as completed)
             emitter = get_event_emitter()
@@ -1357,6 +1380,9 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 self._tool_start_times[item_id] = time.time()
                 self._tool_id_to_name[item_id] = full_tool_name
                 arguments = item.get("arguments", {})
+                self._append_tool_call_to_buffer(
+                    [{"name": full_tool_name, "arguments": arguments}],
+                )
                 emitter = get_event_emitter()
                 if emitter:
                     emitter.emit_tool_start(
@@ -1393,6 +1419,11 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                     result_str = f"[Error]: {item.get('error', '')}"
                 if is_background_wait_call:
                     self._active_background_wait_calls.discard(item_id)
+                self._append_tool_to_buffer(
+                    tool_name=full_tool_name,
+                    result_text=result_str,
+                    is_error=is_error,
+                )
 
                 elapsed = time.time() - self._tool_start_times.pop(item_id, time.time())
                 self._tool_id_to_name.pop(item_id, None)
@@ -1416,6 +1447,14 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             tool_name = "codex_web_search"
             query = item.get("query", "")
             result_str = f"[Web search: {query}]"
+            self._append_tool_call_to_buffer(
+                [{"name": tool_name, "arguments": {"query": query}}],
+            )
+            self._append_tool_to_buffer(
+                tool_name=tool_name,
+                result_text=result_str,
+                is_error=False,
+            )
 
             emitter = get_event_emitter()
             if emitter:
@@ -1465,6 +1504,14 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             tool_name = "codex_image_view"
             img_path = item.get("path", "")
             result_str = f"[Image: {img_path}]"
+            self._append_tool_call_to_buffer(
+                [{"name": tool_name, "arguments": {"path": img_path}}],
+            )
+            self._append_tool_to_buffer(
+                tool_name=tool_name,
+                result_text=result_str,
+                is_error=False,
+            )
 
             emitter = get_event_emitter()
             if emitter:
@@ -1533,6 +1580,11 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             StreamChunk: Standardized response chunks
         """
         await self._ensure_authenticated()
+        agent_id = kwargs.get("agent_id") or self.agent_id
+        buffer_kwargs = dict(kwargs)
+        if buffer_kwargs.get("agent_id") is None and agent_id is not None:
+            buffer_kwargs["agent_id"] = agent_id
+        self._clear_streaming_buffer(**buffer_kwargs)
 
         # Clear stale hook files from previous turns
         self.clear_hook_files()
@@ -1607,27 +1659,30 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         has_workflow = has_workflow_mcp or bool(self._pending_workflow_instructions)
         got_workflow_tool_calls = False
 
-        stream = self._stream_docker(prompt, resume_session) if self._is_docker_mode else self._stream_local(prompt, resume_session)
-        async for chunk in stream:
-            if chunk.type == "content" and chunk.content:
-                accumulated_content += chunk.content
-            # Track if workflow tool_calls arrived from MCP (via _parse_item)
-            if chunk.type == "tool_calls" and has_workflow_mcp:
-                got_workflow_tool_calls = True
-            # Hold the done chunk so we can attach workflow tool calls to it
-            if chunk.type == "done" and has_workflow:
-                held_done_chunk = chunk
-                continue
-            yield chunk
+        try:
+            stream = self._stream_docker(prompt, resume_session) if self._is_docker_mode else self._stream_local(prompt, resume_session)
+            async for chunk in stream:
+                if chunk.type == "content" and chunk.content:
+                    accumulated_content += chunk.content
+                # Track if workflow tool_calls arrived from MCP (via _parse_item)
+                if chunk.type == "tool_calls" and has_workflow_mcp:
+                    got_workflow_tool_calls = True
+                # Hold the done chunk so we can attach workflow tool calls to it
+                if chunk.type == "done" and has_workflow:
+                    held_done_chunk = chunk
+                    continue
+                yield chunk
 
-        # Text parsing fallback — only if MCP didn't produce workflow tool calls
-        if not got_workflow_tool_calls and has_workflow and accumulated_content:
-            workflow_tool_calls = parse_workflow_tool_calls(accumulated_content)
-            if workflow_tool_calls:
-                logger.info(f"Codex: parsed {len(workflow_tool_calls)} workflow tool call(s) from text")
-                yield StreamChunk(type="tool_calls", tool_calls=workflow_tool_calls, source="codex")
-        if held_done_chunk:
-            yield held_done_chunk
+            # Text parsing fallback — only if MCP didn't produce workflow tool calls
+            if not got_workflow_tool_calls and has_workflow and accumulated_content:
+                workflow_tool_calls = parse_workflow_tool_calls(accumulated_content)
+                if workflow_tool_calls:
+                    logger.info(f"Codex: parsed {len(workflow_tool_calls)} workflow tool call(s) from text")
+                    yield StreamChunk(type="tool_calls", tool_calls=workflow_tool_calls, source="codex")
+            if held_done_chunk:
+                yield held_done_chunk
+        finally:
+            self._finalize_streaming_buffer(agent_id=agent_id)
 
     async def _stream_docker(
         self,

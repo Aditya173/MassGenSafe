@@ -491,3 +491,91 @@ def test_anthropic_detected_from_marker_skills_not_manifest(monkeypatch, tmp_pat
     result = skills_installer.check_skill_packages_installed()
 
     assert result["anthropic"]["installed"] is False
+
+
+# ---------------------------------------------------------------------------
+# Remotion install/setup section injection
+# ---------------------------------------------------------------------------
+
+
+def test_apply_remotion_install_setup_section_inserts_after_frontmatter():
+    """Remotion setup section should be inserted after SKILL.md frontmatter."""
+    original = """---
+name: remotion-best-practices
+description: Best practices for Remotion - Video creation in React
+metadata:
+  tags: remotion, video, react, animation, composition
+---
+
+## When to use
+
+Use this skills whenever you are dealing with Remotion code to obtain the domain-specific knowledge.
+"""
+
+    updated = skills_installer._apply_remotion_install_setup_section(original)
+
+    assert "## Install and Setup" in updated
+    assert "bun create video" in updated
+    assert "npx create-video@latest" in updated
+    assert updated.index("## Install and Setup") < updated.index("## When to use")
+
+
+def test_apply_remotion_install_setup_section_is_idempotent():
+    """Remotion setup section injection should be a no-op when already present."""
+    original = """---
+name: remotion-best-practices
+description: Best practices for Remotion - Video creation in React
+metadata:
+  tags: remotion, video, react, animation, composition
+---
+
+## Install and Setup
+
+If no existing Remotion project is found in the current workspace, initialize one first.
+
+## When to use
+
+Use this skills whenever you are dealing with Remotion code to obtain the domain-specific knowledge.
+"""
+
+    updated = skills_installer._apply_remotion_install_setup_section(original)
+
+    assert updated == original
+
+
+def test_install_remotion_skill_runs_post_install_setup_patch(monkeypatch):
+    """Successful remotion install should patch SKILL.md with setup guidance."""
+    calls = []
+
+    monkeypatch.setattr(
+        skills_installer,
+        "_install_openskills_skill_package",
+        lambda package_id: calls.append(("install", package_id)) or True,
+    )
+    monkeypatch.setattr(
+        skills_installer,
+        "_ensure_remotion_install_setup_section",
+        lambda: calls.append(("patch", None)) or True,
+    )
+
+    assert skills_installer.install_remotion_skill() is True
+    assert calls == [("install", "remotion"), ("patch", None)]
+
+
+def test_install_remotion_skill_skips_patch_when_install_fails(monkeypatch):
+    """Failed remotion install should not attempt SKILL.md patching."""
+    calls = []
+
+    monkeypatch.setattr(
+        skills_installer,
+        "_install_openskills_skill_package",
+        lambda package_id: calls.append(("install", package_id)) or False,
+    )
+    monkeypatch.setattr(
+        skills_installer,
+        "_ensure_remotion_install_setup_section",
+        lambda: calls.append(("patch", None)) or True,
+    )
+
+    assert skills_installer.install_remotion_skill() is False
+    assert calls == [("install", "remotion")]

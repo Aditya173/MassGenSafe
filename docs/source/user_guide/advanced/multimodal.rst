@@ -535,6 +535,34 @@ Analyze and extract information from video files using the ``understand_video`` 
 **Requirements:**
 
 * Requires opencv-python (``pip install opencv-python``)
+* Optional: ``pip install massgen[video]`` for scene-based frame extraction
+
+**Configurable Frame Extraction (v0.1.56+):**
+
+By default, video understanding uses scene-based frame extraction (PySceneDetect) to select the most informative frames. You can configure the extraction strategy via ``multimodal_config``:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "video_analyzer"
+       backend:
+         type: "openai"
+         model: "gpt-5.2"
+         enable_multimodal_tools: true
+         multimodal_config:
+           video:
+             extraction_mode: "scene"   # "scene" (default) | "uniform"
+             max_frames: 30             # Hard cap (default: 30, absolute max: 60)
+             fps: 1.0                   # Uniform mode: frames per second
+             threshold: 0.3             # Scene mode: detection sensitivity
+             frames_per_scene: 3        # Scene mode: frames per detected scene
+
+**Extraction modes:**
+
+* **scene** (default): Detects scene boundaries using PySceneDetect's ``ContentDetector``, then samples ``frames_per_scene`` frames within each scene. Falls back to uniform when PySceneDetect is not installed or no scenes are detected.
+* **uniform**: Evenly spaced frames based on ``fps`` (default 1.0 frame/sec) or ``num_frames`` (fixed count, overrides fps). Always capped at ``max_frames``.
+
+**Cost guardrails:** The ``max_frames`` setting (default 30) prevents runaway token costs on long videos. The absolute maximum is 60 frames regardless of configuration.
 
 Video Generation
 ----------------

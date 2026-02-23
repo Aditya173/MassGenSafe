@@ -37,7 +37,7 @@ class ClaudeCodeNativeHookAdapter(NativeHookAdapter):
     1. Wraps MassGen PatternHook instances as Claude-compatible async functions
     2. Converts HookResult to Claude's response format
     3. Supports both PreToolUse and PostToolUse
-    4. Handles injection content for PostToolUse (appends to tool result)
+    4. Handles PostToolUse injection content via additional context
 
     Example usage:
         adapter = ClaudeCodeNativeHookAdapter()
@@ -196,7 +196,7 @@ class ClaudeCodeNativeHookAdapter(NativeHookAdapter):
         - {} : Allow without modifications
         - {"hookSpecificOutput": {"permissionDecision": "deny", ...}}: Deny
         - {"hookSpecificOutput": {"updatedInput": {...}}}: Modify input
-        - {"hookSpecificOutput": {"modifiedOutput": "..."}}: Inject into output
+        - {"hookSpecificOutput": {"additionalContext": "..."}}: Inject context after tool use
 
         Args:
             result: MassGen HookResult from hook execution
@@ -248,14 +248,14 @@ class ClaudeCodeNativeHookAdapter(NativeHookAdapter):
         # Handle PostToolUse with injection
         if hook_type == HT.POST_TOOL_USE and result.inject:
             inject_content = result.inject.get("content", "")
-            inject_strategy = result.inject.get("strategy", "tool_result")
+            if not inject_content:
+                return {}
 
-            # Claude Code appends to tool result via modifiedOutput
+            # Claude SDK expects PostToolUse injections via additionalContext.
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
-                    "modifiedOutput": inject_content,
-                    "injectionStrategy": inject_strategy,
+                    "additionalContext": inject_content,
                 },
             }
 

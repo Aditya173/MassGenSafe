@@ -352,3 +352,54 @@ class TestSubagentMcpConfigEnv:
         assert payload["massgen_skills"] == ["webapp-testing", "agent-browser"]
         assert payload["skills_directory"] == ".agent/skills"
         assert payload["load_previous_session_skills"] is True
+
+
+class TestPlanningMcpConfigHooks:
+    """Tests for planning MCP hook-dir wiring (Codex MCP hook delivery path)."""
+
+    def _make_orchestrator_and_agent(self, tmp_path):
+        from massgen.orchestrator import Orchestrator
+
+        orch = object.__new__(Orchestrator)
+        orch.orchestrator_id = "test-orch"
+
+        coord_cfg = MagicMock(spec=[])
+        coord_cfg.task_planning_filesystem_mode = True
+        coord_cfg.use_skills = False
+        coord_cfg.enable_memory_filesystem_mode = False
+        coord_cfg.use_two_tier_workspace = False
+
+        orch.config = MagicMock(spec=[])
+        orch.config.coordination_config = coord_cfg
+
+        agent = MagicMock()
+        agent.backend = MagicMock(spec=[])
+        agent.backend.config = {}
+        agent.backend.filesystem_manager = MagicMock()
+        agent.backend.filesystem_manager.cwd = str(tmp_path / "workspace")
+        Path(agent.backend.filesystem_manager.cwd).mkdir(parents=True, exist_ok=True)
+
+        return orch, agent
+
+    def test_planning_mcp_config_includes_hook_dir_for_mcp_hook_backends(self, tmp_path):
+        """Backends with MCP server hooks should pass --hook-dir to planning MCP."""
+        orch, agent = self._make_orchestrator_and_agent(tmp_path)
+        hook_dir = tmp_path / "hook_ipc"
+        agent.backend.supports_mcp_server_hooks = MagicMock(return_value=True)
+        agent.backend.get_hook_dir = MagicMock(return_value=hook_dir)
+
+        config = orch._create_planning_mcp_config("agent_a", agent)
+        args = config["args"]
+
+        assert "--hook-dir" in args
+        hook_index = args.index("--hook-dir")
+        assert args[hook_index + 1] == str(hook_dir)
+
+    def test_planning_mcp_config_omits_hook_dir_when_backend_has_no_mcp_hooks(self, tmp_path):
+        """Backends without MCP server hook support should not get --hook-dir."""
+        orch, agent = self._make_orchestrator_and_agent(tmp_path)
+        agent.backend.supports_mcp_server_hooks = MagicMock(return_value=False)
+
+        config = orch._create_planning_mcp_config("agent_a", agent)
+
+        assert "--hook-dir" not in config["args"]

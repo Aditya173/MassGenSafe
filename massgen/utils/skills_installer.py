@@ -102,6 +102,23 @@ REMOTION_MARKER_SKILLS = {
     "remotion",
 }
 
+REMOTION_INSTALL_SETUP_HEADING = "## Install and Setup"
+REMOTION_INSTALL_SETUP_SECTION = """
+## Install and Setup
+
+If no existing Remotion project is found in the current workspace, initialize one first.
+
+1. Detect package manager from lockfiles (`bun.lockb`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`).
+2. Prefer official scaffolding:
+   - `bun create video` (if Bun is available)
+   - otherwise `npx create-video@latest`
+3. If a Remotion project already exists, do not re-initialize it.
+4. Before rendering, ensure a local Remotion CLI is available:
+   - use `npx remotion ...` commands, or
+   - add `@remotion/cli` to project dependencies when script execution requires it.
+5. After bootstrap, apply the rule files in this skill for composition and animation details.
+"""
+
 
 def _get_package_manifest_path() -> Path:
     """Return metadata file tracking package installations done by MassGen."""
@@ -139,6 +156,56 @@ def _record_package_install(package_id: str, source: str) -> None:
         "installed_at": datetime.now(timezone.utc).isoformat(),
     }
     _save_package_manifest(manifest)
+
+
+def _get_remotion_skill_md_path() -> Path:
+    """Return the expected local Remotion SKILL.md path."""
+    return Path.home() / ".agent" / "skills" / "remotion" / "SKILL.md"
+
+
+def _apply_remotion_install_setup_section(skill_text: str) -> str:
+    """Insert install/setup guidance into Remotion SKILL.md content."""
+    if REMOTION_INSTALL_SETUP_HEADING in skill_text:
+        return skill_text
+
+    setup_block = f"{REMOTION_INSTALL_SETUP_SECTION.strip()}\n\n"
+
+    if skill_text.startswith("---"):
+        lines = skill_text.splitlines(keepends=True)
+        delimiter_count = 0
+        insert_at: int | None = None
+        for idx, line in enumerate(lines):
+            if line.strip() == "---":
+                delimiter_count += 1
+                if delimiter_count == 2:
+                    insert_at = idx + 1
+                    break
+
+        if insert_at is not None:
+            prefix = "".join(lines[:insert_at])
+            suffix = "".join(lines[insert_at:]).lstrip("\n")
+            return f"{prefix}\n{setup_block}{suffix}"
+
+    return f"{setup_block}{skill_text.lstrip('\n')}"
+
+
+def _ensure_remotion_install_setup_section() -> bool:
+    """Ensure Remotion SKILL.md includes bootstrap guidance."""
+    skill_md_path = _get_remotion_skill_md_path()
+    if not skill_md_path.exists():
+        _print_warning(f"Remotion SKILL.md not found at {skill_md_path}; skipping setup guidance patch")
+        return False
+
+    try:
+        original = skill_md_path.read_text(encoding="utf-8")
+        updated = _apply_remotion_install_setup_section(original)
+        if updated != original:
+            skill_md_path.write_text(updated, encoding="utf-8")
+            _print_info("Added Install and Setup guidance to Remotion SKILL.md")
+        return True
+    except Exception as e:
+        _print_warning(f"Failed to patch Remotion SKILL.md with setup guidance: {e}")
+        return False
 
 
 def _is_package_recorded(package_id: str) -> bool:
@@ -328,7 +395,14 @@ def install_remotion_skill() -> bool:
         True if successful, False otherwise
     """
     _print_step("6", "7", "Installing Remotion skill...")
-    return _install_openskills_skill_package("remotion")
+    installed = _install_openskills_skill_package("remotion")
+    if not installed:
+        return False
+
+    if not _ensure_remotion_install_setup_section():
+        _print_warning("Remotion skill installed, but setup guidance patch could not be applied")
+
+    return True
 
 
 def _install_openskills_skill_package(package_id: str) -> bool:

@@ -664,6 +664,7 @@ class SubagentDisplayData:
         last_log_line: Most recent log line for activity display
         error: Error message if status is error/failed/canceled
         answer_preview: First ~100 chars of answer if completed
+        subagent_type: Specialized type label when task used subagent_type
     """
 
     id: str
@@ -679,6 +680,7 @@ class SubagentDisplayData:
     answer_preview: str | None = None
     log_path: str | None = None  # Path to log directory for log streaming
     context_paths: list[str] = field(default_factory=list)
+    subagent_type: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -696,4 +698,5 @@ class SubagentDisplayData:
             "answer_preview": self.answer_preview,
             "log_path": self.log_path,
             "context_paths": self.context_paths.copy(),
+            "subagent_type": self.subagent_type,
         }

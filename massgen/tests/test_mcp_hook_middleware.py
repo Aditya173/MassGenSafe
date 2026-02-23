@@ -171,6 +171,8 @@ class TestOnCallTool:
 
     @pytest.mark.asyncio
     async def test_appends_injection_to_result(self, tmp_path: Path) -> None:
+        from fastmcp.tools.tool import ToolResult
+
         from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
 
         _write_hook_file(tmp_path, _make_payload(content="[Peer update]: new answer"))
@@ -181,22 +183,23 @@ class TestOnCallTool:
         mock_context = MagicMock()
         mock_context.message.name = "some_tool"
 
-        # The original tool result
-        original_result = ["Original tool output"]
+        original_result = ToolResult(content="Original tool output")
 
         async def mock_call_next(ctx):
             return original_result
 
         result = await mw.on_call_tool(mock_context, mock_call_next)
 
-        # Result should be a list with original + injected content
-        assert len(result) == 2
-        assert result[0] == "Original tool output"
-        # The injected part should contain the injection content
-        assert hasattr(result[1], "text") or isinstance(result[1], str)
+        # FastMCP middleware contract: must return ToolResult
+        assert isinstance(result, ToolResult)
+        texts = [getattr(block, "text", "") for block in result.content]
+        assert any("Original tool output" in text for text in texts)
+        assert any("[Peer update]: new answer" in text for text in texts)
 
     @pytest.mark.asyncio
     async def test_passes_through_when_no_injection(self, tmp_path: Path) -> None:
+        from fastmcp.tools.tool import ToolResult
+
         from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
 
         mw = MassGenHookMiddleware(hook_dir=tmp_path)
@@ -204,16 +207,18 @@ class TestOnCallTool:
         mock_context = MagicMock()
         mock_context.message.name = "some_tool"
 
-        original_result = ["Original output"]
+        original_result = ToolResult(content="Original output")
 
         async def mock_call_next(ctx):
             return original_result
 
         result = await mw.on_call_tool(mock_context, mock_call_next)
-        assert result == original_result
+        assert result is original_result
 
     @pytest.mark.asyncio
-    async def test_handles_string_result(self, tmp_path: Path) -> None:
+    async def test_wraps_string_result_as_tool_result(self, tmp_path: Path) -> None:
+        from fastmcp.tools.tool import ToolResult
+
         from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
 
         _write_hook_file(tmp_path, _make_payload(content="injected"))
@@ -227,6 +232,46 @@ class TestOnCallTool:
             return "plain string result"
 
         result = await mw.on_call_tool(mock_context, mock_call_next)
-        # Should handle string results by converting to list with TextContent
-        assert isinstance(result, list)
-        assert len(result) == 2
+        assert isinstance(result, ToolResult)
+        texts = [getattr(block, "text", "") for block in result.content]
+        assert any("plain string result" in text for text in texts)
+        assert any("injected" in text for text in texts)
+
+
+class TestToolResultCompatibilityFallback:
+    """Ensure fallback path still returns ToolResult-like objects."""
+
+    def test_append_to_result_returns_tool_result_like_when_fastmcp_type_unavailable(self, monkeypatch) -> None:
+        import massgen.mcp_tools.hook_middleware as hook_middleware
+
+        monkeypatch.setattr(hook_middleware, "_HAS_FASTMCP_TOOL_RESULT", False)
+        monkeypatch.setattr(hook_middleware, "FastMCPToolResult", None)
+
+        result = hook_middleware.MassGenHookMiddleware._append_to_result("base", "inject")
+
+        assert not isinstance(result, list)
+        assert hasattr(result, "to_mcp_result")
+
+        mcp_result = result.to_mcp_result()
+        assert isinstance(mcp_result, list)
+        assert any(getattr(item, "text", "") == "base" for item in mcp_result)
+        assert any("inject" in getattr(item, "text", "") for item in mcp_result)
+
+    def test_append_to_result_preserves_structured_content_in_compat_mode(self, monkeypatch) -> None:
+        from fastmcp.tools.tool import ToolResult
+
+        import massgen.mcp_tools.hook_middleware as hook_middleware
+
+        monkeypatch.setattr(hook_middleware, "_HAS_FASTMCP_TOOL_RESULT", False)
+        monkeypatch.setattr(hook_middleware, "FastMCPToolResult", None)
+
+        base = ToolResult(content="base", structured_content={"ok": True})
+        result = hook_middleware.MassGenHookMiddleware._append_to_result(base, "inject")
+
+        assert hasattr(result, "to_mcp_result")
+        mcp_result = result.to_mcp_result()
+        assert isinstance(mcp_result, tuple)
+        content, structured = mcp_result
+        assert isinstance(content, list)
+        assert structured == {"ok": True}
+        assert any("inject" in getattr(item, "text", "") for item in content)

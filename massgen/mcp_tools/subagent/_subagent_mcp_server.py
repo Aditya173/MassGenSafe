@@ -528,6 +528,36 @@ async def create_server() -> fastmcp.FastMCP:
                     },
                 )
 
+            task_ids = [str(t["subagent_id"]) for t in normalized_tasks]
+
+            # Reject duplicate IDs in a single spawn request.
+            seen_ids: set[str] = set()
+            duplicate_ids: set[str] = set()
+            for task_id in task_ids:
+                if task_id in seen_ids:
+                    duplicate_ids.add(task_id)
+                seen_ids.add(task_id)
+            if duplicate_ids:
+                duplicate_list = ", ".join(sorted(duplicate_ids))
+                return {
+                    "success": False,
+                    "operation": "spawn_subagents",
+                    "error": (f"Duplicate subagent_id values in this spawn request: {duplicate_list}. " "Each task must use a unique subagent_id."),
+                }
+
+            # Reject IDs that are already running to avoid accidental double-spawn.
+            existing_subagents = manager.list_subagents() or []
+            running_ids = {str(entry.get("subagent_id", "")).strip() for entry in existing_subagents if isinstance(entry, dict) and str(entry.get("status", "")).lower() == "running"}
+            running_ids.discard("")
+            conflicting_running_ids = sorted(set(task_ids) & running_ids)
+            if conflicting_running_ids:
+                conflict_text = ", ".join(conflicting_running_ids)
+                return {
+                    "success": False,
+                    "operation": "spawn_subagents",
+                    "error": (f"Cannot spawn subagent_id already running: {conflict_text}. " "Use send_message_to_subagent() to steer the existing run, " "or wait/cancel it before spawning again."),
+                }
+
             # Resolve specialized subagent types
             for t in normalized_tasks:
                 subagent_type = t.get("subagent_type", "")
@@ -552,7 +582,6 @@ async def create_server() -> fastmcp.FastMCP:
                     t["skills"] = type_config["skills"]
                 logger.info(f"[SubagentMCP] Resolved subagent_type '{subagent_type}' for task {t['subagent_id']}")
 
-            task_ids = [t["subagent_id"] for t in normalized_tasks]
             logger.info(f"[SubagentMCP] Spawning {len(normalized_tasks)} subagents: {task_ids}")
 
             # Branch based on background mode

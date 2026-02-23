@@ -587,6 +587,63 @@ def test_poll_runtime_inbox_reads_messages_from_temp_workspace_parent(mock_orche
     assert pending_messages[0]["source"] == "parent"
 
 
+def test_poll_runtime_inbox_emits_injection_received_event(mock_orchestrator, tmp_path, monkeypatch):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+
+    run_workspace = tmp_path / "subagent_run_workspace"
+    agent_workspace = run_workspace / "agent_1_abcd1234"
+    agent_workspace.mkdir(parents=True, exist_ok=True)
+
+    inbox_dir = run_workspace / ".massgen" / "runtime_inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    msg_file = inbox_dir / "msg_1.json"
+    msg_file.write_text(
+        json.dumps(
+            {
+                "content": "include beatles comparison",
+                "source": "parent",
+                "timestamp": "2026-02-20T08:50:41.000000+00:00",
+                "target_agents": None,
+            },
+        ),
+    )
+
+    orchestrator._agent_temporary_workspace = str(run_workspace / "temp")
+    orchestrator._runtime_inbox_poller = None
+    agent.backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: agent_workspace,
+    )
+
+    emitted_events: list[dict[str, object]] = []
+
+    class _FakeEmitter:
+        def emit_injection_received(self, agent_id, source_agents, injection_type):
+            emitted_events.append(
+                {
+                    "agent_id": agent_id,
+                    "source_agents": source_agents,
+                    "injection_type": injection_type,
+                },
+            )
+
+    monkeypatch.setattr(
+        "massgen.orchestrator.get_event_emitter",
+        lambda: _FakeEmitter(),
+    )
+
+    orchestrator._ensure_runtime_inbox_poller_initialized()
+    orchestrator._poll_runtime_inbox()
+
+    assert emitted_events == [
+        {
+            "agent_id": "agent_a",
+            "source_agents": ["parent"],
+            "injection_type": "runtime_inbox_input",
+        },
+    ]
+
+
 @pytest.mark.asyncio
 async def test_human_input_hook_execute_polls_runtime_inbox_and_logs_delivery(
     mock_orchestrator,
@@ -649,6 +706,8 @@ async def test_human_input_hook_execute_polls_runtime_inbox_and_logs_delivery(
     joined = "\n".join(log_messages)
     assert "Injecting runtime inbox message" in joined
     assert "please also research the beatles" in joined
+    assert "(target=['agent_a'], source=parent)" in joined
+    assert "%s" not in joined
 
 
 @pytest.mark.asyncio

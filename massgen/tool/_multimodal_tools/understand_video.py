@@ -12,7 +12,6 @@ Backend Selection Priority:
 This can be configured via the multimodal settings in agent config.
 """
 
-import base64
 import json
 import mimetypes
 import os
@@ -24,6 +23,10 @@ from massgen.backend.capabilities import has_capability
 from massgen.context.task_context import format_prompt_with_context
 from massgen.logger_config import logger
 from massgen.tool._multimodal_tools.backend_selector import BackendConfig, get_backend
+from massgen.tool._multimodal_tools.video_extraction import (
+    VideoExtractionConfig,
+    extract_frames,
+)
 from massgen.tool._result import ExecutionResult, TextContent
 
 
@@ -52,102 +55,15 @@ def _validate_path_access(path: Path, allowed_paths: list[Path] | None = None) -
 
 
 def _extract_key_frames(video_path: Path, num_frames: int = 8) -> list[str]:
+    """Extract key frames from a video file (deprecated, use extract_frames instead).
+
+    Kept for backward compatibility with any external callers.
+    Delegates to the new extraction module with uniform mode.
     """
-    Extract key frames from a video file and resize them to fit OpenAI Vision API limits.
-
-    Args:
-        video_path: Path to the video file
-        num_frames: Number of key frames to extract
-
-    Returns:
-        List of base64-encoded frame images (resized to fit 768px x 2000px limits)
-
-    Raises:
-        ImportError: If opencv-python is not installed
-        Exception: If frame extraction fails
-    """
-    try:
-        import cv2
-    except ImportError:
-        raise ImportError(
-            "opencv-python is required for video frame extraction. " "Please install it with: pip install opencv-python",
-        )
-
-    # OpenAI Vision API limits for images (same as understand_image)
-    max_short_side = 768  # Maximum pixels for short side
-    max_long_side = 2000  # Maximum pixels for long side
-
-    # Open the video file
-    video = cv2.VideoCapture(str(video_path))
-
-    if not video.isOpened():
-        raise Exception(f"Failed to open video file: {video_path}")
-
-    try:
-        # Get total number of frames
-        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        if total_frames == 0:
-            raise Exception(f"Video file has no frames: {video_path}")
-
-        # Calculate frame indices to extract (evenly spaced)
-        frame_indices = []
-        if num_frames >= total_frames:
-            # If requesting more frames than available, use all frames
-            frame_indices = list(range(total_frames))
-        else:
-            # Extract evenly spaced frames
-            step = total_frames / num_frames
-            frame_indices = [int(i * step) for i in range(num_frames)]
-
-        # Extract frames
-        frames_base64 = []
-        for frame_idx in frame_indices:
-            # Set video position to the frame
-            video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-
-            # Read the frame
-            ret, frame = video.read()
-
-            if not ret:
-                continue
-
-            # Check and resize frame if needed to fit OpenAI Vision API limits
-            height, width = frame.shape[:2]
-            short_side = min(width, height)
-            long_side = max(width, height)
-
-            if short_side > max_short_side or long_side > max_long_side:
-                # Calculate scale factor to fit within dimension constraints
-                short_scale = max_short_side / short_side if short_side > max_short_side else 1.0
-                long_scale = max_long_side / long_side if long_side > max_long_side else 1.0
-                scale_factor = min(short_scale, long_scale) * 0.95  # 0.95 for safety margin
-
-                new_width = int(width * scale_factor)
-                new_height = int(height * scale_factor)
-
-                # Resize frame using LANCZOS (high quality)
-                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
-
-            # Encode frame to JPEG with quality=85 (same as understand_image)
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
-            ret, buffer = cv2.imencode(".jpg", frame, encode_param)
-
-            if not ret:
-                continue
-
-            # Convert to base64
-            frame_base64 = base64.b64encode(buffer).decode("utf-8")
-            frames_base64.append(frame_base64)
-
-        if not frames_base64:
-            raise Exception("Failed to extract any frames from video")
-
-        return frames_base64
-
-    finally:
-        # Release the video capture object
-        video.release()
+    config = VideoExtractionConfig.from_video_config(
+        {"extraction_mode": "uniform", "num_frames": num_frames},
+    )
+    return extract_frames(video_path, config)
 
 
 def _get_mime_type(file_path: Path) -> str:
@@ -223,19 +139,17 @@ async def _process_with_gemini(
 
 
 async def _process_with_openai(
-    video_path: Path,
     prompt: str,
+    frames_base64: list[str],
     model: str = "gpt-5.2",
-    num_frames: int = 8,
 ) -> str:
     """
-    Process video using OpenAI's vision API with frame extraction.
+    Process video using OpenAI's vision API with pre-extracted frames.
 
     Args:
-        video_path: Path to the video file
         prompt: Prompt for analysis
+        frames_base64: Pre-extracted base64-encoded JPEG frames
         model: OpenAI model to use
-        num_frames: Number of frames to extract
 
     Returns:
         Text analysis from OpenAI
@@ -248,11 +162,8 @@ async def _process_with_openai(
 
     client = AsyncOpenAI(api_key=api_key)
 
-    # Extract frames from video
-    frames_base64 = _extract_key_frames(video_path, num_frames)
-
     logger.info(
-        f"[understand_video] Using OpenAI {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+        f"[understand_video] Using OpenAI {model} ({len(frames_base64)} frames)",
     )
 
     # Build content array with prompt and all frames
@@ -276,19 +187,17 @@ async def _process_with_openai(
 
 
 async def _process_with_anthropic(
-    video_path: Path,
     prompt: str,
+    frames_base64: list[str],
     model: str = "claude-sonnet-4-5",
-    num_frames: int = 8,
 ) -> str:
     """
-    Process video using Anthropic's Claude vision API with frame extraction.
+    Process video using Anthropic's Claude vision API with pre-extracted frames.
 
     Args:
-        video_path: Path to the video file
         prompt: Prompt for analysis
+        frames_base64: Pre-extracted base64-encoded JPEG frames
         model: Claude model to use
-        num_frames: Number of frames to extract
 
     Returns:
         Text analysis from Claude
@@ -301,11 +210,8 @@ async def _process_with_anthropic(
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # Extract frames from video
-    frames_base64 = _extract_key_frames(video_path, num_frames)
-
     logger.info(
-        f"[understand_video] Using Anthropic {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+        f"[understand_video] Using Anthropic {model} ({len(frames_base64)} frames)",
     )
 
     # Build content array with frames and prompt
@@ -334,20 +240,18 @@ async def _process_with_anthropic(
 
 
 async def _process_with_grok(
-    video_path: Path,
     prompt: str,
+    frames_base64: list[str],
     model: str = "grok-4-1-fast-reasoning",
-    num_frames: int = 8,
 ) -> str:
     """
-    Process video using Grok's vision API with frame extraction.
+    Process video using Grok's vision API with pre-extracted frames.
     Grok uses OpenAI-compatible API.
 
     Args:
-        video_path: Path to the video file
         prompt: Prompt for analysis
+        frames_base64: Pre-extracted base64-encoded JPEG frames
         model: Grok model to use
-        num_frames: Number of frames to extract
 
     Returns:
         Text analysis from Grok
@@ -360,11 +264,8 @@ async def _process_with_grok(
 
     client = AsyncOpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
 
-    # Extract frames from video
-    frames_base64 = _extract_key_frames(video_path, num_frames)
-
     logger.info(
-        f"[understand_video] Using Grok {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+        f"[understand_video] Using Grok {model} ({len(frames_base64)} frames)",
     )
 
     # Build content array with prompt and all frames
@@ -387,20 +288,18 @@ async def _process_with_grok(
 
 
 async def _process_with_openrouter(
-    video_path: Path,
     prompt: str,
+    frames_base64: list[str],
     model: str = "openai/gpt-5.2",
-    num_frames: int = 8,
 ) -> str:
     """
-    Process video using OpenRouter's API with frame extraction.
+    Process video using OpenRouter's API with pre-extracted frames.
     OpenRouter uses OpenAI-compatible API.
 
     Args:
-        video_path: Path to the video file
         prompt: Prompt for analysis
+        frames_base64: Pre-extracted base64-encoded JPEG frames
         model: Model to use (with provider prefix)
-        num_frames: Number of frames to extract
 
     Returns:
         Text analysis from OpenRouter
@@ -413,11 +312,8 @@ async def _process_with_openrouter(
 
     client = AsyncOpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
-    # Extract frames from video
-    frames_base64 = _extract_key_frames(video_path, num_frames)
-
     logger.info(
-        f"[understand_video] Using OpenRouter {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+        f"[understand_video] Using OpenRouter {model} ({len(frames_base64)} frames)",
     )
 
     # Build content array with prompt and all frames
@@ -441,13 +337,14 @@ async def _process_with_openrouter(
 
 async def understand_video(
     video_path: str,
-    prompt: str = "What's happening in this video? Please describe the content, actions, and any important details you observe.",
-    num_frames: int = 8,
+    prompt: str = "What's happening in this video? Please describe the content, " "actions, and any important details you observe.",
+    num_frames: int | None = None,
     model: str | None = None,
     backend_type: str | None = None,
     allowed_paths: list[str] | None = None,
     agent_cwd: str | None = None,
     task_context: str | None = None,
+    video_extraction_config: dict | None = None,
 ) -> ExecutionResult:
     """
     Understand and analyze a video using the best available backend.
@@ -465,9 +362,8 @@ async def understand_video(
                    - Relative path: Resolved relative to workspace
                    - Absolute path: Must be within allowed directories
         prompt: Question or instruction about the video (default: asks for general description)
-        num_frames: Number of key frames to extract (only used for OpenAI, default: 8)
-                   - Higher values provide more detail but increase API costs
-                   - Recommended range: 4-16 frames
+        num_frames: Number of key frames to extract (legacy, default: 8).
+                   Prefer video_extraction_config for new usage.
         model: Model to use. If not specified, uses default from backend selector:
                - Gemini: "gemini-3-flash-preview"
                - OpenAI: "gpt-5.2"
@@ -477,8 +373,12 @@ async def understand_video(
         allowed_paths: List of allowed base paths for validation (optional)
         agent_cwd: Agent's current working directory (automatically injected, optional)
         task_context: Context string or key used to augment the prompt (Optional[str])
-                  - Accepts named contexts (e.g., "short_summary", "detailed_analysis") or raw context text.
+                  - Accepts named contexts (e.g., "short_summary", "detailed_analysis")
+                    or raw context text.
                   - If None (default), no context-based augmentation is applied.
+        video_extraction_config: Optional dict with extraction settings from
+                  multimodal_config["video"]. Keys: extraction_mode, max_frames,
+                  fps, threshold, frames_per_scene, num_frames.
 
     Returns:
         ExecutionResult containing:
@@ -542,7 +442,7 @@ async def understand_video(
                 result = {
                     "success": False,
                     "operation": "understand_video",
-                    "error": "No video backend available. Please set GOOGLE_API_KEY/GEMINI_API_KEY or OPENAI_API_KEY.",
+                    "error": "No video backend available. " "Please set GOOGLE_API_KEY/GEMINI_API_KEY or OPENAI_API_KEY.",
                 }
                 return ExecutionResult(
                     output_blocks=[TextContent(data=json.dumps(result, indent=2))],
@@ -577,12 +477,23 @@ async def understand_video(
             )
 
         # Check if file is likely a video (by extension)
-        video_extensions = [".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv", ".webm", ".m4v", ".mpg", ".mpeg"]
+        video_extensions = [
+            ".mp4",
+            ".avi",
+            ".mov",
+            ".mkv",
+            ".flv",
+            ".wmv",
+            ".webm",
+            ".m4v",
+            ".mpg",
+            ".mpeg",
+        ]
         if vid_path.suffix.lower() not in video_extensions:
             result = {
                 "success": False,
                 "operation": "understand_video",
-                "error": f"File does not appear to be a video file: {vid_path}. Supported formats: {', '.join(video_extensions)}",
+                "error": f"File does not appear to be a video file: {vid_path}. " f"Supported formats: {', '.join(video_extensions)}",
             }
             return ExecutionResult(
                 output_blocks=[TextContent(data=json.dumps(result, indent=2))],
@@ -590,6 +501,20 @@ async def understand_video(
 
         # Inject task context into prompt if available
         augmented_prompt = format_prompt_with_context(prompt, task_context)
+
+        # Build extraction config from video_extraction_config dict + legacy num_frames
+        ext_config = VideoExtractionConfig.from_video_config(
+            video_extraction_config,
+            legacy_num_frames=num_frames,
+        )
+
+        # Extract frames once before backend dispatch (skip for Gemini — native video)
+        frames_base64: list[str] | None = None
+        if selected_backend != "gemini":
+            frames_base64 = extract_frames(vid_path, ext_config)
+            logger.info(
+                f"[understand_video] Extracted {len(frames_base64)} frames " f"(mode={ext_config.extraction_mode.value}) for {vid_path.name}",
+            )
 
         # Process video with the selected backend
         try:
@@ -601,31 +526,27 @@ async def understand_video(
                 )
             elif selected_backend == "claude":
                 response_text = await _process_with_anthropic(
-                    video_path=vid_path,
                     prompt=augmented_prompt,
+                    frames_base64=frames_base64,
                     model=selected_model,
-                    num_frames=num_frames,
                 )
             elif selected_backend == "grok":
                 response_text = await _process_with_grok(
-                    video_path=vid_path,
                     prompt=augmented_prompt,
+                    frames_base64=frames_base64,
                     model=selected_model,
-                    num_frames=num_frames,
                 )
             elif selected_backend == "openrouter":
                 response_text = await _process_with_openrouter(
-                    video_path=vid_path,
                     prompt=augmented_prompt,
+                    frames_base64=frames_base64,
                     model=selected_model,
-                    num_frames=num_frames,
                 )
             else:  # openai (default)
                 response_text = await _process_with_openai(
-                    video_path=vid_path,
                     prompt=augmented_prompt,
+                    frames_base64=frames_base64,
                     model=selected_model,
-                    num_frames=num_frames,
                 )
 
             result = {
@@ -635,6 +556,8 @@ async def understand_video(
                 "prompt": prompt,
                 "model": selected_model,
                 "backend": selected_backend,
+                "extraction_mode": ext_config.extraction_mode.value,
+                "frames_extracted": len(frames_base64) if frames_base64 else 0,
                 "response": response_text,
             }
             return ExecutionResult(

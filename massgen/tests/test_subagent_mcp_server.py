@@ -172,6 +172,82 @@ class TestSpawnSubagentsContextPathsRequirement:
         assert len(fake_manager.background_calls) == 1
         assert fake_manager.background_calls[0]["context_paths"] == []
 
+    @pytest.mark.asyncio
+    async def test_duplicate_subagent_ids_in_single_request_are_rejected(self, monkeypatch, tmp_path):
+        """A single spawn request must not contain duplicate subagent_id values."""
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[
+                {"task": "Task one", "subagent_id": "dup", "context_paths": []},
+                {"task": "Task two", "subagent_id": "dup", "context_paths": []},
+            ],
+            background=True,
+            refine=False,
+        )
+
+        assert result["success"] is False
+        assert result["operation"] == "spawn_subagents"
+        assert "Duplicate subagent_id" in result["error"]
+        assert "dup" in result["error"]
+        assert fake_manager.background_calls == []
+
+    @pytest.mark.asyncio
+    async def test_running_subagent_id_is_rejected(self, monkeypatch, tmp_path):
+        """Spawning with an ID already running should fail fast with guidance."""
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        fake_manager.list_subagents = lambda: [{"subagent_id": "music_history", "status": "running"}]
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[
+                {
+                    "task": "Research updates",
+                    "subagent_id": "music_history",
+                    "context_paths": [],
+                },
+            ],
+            background=True,
+            refine=False,
+        )
+
+        assert result["success"] is False
+        assert result["operation"] == "spawn_subagents"
+        assert "already running" in result["error"]
+        assert "music_history" in result["error"]
+        assert "send_message_to_subagent" in result["error"]
+        assert fake_manager.background_calls == []
+
+    @pytest.mark.asyncio
+    async def test_reusing_completed_subagent_id_is_allowed(self, monkeypatch, tmp_path):
+        """Completed IDs can be reused; only running IDs are blocked."""
+        server, handler = await _build_spawn_subagents_handler(monkeypatch, tmp_path)
+        fake_manager = _FakeSubagentManager()
+        fake_manager.list_subagents = lambda: [{"subagent_id": "music_history", "status": "completed"}]
+        monkeypatch.setattr(server, "_get_manager", lambda: fake_manager)
+
+        result = await _invoke_handler(
+            handler,
+            tasks=[
+                {
+                    "task": "Fresh run with same identifier",
+                    "subagent_id": "music_history",
+                    "context_paths": [],
+                },
+            ],
+            background=True,
+            refine=False,
+        )
+
+        assert result["success"] is True
+        assert result["mode"] == "background"
+        assert len(fake_manager.background_calls) == 1
+
 
 class TestSpawnSubagentsSpecializedTypeResolution:
     """Validation and resolution behavior for `subagent_type` tasks."""

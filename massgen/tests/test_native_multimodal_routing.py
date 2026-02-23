@@ -445,9 +445,11 @@ class TestVideoRouting:
         with (
             patch("massgen.tool._multimodal_tools.understand_video._process_with_anthropic", new_callable=AsyncMock) as mock_claude,
             patch("massgen.tool._multimodal_tools.understand_video.get_backend") as mock_selector,
+            patch("massgen.tool._multimodal_tools.understand_video.extract_frames") as mock_extract,
         ):
             mock_claude.return_value = "claude video analysis"
             mock_selector.return_value = None
+            mock_extract.return_value = ["fake_frame_base64"]
 
             result = await understand_video(
                 video_path=str(video_file),

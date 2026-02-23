@@ -318,6 +318,7 @@ async def read_media(
                         agent_cwd=agent_cwd,
                         allowed_paths=allowed_paths,
                         task_context=task_context,
+                        video_extraction_config=video_config,
                     ),
                     timeout=MEDIA_ANALYSIS_TIMEOUT,
                 )
@@ -431,6 +432,7 @@ async def read_media(
                                 agent_cwd=agent_cwd,
                                 allowed_paths=allowed_paths,
                                 task_context=task_context,
+                                video_extraction_config=video_config,
                             ),
                             timeout=MEDIA_ANALYSIS_TIMEOUT,
                         )

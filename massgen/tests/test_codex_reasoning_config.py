@@ -11,7 +11,10 @@ try:
 except ImportError:  # pragma: no cover - Python < 3.11 fallback
     import tomli as tomllib
 
+from massgen import logger_config
+from massgen.agent_config import AgentConfig
 from massgen.backend.codex import CodexBackend
+from massgen.orchestrator import Orchestrator
 
 
 @pytest.fixture(autouse=True)
@@ -121,3 +124,109 @@ def test_codex_writes_background_mcp_targets_into_custom_tool_specs(tmp_path: Pa
     background_names = {server["name"] for server in specs.get("background_mcp_servers", []) if isinstance(server, dict) and "name" in server}
     assert "command_line" in background_names
     assert "massgen_custom_tools" not in background_names
+
+
+def test_codex_writes_execution_trace_markdown(tmp_path: Path):
+    backend = CodexBackend(
+        cwd=str(tmp_path),
+        agent_id="agent_a",
+    )
+
+    backend._clear_streaming_buffer(agent_id="agent_a")
+
+    backend._parse_item(
+        "reasoning",
+        {
+            "id": "reason_1",
+            "text": "Need to inspect the workspace first.",
+        },
+        is_completed=True,
+    )
+    backend._parse_item(
+        "agent_message",
+        {
+            "id": "msg_1",
+            "text": "I found the root cause and prepared a fix.",
+        },
+        is_completed=True,
+    )
+    backend._parse_item(
+        "mcp_tool_call",
+        {
+            "id": "tool_1",
+            "server": "massgen_custom_tools",
+            "tool": "custom_tool__read_media",
+            "arguments": {"file_path": "artifact.png"},
+        },
+        is_completed=False,
+    )
+    backend._parse_item(
+        "mcp_tool_call",
+        {
+            "id": "tool_1",
+            "server": "massgen_custom_tools",
+            "tool": "custom_tool__read_media",
+            "result": "read ok",
+        },
+        is_completed=True,
+    )
+
+    snapshot_dir = tmp_path / "trace_snapshot"
+    trace_path = backend._save_execution_trace(snapshot_dir)
+
+    assert trace_path == snapshot_dir / "execution_trace.md"
+    assert trace_path is not None
+    trace_text = trace_path.read_text()
+    assert "# Execution Trace: agent_a" in trace_text
+    assert "### Reasoning" in trace_text
+    assert "Need to inspect the workspace first." in trace_text
+    assert "### Content" in trace_text
+    assert "I found the root cause and prepared a fix." in trace_text
+    assert "### Tool Call: massgen_custom_tools/custom_tool__read_media" in trace_text
+    assert "### Tool Result: massgen_custom_tools/custom_tool__read_media" in trace_text
+
+
+@pytest.mark.asyncio
+async def test_codex_execution_trace_saved_via_orchestrator_snapshot(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(logger_config, "_LOG_BASE_SESSION_DIR", None)
+    monkeypatch.setattr(logger_config, "_LOG_SESSION_DIR", None)
+    monkeypatch.setattr(logger_config, "_CURRENT_TURN", None)
+    monkeypatch.setattr(logger_config, "_CURRENT_ATTEMPT", None)
+    logger_config.set_log_base_session_dir_absolute(tmp_path / "logs")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    temp_parent = tmp_path / "temp_workspaces"
+    temp_parent.mkdir()
+    snapshot_storage = tmp_path / "snapshots"
+
+    backend = CodexBackend(
+        cwd=str(workspace),
+        agent_id="agent_a",
+        agent_temporary_workspace=str(temp_parent),
+    )
+    backend._clear_streaming_buffer(agent_id="agent_a")
+    backend._parse_item(
+        "agent_message",
+        {"id": "msg_1", "text": "Snapshot trace content"},
+        is_completed=True,
+    )
+
+    agent = SimpleNamespace(agent_id="agent_a", backend=backend)
+    orchestrator = Orchestrator(
+        agents={"agent_a": agent},
+        config=AgentConfig(),
+        snapshot_storage=str(snapshot_storage),
+        agent_temporary_workspace=str(temp_parent),
+    )
+
+    await orchestrator._save_agent_snapshot(
+        "agent_a",
+        answer_content="answer",
+        context_data=None,
+        is_final=False,
+    )
+
+    trace_path = backend.filesystem_manager.snapshot_storage / "execution_trace.md"
+    assert trace_path.exists()
+    assert "Snapshot trace content" in trace_path.read_text()

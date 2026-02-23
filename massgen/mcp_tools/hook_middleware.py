@@ -37,6 +37,40 @@ try:
 except ImportError:
     _HAS_MCP_TYPES = False
 
+try:
+    from fastmcp.tools.tool import ToolResult as FastMCPToolResult
+
+    _HAS_FASTMCP_TOOL_RESULT = True
+except ImportError:
+    FastMCPToolResult = None  # type: ignore[assignment]
+    _HAS_FASTMCP_TOOL_RESULT = False
+
+
+class _CompatToolResult:
+    """Compatibility ToolResult for runtimes without fastmcp.tools.tool.ToolResult."""
+
+    def __init__(
+        self,
+        *,
+        content: list[Any],
+        structured_content: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
+        self.content = content
+        self.structured_content = structured_content
+        self.meta = meta
+
+    def to_mcp_result(self) -> Any:
+        if self.meta is not None and _HAS_MCP_TYPES:
+            return mcp_types.CallToolResult(
+                structuredContent=self.structured_content,
+                content=self.content,
+                _meta=self.meta,
+            )
+        if self.structured_content is None:
+            return self.content
+        return self.content, self.structured_content
+
 
 class MassGenHookMiddleware(Middleware):
     """FastMCP middleware that injects hook content into MCP tool results.
@@ -187,16 +221,40 @@ class MassGenHookMiddleware(Middleware):
             # Fallback: use a simple string
             injection_item = f"\n{injection}"
 
-        # Handle different result types
-        if isinstance(result, list):
-            return [*result, injection_item]
-        elif isinstance(result, str):
-            # Convert string result to list format
+        # FastMCP middleware expects a ToolResult-like object from on_call_tool.
+        # Returning raw lists causes downstream failures when FastMCP calls
+        # result.to_mcp_result().
+        def _build_tool_result(
+            *,
+            content: list[Any],
+            structured_content: dict[str, Any] | None = None,
+            meta: dict[str, Any] | None = None,
+        ) -> Any:
+            if _HAS_FASTMCP_TOOL_RESULT and FastMCPToolResult is not None:
+                return FastMCPToolResult(
+                    content=content,
+                    structured_content=structured_content,
+                    meta=meta,
+                )
+            return _CompatToolResult(
+                content=content,
+                structured_content=structured_content,
+                meta=meta,
+            )
+
+        # Generic ToolResult-like handling (works across FastMCP versions/layouts)
+        if hasattr(result, "to_mcp_result") and hasattr(result, "content"):
+            return _build_tool_result(
+                content=[*list(result.content), injection_item],  # type: ignore[arg-type]
+                structured_content=getattr(result, "structured_content", None),
+                meta=getattr(result, "meta", None),
+            )
+
+        if isinstance(result, str):
             if _HAS_MCP_TYPES:
                 original_item = mcp_types.TextContent(type="text", text=result)
-                return [original_item, injection_item]
-            else:
-                return [result, injection_item]
-        else:
-            # Unknown type — try to wrap
-            return [result, injection_item]
+                return _build_tool_result(content=[original_item, injection_item])
+            return _build_tool_result(content=[result, injection_item])
+        if isinstance(result, list):
+            return _build_tool_result(content=[*result, injection_item])
+        return _build_tool_result(content=[result, injection_item])

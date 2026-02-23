@@ -19,6 +19,7 @@ Tools provided:
 import argparse
 import json
 import logging
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,32 @@ from massgen.mcp_tools.planning.planning_dataclasses import Task, TaskPlan
 
 # Setup logging for debugging
 logger = logging.getLogger(__name__)
+
+
+def _resolve_hook_middleware() -> Any:
+    """Return hook middleware class in both package and file-path launch modes."""
+    try:
+        from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+        return MassGenHookMiddleware
+    except ImportError:
+        pass
+
+    try:
+        from ..hook_middleware import MassGenHookMiddleware
+
+        return MassGenHookMiddleware
+    except ImportError:
+        pass
+
+    # fastmcp file-path launches can drop package context; add repo root explicitly.
+    project_root = str(Path(__file__).resolve().parents[3])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
+
+    return MassGenHookMiddleware
 
 
 def _has_extended_task_fields(task_spec: dict[str, Any]) -> bool:
@@ -367,6 +394,12 @@ async def create_server() -> fastmcp.FastMCP:
         action="store_true",
         help="Disable requiring verification and verification_method fields on agent-created tasks (enabled by default)",
     )
+    parser.add_argument(
+        "--hook-dir",
+        type=str,
+        default=None,
+        help="Optional path to directory for hook IPC files (PostToolUse injection).",
+    )
     args = parser.parse_args()
 
     # Configure logging to stderr so it appears in MCP server output
@@ -389,6 +422,12 @@ async def create_server() -> fastmcp.FastMCP:
 
     # Create the FastMCP server
     mcp = fastmcp.FastMCP("Agent Task Planning")
+
+    # Attach hook middleware for PostToolUse injection if hook_dir is configured
+    if args.hook_dir:
+        MassGenHookMiddleware = _resolve_hook_middleware()
+        mcp.add_middleware(MassGenHookMiddleware(Path(args.hook_dir)))
+        logger.info("Hook middleware attached (hook_dir=%s)", args.hook_dir)
 
     # Store agent and orchestrator IDs
     mcp.agent_id = args.agent_id

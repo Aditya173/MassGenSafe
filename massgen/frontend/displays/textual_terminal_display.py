@@ -416,6 +416,16 @@ def _normalize_subagent_context_paths(raw_paths: Any) -> list[str]:
     return normalized
 
 
+def _normalize_subagent_type(raw_type: Any) -> str | None:
+    """Normalize specialized subagent type labels for display."""
+    if raw_type is None:
+        return None
+    value = str(raw_type).strip()
+    if not value:
+        return None
+    return value.lower()
+
+
 def _build_subagent_display_data(
     sa_data: dict[str, Any],
     existing: SubagentDisplayData | None = None,
@@ -462,6 +472,10 @@ def _build_subagent_display_data(
     if raw_context_paths is None and existing is not None:
         raw_context_paths = getattr(existing, "context_paths", [])
     context_paths = _normalize_subagent_context_paths(raw_context_paths)
+    raw_subagent_type = sa_data.get("subagent_type")
+    if raw_subagent_type is None and existing is not None:
+        raw_subagent_type = getattr(existing, "subagent_type", None)
+    subagent_type = _normalize_subagent_type(raw_subagent_type)
 
     workspace_file_count = _count_workspace_files(workspace_path)
     if workspace_file_count == 0 and existing and existing.workspace_file_count > 0:
@@ -481,6 +495,7 @@ def _build_subagent_display_data(
         answer_preview=answer_preview,
         log_path=str(log_path) if log_path else None,
         context_paths=context_paths,
+        subagent_type=subagent_type,
     )
 
 
@@ -6538,6 +6553,7 @@ Type your question and press Enter to ask the agents.
                 task_desc = task_data.get("task", "")
                 log_path = str(subagent_logs_base / subagent_id) if subagent_logs_base else None
                 context_paths = _normalize_subagent_context_paths(task_data.get("context_paths", []))
+                subagent_type = _normalize_subagent_type(task_data.get("subagent_type"))
 
                 subagents.append(
                     SubagentDisplayData(
@@ -6554,6 +6570,7 @@ Type your question and press Enter to ask the agents.
                         answer_preview=None,
                         log_path=log_path,
                         context_paths=context_paths,
+                        subagent_type=subagent_type,
                     ),
                 )
 
@@ -12487,6 +12504,7 @@ Type your question and press Enter to ask the agents.
                 task_desc = task_data.get("task", "")
                 log_path = str(subagent_logs_base / subagent_id) if subagent_logs_base else None
                 context_paths = _normalize_subagent_context_paths(task_data.get("context_paths", []))
+                subagent_type = _normalize_subagent_type(task_data.get("subagent_type"))
 
                 subagents.append(
                     SubagentDisplayData(
@@ -12503,6 +12521,7 @@ Type your question and press Enter to ask the agents.
                         answer_preview=None,
                         log_path=log_path,
                         context_paths=context_paths,
+                        subagent_type=subagent_type,
                     ),
                 )
 

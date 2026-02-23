@@ -3099,6 +3099,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             Number of subagents that were cancelled
         """
         cancelled_count = 0
+        cancelled_subagent_ids: set[str] = set()
         for subagent_id, process in list(self._active_processes.items()):
             if process.returncode is None:  # Still running
                 logger.warning(f"[SubagentManager] Cancelling subagent {subagent_id}...")
@@ -3111,6 +3112,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                         process.kill()
                         await process.wait()
                     cancelled_count += 1
+                    cancelled_subagent_ids.add(subagent_id)
                 except Exception as e:
                     logger.error(f"[SubagentManager] Error cancelling {subagent_id}: {e}")
 
@@ -3122,6 +3124,42 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 logger.warning(f"[SubagentManager] Cancelling background task {task_id}...")
                 task.cancel()
                 cancelled_count += 1
+                cancelled_subagent_ids.add(task_id)
+
+        self._background_tasks.clear()
+
+        # Keep in-memory subagent states consistent with cancellation so list/status
+        # surfaces (including TUI cards) do not continue to show stale "running".
+        terminal_statuses = {
+            "completed",
+            "completed_but_timeout",
+            "partial",
+            "failed",
+            "timeout",
+            "cancelled",
+            "canceled",
+            "error",
+        }
+        for subagent_id, state in self._subagents.items():
+            if str(state.status).lower() in terminal_statuses:
+                continue
+            if cancelled_subagent_ids and subagent_id not in cancelled_subagent_ids:
+                # cancel_all_subagents is called during global shutdown/cleanup;
+                # any remaining non-terminal subagent should be treated as cancelled.
+                cancelled_subagent_ids.add(subagent_id)
+            state.status = "cancelled"
+            if state.finished_at is None:
+                state.finished_at = datetime.now()
+            if state.result is None:
+                elapsed = 0.0
+                if state.started_at is not None:
+                    elapsed = max(0.0, (state.finished_at - state.started_at).total_seconds())
+                state.result = SubagentResult.create_error(
+                    subagent_id=subagent_id,
+                    error="Subagent cancelled",
+                    workspace_path=state.workspace_path or "",
+                    execution_time_seconds=elapsed,
+                )
 
         return cancelled_count
 

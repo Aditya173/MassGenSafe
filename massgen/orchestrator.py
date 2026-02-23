@@ -1592,6 +1592,11 @@ class Orchestrator(ChatAgent):
                 f"[Orchestrator] Adding --use-two-tier-workspace flag to planning MCP for {agent_id}",
             )
 
+        # Pass hook directory for MCP server-level hook injection (Codex)
+        if hasattr(agent, "backend") and hasattr(agent.backend, "supports_mcp_server_hooks") and agent.backend.supports_mcp_server_hooks() and hasattr(agent.backend, "get_hook_dir"):
+            hook_dir = agent.backend.get_hook_dir()
+            args.extend(["--hook-dir", str(hook_dir)])
+
         logger.info(f"[Orchestrator] Planning MCP args for {agent_id}: {args}")
 
         config = {
@@ -5360,37 +5365,79 @@ Your answer:"""
                     f"[Orchestrator._save_agent_snapshot] Failed to save context for {agent_id}: {ce}",
                 )
 
-        # Save execution trace if available (for both answer and vote snapshots)
-        # Votes also contain valuable execution history (tool calls, reasoning, etc.)
-        if answer_content is not None or vote_data is not None or is_final:
-            try:
-                if hasattr(agent.backend, "_save_execution_trace"):
-                    # Save to log directory for historical tracking
-                    log_session_dir = get_log_session_dir()
-                    if log_session_dir:
-                        if is_final:
-                            timestamped_dir = log_session_dir / "final" / agent_id
-                        else:
-                            timestamped_dir = log_session_dir / agent_id / timestamp
-                        timestamped_dir.mkdir(parents=True, exist_ok=True)
-                        agent.backend._save_execution_trace(timestamped_dir)
+        # Save execution trace whenever snapshotting is requested, including early-end
+        # partial snapshots that may not contain an answer/vote yet.
+        try:
+            if hasattr(agent.backend, "_save_execution_trace"):
+                # Save to log directory for historical tracking
+                log_session_dir = get_log_session_dir()
+                if log_session_dir:
+                    if is_final:
+                        timestamped_dir = log_session_dir / "final" / agent_id
+                    else:
+                        timestamped_dir = log_session_dir / agent_id / timestamp
+                    timestamped_dir.mkdir(parents=True, exist_ok=True)
+                    agent.backend._save_execution_trace(timestamped_dir)
 
-                    # Also save to snapshot_storage so other agents can access it
-                    # via temp_workspace when they receive context updates
-                    if agent.backend.filesystem_manager and agent.backend.filesystem_manager.snapshot_storage:
-                        snapshot_storage = agent.backend.filesystem_manager.snapshot_storage
-                        snapshot_storage.mkdir(parents=True, exist_ok=True)
-                        agent.backend._save_execution_trace(snapshot_storage)
-                        logger.debug(
-                            f"[Orchestrator._save_agent_snapshot] Saved execution trace to snapshot_storage: {snapshot_storage}",
-                        )
-            except Exception as te:
-                logger.warning(
-                    f"[Orchestrator._save_agent_snapshot] Failed to save execution trace for {agent_id}: {te}",
-                )
+                # Also save to snapshot_storage so other agents can access it
+                # via temp_workspace when they receive context updates
+                if agent.backend.filesystem_manager and agent.backend.filesystem_manager.snapshot_storage:
+                    snapshot_storage = agent.backend.filesystem_manager.snapshot_storage
+                    snapshot_storage.mkdir(parents=True, exist_ok=True)
+                    agent.backend._save_execution_trace(snapshot_storage)
+                    logger.debug(
+                        f"[Orchestrator._save_agent_snapshot] Saved execution trace to snapshot_storage: {snapshot_storage}",
+                    )
+        except Exception as te:
+            logger.warning(
+                f"[Orchestrator._save_agent_snapshot] Failed to save execution trace for {agent_id}: {te}",
+            )
 
         # Return the timestamp for tracking
         return timestamp if not is_final else "final"
+
+    async def _save_partial_snapshots_for_early_termination(self) -> None:
+        """Persist per-agent partial snapshots when orchestration ends before answer/vote."""
+        for agent_id, state in self.agent_states.items():
+            if state.is_killed:
+                continue
+            try:
+                await self._save_agent_snapshot(
+                    agent_id=agent_id,
+                    answer_content=None,
+                    vote_data=None,
+                    is_final=False,
+                    context_data=self.get_last_context(agent_id),
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[Orchestrator] Failed to save early-termination snapshot for {agent_id}: {e}",
+                )
+
+    def _save_partial_execution_traces_for_interrupted_turn(self) -> None:
+        """Best-effort trace persistence for interrupted turns (e.g., cancellation)."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        log_session_dir = get_log_session_dir()
+
+        for agent_id, agent in self.agents.items():
+            backend = getattr(agent, "backend", None)
+            if not backend or not hasattr(backend, "_save_execution_trace"):
+                continue
+
+            try:
+                if log_session_dir:
+                    trace_dir = log_session_dir / agent_id / timestamp
+                    trace_dir.mkdir(parents=True, exist_ok=True)
+                    backend._save_execution_trace(trace_dir)
+
+                if backend.filesystem_manager and backend.filesystem_manager.snapshot_storage:
+                    snapshot_storage = backend.filesystem_manager.snapshot_storage
+                    snapshot_storage.mkdir(parents=True, exist_ok=True)
+                    backend._save_execution_trace(snapshot_storage)
+            except Exception as e:
+                logger.warning(
+                    f"[Orchestrator] Failed to save interrupted-turn trace for {agent_id}: {e}",
+                )
 
     def get_last_context(self, agent_id: str) -> Any:
         """Get the last context for an agent, or None if not available."""
@@ -6728,22 +6775,32 @@ Your answer:"""
             return
 
         self._ensure_runtime_human_input_hook_initialized()
+        _inj_emitter = get_event_emitter()
         for msg in messages:
             content = msg["content"] if isinstance(msg, dict) else msg
             target_agents = msg.get("target_agents") if isinstance(msg, dict) else None
             source = msg.get("source") if isinstance(msg, dict) else None
+            source_label = str(source or "parent")
             logger.info(
-                "[Orchestrator] Injecting runtime inbox message: '%s' (target=%s, source=%s)",
-                content[:80],
-                target_agents,
-                source,
+                f"[Orchestrator] Injecting runtime inbox message: '{content[:80]}' " f"(target={target_agents}, source={source_label})",
             )
             if self._human_input_hook:
                 self._human_input_hook.set_pending_input(
                     content,
                     target_agents=target_agents,
-                    source=str(source or "parent"),
+                    source=source_label,
                 )
+            if _inj_emitter:
+                if isinstance(target_agents, list):
+                    recipient_agent_ids = [aid for aid in target_agents if isinstance(aid, str) and aid.strip()]
+                else:
+                    recipient_agent_ids = list(self.agents.keys())
+                for recipient_agent_id in dict.fromkeys(recipient_agent_ids):
+                    _inj_emitter.emit_injection_received(
+                        agent_id=recipient_agent_id,
+                        source_agents=[source_label],
+                        injection_type="runtime_inbox_input",
+                    )
 
     @staticmethod
     def _try_parse_json_dict_from_text(raw_text: str | None) -> dict[str, Any] | None:
@@ -10902,6 +10959,7 @@ Your answer:"""
 
         if not self._selected_agent:
             error_msg = "❌ Unable to provide coordinated answer - no successful agents"
+            await self._save_partial_snapshots_for_early_termination()
             self.add_to_history("assistant", error_msg)
             log_stream_chunk("orchestrator", "error", error_msg)
             yield StreamChunk(type="content", content=error_msg)
@@ -11246,6 +11304,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
         # If no answers available, provide fallback with timeout explanation
         if len(available_answers) == 0:
+            await self._save_partial_snapshots_for_early_termination()
             log_stream_chunk(
                 "orchestrator",
                 "error",
@@ -13427,6 +13486,10 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             >>> if partial:
             ...     save_partial_turn(session_id, turn, task, partial)
         """
+        # Best-effort trace flush for cancellation/interrupt flows where snapshot
+        # code paths may not have run yet.
+        self._save_partial_execution_traces_for_interrupted_turn()
+
         # Collect any answers that have been submitted
         answers = {}
         for agent_id, state in self.agent_states.items():
