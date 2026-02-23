@@ -896,6 +896,11 @@ class TextualTerminalDisplay(TerminalDisplay):
         if self._app and hasattr(self._app, "set_subagent_message_callback"):
             self._app.set_subagent_message_callback(callback)
 
+    def set_subagent_continue_callback(self, callback) -> None:
+        """Set the callback for continuing terminal subagents from TUI."""
+        if self._app and hasattr(self._app, "set_subagent_continue_callback"):
+            self._app.set_subagent_continue_callback(callback)
+
     def initialize(self, question: str, log_filename: str | None = None):
         """Initialize display with file output."""
         self.question = question
@@ -3558,6 +3563,7 @@ if TEXTUAL_AVAILABLE:
             self._queued_human_input: str | None = None
             self._human_input_hook = None  # Set by orchestrator via set_human_input_hook()
             self._subagent_message_callback = None  # Set by orchestrator via set_subagent_message_callback()
+            self._subagent_continue_callback = None  # Set by orchestrator via set_subagent_continue_callback()
             self._queued_input_banner: QueuedInputBanner | None = None
             self._queued_input_region: Container | None = None
             self._queued_input_row: Horizontal | None = None
@@ -4859,6 +4865,7 @@ if TEXTUAL_AVAILABLE:
                     self._queued_input_banner.add_message(
                         str(latest.get("content", "")),
                         target_label=str(latest.get("target_label", "all agents")),
+                        source_label=str(latest.get("source_label", latest.get("source", "human"))),
                     )
                 else:
                     self._queued_input_banner.clear()
@@ -4930,6 +4937,7 @@ if TEXTUAL_AVAILABLE:
                 queued_message_id = self._human_input_hook.set_pending_input(
                     text,
                     target_agents=targets if targets else None,
+                    source="human",
                 )
 
             # Show visual indicator - mount banner dynamically if not present
@@ -5008,6 +5016,7 @@ if TEXTUAL_AVAILABLE:
             content: str,
             *,
             message_id: int | None = None,
+            source_label: str | None = None,
         ) -> None:
             """Insert a dedicated timeline entry when runtime input is injected."""
             panel = self.agent_widgets.get(agent_id)
@@ -5018,6 +5027,8 @@ if TEXTUAL_AVAILABLE:
                 timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                 round_number = getattr(panel, "_current_round", 1)
                 prefix = f"Runtime Injection #{message_id}" if message_id is not None else "Runtime Injection"
+                if source_label:
+                    prefix = f"{prefix} [{source_label}]"
                 timeline.add_text(
                     f"{prefix} -> Delivered to {agent_id}: {content}",
                     text_class="status runtime-injection",
@@ -5052,6 +5063,7 @@ if TEXTUAL_AVAILABLE:
                         agent_id,
                         str(message.get("content", "")),
                         message_id=normalized_id,
+                        source_label=str(message.get("source_label") or message.get("source") or "").strip() or None,
                     )
             else:
                 self._add_runtime_injection_timeline_entry(agent_id, content)
@@ -5092,6 +5104,10 @@ if TEXTUAL_AVAILABLE:
         def set_subagent_message_callback(self, callback) -> None:
             """Set the callback for sending messages to running subagents."""
             self._subagent_message_callback = callback
+
+        def set_subagent_continue_callback(self, callback) -> None:
+            """Set callback for continuing terminal subagents from SubagentScreen."""
+            self._subagent_continue_callback = callback
 
         def _submit_question(
             self,
@@ -6048,6 +6064,7 @@ Type your question and press Enter to ask the agents.
                 status_callback=lambda sid=subagent_id: self._get_precollab_subagent(sid),
                 auto_return_on_completion=auto_return_on_completion,
                 send_message_callback=self._subagent_message_callback,
+                continue_subagent_callback=getattr(self, "_subagent_continue_callback", None),
             )
             self.push_screen(screen)
             return True
@@ -7741,6 +7758,7 @@ Type your question and press Enter to ask the agents.
                                     all_subagents=card.subagents,
                                     status_callback=self._build_subagent_status_callback(card),
                                     send_message_callback=self._subagent_message_callback,
+                                    continue_subagent_callback=getattr(self, "_subagent_continue_callback", None),
                                 )
                                 self.push_screen(screen)
                                 return
@@ -7750,6 +7768,7 @@ Type your question and press Enter to ask the agents.
                                 all_subagents=card.subagents,
                                 status_callback=self._build_subagent_status_callback(card),
                                 send_message_callback=self._subagent_message_callback,
+                                continue_subagent_callback=getattr(self, "_subagent_continue_callback", None),
                             )
                             self.push_screen(screen)
                             return
@@ -9632,6 +9651,7 @@ Type your question and press Enter to ask the agents.
                 all_subagents=event.all_subagents,
                 status_callback=status_callback,
                 send_message_callback=self._subagent_message_callback,
+                continue_subagent_callback=getattr(self, "_subagent_continue_callback", None),
             )
             self.push_screen(screen, _on_screen_dismiss)
             event.stop()

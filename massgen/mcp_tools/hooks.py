@@ -1568,10 +1568,20 @@ class RuntimeInboxPoller:
         self._min_poll_interval = min_poll_interval
         self._last_poll_time: float = 0.0
 
+    @staticmethod
+    def _normalize_source(value: Any) -> str:
+        """Normalize runtime message source labels for downstream display."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized:
+                return normalized
+        # Runtime inbox messages originate from parent process by default.
+        return "parent"
+
     def poll(self) -> list[dict]:
         """Poll inbox for new messages.
 
-        Returns list of dicts with 'content' and 'target_agents' keys.
+        Returns list of dicts with 'content', 'target_agents', and 'source' keys.
         target_agents is None for messages that don't specify a target
         (broadcast to all inner agents).
         """
@@ -1595,6 +1605,7 @@ class RuntimeInboxPoller:
                     {
                         "content": data.get("content", ""),
                         "target_agents": data.get("target_agents"),
+                        "source": self._normalize_source(data.get("source")),
                     },
                 )
                 f.unlink()
@@ -1644,6 +1655,15 @@ class HumanInputHook(PatternHook):
         self._next_message_id: int = 1
 
     @staticmethod
+    def _normalize_source(value: str | None) -> str:
+        """Normalize queued runtime source for storage/display."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized:
+                return normalized
+        return "human"
+
+    @staticmethod
     def _call_compat(callback: Callable[..., None], label: str, *args: Any) -> None:
         """Call a callback with backward-compatible argument count.
 
@@ -1664,6 +1684,7 @@ class HumanInputHook(PatternHook):
         self,
         content: str,
         target_agents: list[str] | None = None,
+        source: str = "human",
     ) -> int | None:
         """Queue human input for injection into selected agents' next tool results.
 
@@ -1675,6 +1696,7 @@ class HumanInputHook(PatternHook):
             content: The human input text to inject
             target_agents: Optional list of explicit target agent IDs.
                 ``None`` keeps legacy broadcast behavior.
+            source: Runtime input source label for TUI context (e.g., ``human``, ``parent``).
         """
         normalized_targets: set[str] | None = None
         if target_agents is not None:
@@ -1682,6 +1704,7 @@ class HumanInputHook(PatternHook):
             if not normalized_targets:
                 logger.debug("[HumanInputHook] Ignoring empty targeted input queue request")
                 return None
+        normalized_source = self._normalize_source(source)
 
         with self._lock:
             message_id = self._next_message_id
@@ -1692,12 +1715,13 @@ class HumanInputHook(PatternHook):
                     "target_agents": normalized_targets,
                     "injected_agents": set(),
                     "created_at": datetime.now(timezone.utc).isoformat(),
+                    "source": normalized_source,
                 },
             )
             self._next_message_id += 1
             target_label = "all agents" if normalized_targets is None else ",".join(sorted(normalized_targets))
             logger.info(
-                f"[HumanInputHook] QUEUED message #{len(self._pending_messages)}: " f"'{content[:50]}...' (len={len(content)}), targets={target_label}",
+                f"[HumanInputHook] QUEUED message #{len(self._pending_messages)}: " f"'{content[:50]}...' (len={len(content)}), targets={target_label}, source={normalized_source}",
             )
         if self._on_queue_callback:
             normalized_callback_targets = sorted(normalized_targets) if normalized_targets is not None else None
@@ -1707,6 +1731,7 @@ class HumanInputHook(PatternHook):
                 content,
                 normalized_callback_targets,
                 message_id,
+                normalized_source,
             )
         return message_id
 
@@ -1781,6 +1806,7 @@ class HumanInputHook(PatternHook):
                 else:
                     pending_agents = sorted([aid for aid in target_agents if aid not in injected_agents])
                     target_label = ", ".join(sorted(target_agents))
+                source_label = self._normalize_source(msg.get("source"))
 
                 pending_messages.append(
                     {
@@ -1790,6 +1816,8 @@ class HumanInputHook(PatternHook):
                         "pending_agents": pending_agents,
                         "pending_count": len(pending_agents),
                         "created_at": msg.get("created_at"),
+                        "source": source_label,
+                        "source_label": source_label,
                     },
                 )
 
@@ -1804,11 +1832,14 @@ class HumanInputHook(PatternHook):
                     continue
                 removed = self._pending_messages.pop(index)
                 target_agents = removed.get("target_agents")
+                source_label = self._normalize_source(removed.get("source"))
                 return {
                     "id": removed.get("id"),
                     "content": removed.get("content", ""),
                     "target_label": "all agents" if target_agents is None else ", ".join(sorted(target_agents)),
                     "created_at": removed.get("created_at"),
+                    "source": source_label,
+                    "source_label": source_label,
                 }
         return None
 
@@ -1916,6 +1947,8 @@ class HumanInputHook(PatternHook):
                             "content": msg.get("content", ""),
                             "created_at": msg.get("created_at"),
                             "delivered_at": datetime.now(timezone.utc).isoformat(),
+                            "source": self._normalize_source(msg.get("source")),
+                            "source_label": self._normalize_source(msg.get("source")),
                         },
                     )
                     msg["injected_agents"].add(agent_id)

@@ -330,20 +330,26 @@ async def understand_image(
 
             # Route to the agent's native backend if it supports image understanding
             if backend_type and has_capability(backend_type, "image_understanding"):
-                logger.info(f"[understand_image] Using native backend: {backend_type}")
-                if backend_type == "claude":
-                    response_text = await call_claude(loaded_images, augmented_prompt, model)
-                elif backend_type == "gemini":
-                    response_text = await call_gemini(loaded_images, augmented_prompt, model)
-                elif backend_type == "grok":
-                    response_text = await call_grok(loaded_images, augmented_prompt, model)
-                elif backend_type == "claude_code":
-                    response_text = await call_claude_code(loaded_images, augmented_prompt, model, agent_cwd)
-                elif backend_type == "codex":
-                    response_text = await call_codex(loaded_images, augmented_prompt, agent_cwd)
-                else:
-                    # openai, response, chatcompletion, azure_openai, openrouter, uitars — all OpenAI-compatible
-                    response_text = await call_openai(loaded_images, augmented_prompt, model)
+                try:
+                    logger.info(f"[understand_image] Using native backend: {backend_type}")
+                    if backend_type == "claude":
+                        response_text = await call_claude(loaded_images, augmented_prompt, model)
+                    elif backend_type == "gemini":
+                        response_text = await call_gemini(loaded_images, augmented_prompt, model)
+                    elif backend_type == "grok":
+                        response_text = await call_grok(loaded_images, augmented_prompt, model)
+                    elif backend_type == "claude_code":
+                        response_text = await call_claude_code(loaded_images, augmented_prompt, model, agent_cwd)
+                    elif backend_type == "codex":
+                        response_text = await call_codex(loaded_images, augmented_prompt, agent_cwd)
+                    else:
+                        # openai, response, chatcompletion, azure_openai, openrouter, uitars — all OpenAI-compatible
+                        response_text = await call_openai(loaded_images, augmented_prompt, model)
+                except Exception as native_err:
+                    logger.warning(
+                        f"[understand_image] Native backend {backend_type} failed: {native_err}. " "Falling back to OpenAI gpt-5.2",
+                    )
+                    response_text = await call_openai(loaded_images, augmented_prompt, "gpt-5.2")
             else:
                 # Fallback: OpenAI default (backward compat)
                 logger.info(

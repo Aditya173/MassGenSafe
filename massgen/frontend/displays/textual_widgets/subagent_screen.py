@@ -42,7 +42,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
-from textual.widgets import Button, Static
+from textual.widgets import Button, Input, Static
 
 from massgen.events import EventReader, MassGenEvent
 from massgen.subagent.models import SubagentDisplayData, SubagentResult
@@ -304,6 +304,95 @@ class ReturnToMainPromptModal(ModalScreen[bool]):
 
     def action_stay_here(self) -> None:
         self.dismiss(False)
+
+
+class ContinueSubagentModal(ModalScreen[str | None]):
+    """Prompt for a continuation message for a completed/failed subagent."""
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    ContinueSubagentModal {
+        align: center middle;
+    }
+
+    ContinueSubagentModal #continue_subagent_container {
+        width: 78;
+        max-width: 96%;
+        height: auto;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    ContinueSubagentModal #continue_subagent_title {
+        color: $primary;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    ContinueSubagentModal #continue_subagent_hint {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    ContinueSubagentModal #continue_subagent_input {
+        margin-bottom: 1;
+    }
+
+    ContinueSubagentModal #continue_subagent_actions {
+        height: auto;
+    }
+
+    ContinueSubagentModal #continue_subagent_actions Button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(self, subagent_id: str) -> None:
+        super().__init__()
+        self._subagent_id = subagent_id
+
+    def compose(self) -> ComposeResult:
+        with Container(id="continue_subagent_container"):
+            yield Static(f"Continue subagent `{self._subagent_id}`", id="continue_subagent_title")
+            yield Static("Add instructions for the next continuation turn.", id="continue_subagent_hint")
+            yield Input(
+                placeholder="e.g. Continue and focus on edge cases...",
+                id="continue_subagent_input",
+            )
+            with Horizontal(id="continue_subagent_actions"):
+                yield Button("Continue", id="continue_subagent_confirm", variant="primary")
+                yield Button("Cancel", id="continue_subagent_cancel")
+
+    def on_mount(self) -> None:
+        try:
+            self.query_one("#continue_subagent_input", Input).focus()
+        except Exception as e:
+            tui_log(f"[SubagentScreen] {e}")
+
+    def _submit(self) -> None:
+        try:
+            content = self.query_one("#continue_subagent_input", Input).value.strip()
+        except Exception:
+            content = ""
+        if not content:
+            return
+        self.dismiss(content)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "continue_subagent_input":
+            self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "continue_subagent_confirm":
+            self._submit()
+            return
+        if event.button.id == "continue_subagent_cancel":
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class _FooterAction(Static, can_focus=True):
@@ -838,6 +927,18 @@ class SubagentView(Container):
     SubagentView #subagent-queue-spacer {
         height: 1;
     }
+
+    SubagentView #subagent-continue-row {
+        height: auto;
+        width: 100%;
+        padding: 0 1;
+        margin: 0 0 1 0;
+    }
+
+    SubagentView #continue_subagent_button {
+        width: auto;
+        min-width: 14;
+    }
     """
 
     # Polling interval for live updates
@@ -852,6 +953,7 @@ class SubagentView(Container):
         auto_return_prompt_delay_seconds: float = 2.0,
         auto_return_timeout_seconds: int = 8,
         send_message_callback: Callable[..., bool] | None = None,
+        continue_subagent_callback: Callable[..., bool] | None = None,
         id: str | None = None,
     ) -> None:
         """Initialize the subagent screen.
@@ -862,6 +964,8 @@ class SubagentView(Container):
             status_callback: Callback to get updated status
             send_message_callback: Callback(subagent_id, content, target_agents=...) to send a message
                 to a running subagent
+            continue_subagent_callback: Callback(subagent_id, message) to continue
+                a completed/failed subagent
         """
         super().__init__(id=id)
         self._subagent = subagent
@@ -876,6 +980,7 @@ class SubagentView(Container):
 
         self._status_callback = status_callback
         self._send_message_callback = send_message_callback
+        self._continue_subagent_callback = continue_subagent_callback
         self._poll_timer: Timer | None = None
         self._event_reader: EventReader | None = None
         self._round_number = 1
@@ -917,6 +1022,7 @@ class SubagentView(Container):
         self._queued_runtime_messages: list[dict[str, Any]] = []
         self._queued_runtime_pending_by_agent: dict[str, int] = {}
         self._next_runtime_message_id: int = 1
+        self._continue_subagent_button: Button | None = None
 
     def _build_unique_tab_ids(self) -> list[str]:
         """Build unique tab IDs from subagent list, disambiguating duplicates."""
@@ -1096,6 +1202,13 @@ class SubagentView(Container):
             except Exception:
                 self._queue_clear_button = None
             self._refresh_runtime_queue_banner()
+
+        if self._continue_subagent_callback:
+            try:
+                self._continue_subagent_button = self.query_one("#continue_subagent_button", Button)
+            except Exception:
+                self._continue_subagent_button = None
+            self._refresh_continue_button_visibility()
 
         # Mount one timeline per inner agent
         if self._panel:
@@ -1610,6 +1723,7 @@ class SubagentView(Container):
             index_to_tab = {v: k for k, v in self._tab_id_to_index.items()} if hasattr(self, "_tab_id_to_index") else {}
             tab_id = index_to_tab.get(self._current_index, self._subagent.id)
             self._tab_bar.update_agent_status(tab_id, self._tab_status(status))
+        self._refresh_continue_button_visibility()
 
     def _set_cancelled_state_class(self, normalized_status: str) -> None:
         """Mirror main-screen cancelled treatment for subagent full-screen view."""
@@ -1979,6 +2093,9 @@ class SubagentView(Container):
         elif event.button.id == "queue_clear_button":
             event.stop()
             self._clear_runtime_queue_messages()
+        elif event.button.id == "continue_subagent_button":
+            event.stop()
+            self._open_continue_subagent_modal()
 
     def _set_runtime_queue_region_visible(self, visible: bool) -> None:
         if self._queued_runtime_region is None:
@@ -2040,7 +2157,7 @@ class SubagentView(Container):
                 tui_log(f"[SubagentScreen] Failed to update runtime queue banner: {e}")
         self._set_runtime_queue_region_visible(bool(self._queued_runtime_messages))
 
-    def _queue_runtime_message(self, content: str, target: str) -> None:
+    def _queue_runtime_message(self, content: str, target: str, source_label: str = "parent") -> None:
         if target == "all":
             pending_agents = list(self._inner_agents)
             if not pending_agents:
@@ -2056,6 +2173,7 @@ class SubagentView(Container):
             "id": self._next_runtime_message_id,
             "content": content,
             "target_label": target_label,
+            "source_label": source_label,
             "pending_agents": unique_pending,
         }
         self._next_runtime_message_id += 1
@@ -2079,6 +2197,70 @@ class SubagentView(Container):
         self._queued_runtime_pending_by_agent = {}
         self._refresh_runtime_queue_banner()
         self.notify("Cleared queued runtime messages", timeout=2)
+
+    def _refresh_continue_button_visibility(self) -> None:
+        """Show continue control only when subagent is not actively running."""
+        if self._continue_subagent_button is None:
+            return
+        is_running = self._subagent.status in ("running", "pending")
+        self._continue_subagent_button.display = not is_running
+        self._continue_subagent_button.disabled = is_running
+
+    def _open_continue_subagent_modal(self) -> None:
+        """Open modal prompt for continuation message."""
+        if not self._continue_subagent_callback:
+            return
+
+        def _on_dismiss(message: str | None) -> None:
+            if not message:
+                return
+            self._continue_subagent_with_message(message)
+
+        try:
+            self.app.push_screen(
+                ContinueSubagentModal(self._subagent.id),
+                _on_dismiss,
+            )
+        except Exception as e:
+            self.notify(f"Cannot open continue prompt: {e}", severity="error", timeout=3)
+
+    def _continue_subagent_with_message(self, message: str) -> bool:
+        """Continue this subagent with a user-provided message."""
+        normalized = (message or "").strip()
+        if not normalized:
+            self.notify("Continue message cannot be empty", severity="warning", timeout=2)
+            return False
+        if not self._continue_subagent_callback:
+            self.notify("Continue callback unavailable", severity="warning", timeout=2)
+            return False
+
+        try:
+            success = bool(self._continue_subagent_callback(self._subagent.id, normalized))
+        except Exception as e:
+            self.notify(f"Failed to continue subagent: {e}", severity="warning", timeout=3)
+            return False
+
+        if not success:
+            self.notify("Failed to continue subagent", severity="warning", timeout=3)
+            return False
+
+        self._subagent.status = "running"
+        self._subagent.error = None
+        self._subagent.elapsed_seconds = 0.0
+        self._terminal_status_notes.clear()
+        self._update_status_display()
+
+        try:
+            input_bar = self.query_one("#subagent-input-bar")
+            input_bar.display = True
+        except Exception:
+            pass
+
+        if self._poll_timer is None:
+            self._poll_timer = self.set_interval(self.POLL_INTERVAL, self._poll_updates)
+
+        self.notify("Continuing subagent...", timeout=2)
+        return True
 
     @staticmethod
     def _normalize_runtime_message_text(raw: str) -> str:
@@ -2166,7 +2348,7 @@ class SubagentView(Container):
         else:
             success = self._send_message_callback(subagent_id, event.value, target_agents=[target])
         if success:
-            self._queue_runtime_message(event.value, target=target)
+            self._queue_runtime_message(event.value, target=target, source_label="parent")
             label = "all agents" if target == "all" else target
             self.notify(f"Message sent to {label}", timeout=2)
         else:
@@ -2493,6 +2675,7 @@ class SubagentScreen(Screen):
         status_callback: Callable[[str], SubagentDisplayData | None] | None = None,
         auto_return_on_completion: bool = False,
         send_message_callback: Callable[..., bool] | None = None,
+        continue_subagent_callback: Callable[..., bool] | None = None,
     ) -> None:
         super().__init__()
         self._subagent = subagent
@@ -2500,6 +2683,7 @@ class SubagentScreen(Screen):
         self._status_callback = status_callback
         self._auto_return_on_completion = auto_return_on_completion
         self._send_message_callback = send_message_callback
+        self._continue_subagent_callback = continue_subagent_callback
 
     def compose(self) -> ComposeResult:
         yield SubagentView(
@@ -2508,6 +2692,7 @@ class SubagentScreen(Screen):
             status_callback=self._status_callback,
             auto_return_on_completion=self._auto_return_on_completion,
             send_message_callback=self._send_message_callback,
+            continue_subagent_callback=self._continue_subagent_callback,
             id="subagent-view",
         )
 

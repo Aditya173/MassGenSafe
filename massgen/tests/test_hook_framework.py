@@ -626,6 +626,30 @@ class TestHumanInputHook:
             ),
         ]
 
+    def test_queue_callback_receives_source_when_supported(self):
+        hook = HumanInputHook()
+        captured: list[tuple[str, list[str] | None, int | None, str]] = []
+
+        hook.set_queue_callback(
+            lambda content, target_agents, message_id, source: captured.append(
+                (content, target_agents, message_id, source),
+            ),
+        )
+        message_id = hook.set_pending_input(
+            "Queued callback payload",
+            target_agents=["agent_a"],
+            source="parent",
+        )
+
+        assert captured == [
+            (
+                "Queued callback payload",
+                ["agent_a"],
+                message_id,
+                "parent",
+            ),
+        ]
+
     @pytest.mark.asyncio
     async def test_pending_messages_snapshot_and_pop_latest(self):
         hook = HumanInputHook()
@@ -650,6 +674,20 @@ class TestHumanInputHook:
 
         pending_after = hook.get_pending_messages(agent_ids=["agent_a", "agent_b"])
         assert [entry["id"] for entry in pending_after] == [first_id]
+
+    def test_pending_messages_include_source_label(self):
+        hook = HumanInputHook()
+        msg_id = hook.set_pending_input(
+            "From parent",
+            target_agents=["agent_a"],
+            source="parent",
+        )
+
+        pending = hook.get_pending_messages(agent_ids=["agent_a"])
+        assert len(pending) == 1
+        assert pending[0]["id"] == msg_id
+        assert pending[0]["source"] == "parent"
+        assert pending[0]["source_label"] == "parent"
 
     @pytest.mark.asyncio
     async def test_inject_callback_receives_per_message_delivery_metadata(self):
@@ -1797,6 +1835,27 @@ class TestRuntimeInboxPoller:
 
         second = poller.poll()
         assert second == [], "Second poll within min_poll_interval should return empty"
+
+    def test_poll_returns_source_field(self, tmp_path):
+        """Poll should preserve the message source for TUI labeling."""
+        from massgen.mcp_tools.hooks import RuntimeInboxPoller
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+
+        msg = {
+            "content": "from parent",
+            "source": "parent",
+            "timestamp": "2025-01-01T00:00:00Z",
+        }
+        (inbox / "msg_1740000000_0.json").write_text(json.dumps(msg))
+
+        poller = RuntimeInboxPoller(inbox_dir=inbox, min_poll_interval=0.0)
+        messages = poller.poll()
+
+        assert len(messages) == 1
+        assert messages[0]["content"] == "from parent"
+        assert messages[0]["source"] == "parent"
 
     def test_poll_skips_malformed_json(self, tmp_path):
         """Bad JSON file is skipped (not consumed), valid ones returned."""

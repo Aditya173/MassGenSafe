@@ -275,6 +275,38 @@ class TestUnderstandImageRouting:
 
             mock_openai.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_falls_back_to_openai_on_native_error(self, fake_image):
+        """If native backend raises an error, falls back to OpenAI gpt-5.2."""
+        from massgen.tool._multimodal_tools.understand_image import understand_image
+
+        with (
+            patch("massgen.tool._multimodal_tools.understand_image.call_claude", new_callable=AsyncMock) as mock_claude,
+            patch("massgen.tool._multimodal_tools.understand_image.call_openai", new_callable=AsyncMock) as mock_openai,
+            patch("massgen.tool._multimodal_tools.understand_image._load_and_process_image") as mock_load,
+        ):
+            mock_load.return_value = _make_loaded_image()
+            mock_claude.side_effect = Exception("Model does not support image input")
+            mock_openai.return_value = "OpenAI fallback after error"
+
+            result = await understand_image(
+                image_path=str(fake_image),
+                prompt="describe",
+                backend_type="claude",
+                model="claude-haiku-3",
+            )
+
+            # Native backend was attempted
+            mock_claude.assert_called_once()
+            # Fell back to OpenAI
+            mock_openai.assert_called_once()
+            call_args = mock_openai.call_args
+            assert call_args[0][2] == "gpt-5.2"
+            # Result should still be successful
+            data = json.loads(result.output_blocks[0].data)
+            assert data["success"]
+            assert data["response"] == "OpenAI fallback after error"
+
 
 # ---------------------------------------------------------------------------
 # Wiring tests - verify read_media passes backend_type to understand_image
@@ -665,7 +697,7 @@ class TestSandboxSecurity:
         # web_search should be disabled via -c flag
         assert "-c" in cmd, "Missing -c flag for web_search"
         c_idx = cmd.index("-c")
-        assert "web_search" in cmd[c_idx + 1] and "false" in cmd[c_idx + 1], f"web_search not disabled in -c arg: {cmd[c_idx + 1]}"
+        assert "web_search" in cmd[c_idx + 1] and "disabled" in cmd[c_idx + 1], f"web_search not disabled in -c arg: {cmd[c_idx + 1]}"
 
     @pytest.mark.asyncio
     async def test_codex_sets_codex_home_env(self):

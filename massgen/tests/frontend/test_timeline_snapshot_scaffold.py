@@ -639,7 +639,7 @@ def test_timeline_snapshot_real_tui_subagent_runtime_injection_queue(
         snapshot_text,
     )
     running_y_match = re.search(
-        r'<text[^>]* y="([0-9.]+)"[^>]*>Running&#160;\(0s\)&#160;&#160;</text>',
+        r'<text[^>]* y="([0-9.]+)"[^>]*>Running&#160;\([0-9]+s\)&#160;&#160;</text>',
         snapshot_text,
     )
     assert queue_y_match is not None

@@ -168,6 +168,15 @@ def test_usage_instructions_mention_skill_hierarchy() -> None:
     assert "section" in lower or "sub-capabilit" in lower or "hierarchi" in lower
 
 
+def test_usage_instructions_include_workspace_and_home_skill_paths() -> None:
+    """Usage instructions should mention both workspace and home skills paths."""
+    section = SkillsSection(SKILLS)
+    content = section.build_content()
+
+    assert ".agent/skills/" in content
+    assert "~/.agent/skills/" in content
+
+
 # ---------------------------------------------------------------------------
 # Organization prompt: hierarchical merging and richer registry
 # ---------------------------------------------------------------------------

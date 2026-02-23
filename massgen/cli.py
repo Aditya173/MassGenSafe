@@ -9604,7 +9604,7 @@ Environment Variables:
     parser.add_argument(
         "--setup-skills",
         action="store_true",
-        help="Install skills (openskills CLI, Anthropic/OpenAI/Vercel collections, Agent Browser skill, Crawl4AI)",
+        help="Install skills (openskills CLI, Anthropic/OpenAI/Vercel collections, Agent Browser skill, Remotion, Crawl4AI)",
     )
     parser.add_argument(
         "--setup-docker",

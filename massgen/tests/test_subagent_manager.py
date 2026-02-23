@@ -14,7 +14,9 @@ Tests for runtime message routing (MAS-310):
 - get_running_subagent_ids
 """
 
+import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -1156,3 +1158,114 @@ class TestGetRunningSubagentIds:
 
         running = manager.get_running_subagent_ids()
         assert sorted(running) == ["a", "c"]
+
+
+class _FakeContinueProcess:
+    """Minimal async subprocess stub for continue_subagent tests."""
+
+    def __init__(self, workspace: Path) -> None:
+        self.returncode = 0
+        self._workspace = workspace
+
+    async def communicate(self):
+        answer_file = self._workspace / "answer_continued.txt"
+        answer_file.write_text("continued answer")
+        return b"", b""
+
+    def terminate(self) -> None:
+        return None
+
+    def kill(self) -> None:
+        return None
+
+    async def wait(self) -> int:
+        return 0
+
+
+class TestContinueSubagent:
+    """Tests for SubagentManager.continue_subagent()."""
+
+    @pytest.mark.asyncio
+    async def test_continue_updates_in_memory_state_and_listed_status(self, tmp_path, monkeypatch):
+        from massgen.subagent.manager import SubagentManager
+        from massgen.subagent.models import SubagentState
+
+        workspace = tmp_path / "workspace"
+        manager = SubagentManager(
+            parent_workspace=str(workspace),
+            parent_agent_id="test-agent",
+            orchestrator_id="test-orch",
+            parent_agent_configs=[],
+        )
+
+        sub_workspace = workspace / "subagents" / "sub1" / "workspace"
+        sub_workspace.mkdir(parents=True, exist_ok=True)
+
+        config = SubagentConfig(id="sub1", task="research topic", parent_agent_id="test-agent")
+        cancelled_result = SubagentResult.create_error(
+            subagent_id="sub1",
+            error="Subagent cancelled",
+            workspace_path=str(sub_workspace),
+            execution_time_seconds=2.0,
+        )
+        manager._subagents["sub1"] = SubagentState(
+            config=config,
+            status="cancelled",
+            workspace_path=str(sub_workspace),
+            started_at=datetime.now(),
+            finished_at=datetime.now(),
+            result=cancelled_result,
+        )
+        manager._subagent_sessions["sub1"] = "sess-old"
+
+        registry = {
+            "parent_agent_id": "test-agent",
+            "orchestrator_id": "test-orch",
+            "subagents": [
+                {
+                    "subagent_id": "sub1",
+                    "session_id": "sess-old",
+                    "task": "research topic",
+                    "status": "cancelled",
+                    "workspace": str(sub_workspace),
+                    "created_at": datetime.now().isoformat(),
+                    "execution_time_seconds": 2.0,
+                    "success": False,
+                    "continuable": True,
+                    "source_agent": "test-agent",
+                },
+            ],
+        }
+        registry_path = manager.subagents_base / "_registry.json"
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(json.dumps(registry, indent=2))
+
+        async def _fake_create_subprocess_exec(*args, **kwargs):  # noqa: ANN002, ANN003
+            del args, kwargs
+            return _FakeContinueProcess(sub_workspace)
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+        monkeypatch.setattr(manager, "_resolve_effective_runtime_mode", lambda: ("inherited", None))
+        monkeypatch.setattr(manager, "_parse_subprocess_status", lambda _workspace: ({}, None, "sess-new"))
+        monkeypatch.setattr(manager, "_write_subprocess_log_reference", lambda *args, **kwargs: None)
+
+        result = await manager.continue_subagent(
+            subagent_id="sub1",
+            new_message="continue with more depth",
+        )
+
+        assert result.success is True
+        assert result.status == "completed"
+        assert result.answer == "continued answer"
+
+        state = manager._subagents["sub1"]
+        assert state.status == "completed"
+        assert state.result is not None
+        assert state.result.status == "completed"
+        assert state.result.answer == "continued answer"
+        assert state.finished_at is not None
+        assert manager._subagent_sessions["sub1"] == "sess-new"
+
+        listed = {entry["subagent_id"]: entry for entry in manager.list_subagents()}
+        assert listed["sub1"]["status"] == "completed"
+        assert listed["sub1"]["session_id"] == "sess-new"

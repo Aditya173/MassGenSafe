@@ -582,6 +582,12 @@ const DEFAULT_SKILL_PACKAGES: SkillPackage[] = [
     installed: false,
   },
   {
+    id: 'remotion',
+    name: 'Remotion Skill',
+    description: 'Video generation and editing skill powered by Remotion.',
+    installed: false,
+  },
+  {
     id: 'crawl4ai',
     name: 'Crawl4AI',
     description: 'Web crawling and scraping skill for extracting content from websites.',

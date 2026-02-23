@@ -354,6 +354,38 @@ def test_send_runtime_message_to_subagent_uses_backend_mcp_executor(mock_orchest
     ]
 
 
+def test_continue_subagent_uses_backend_mcp_executor(mock_orchestrator):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+    backend = agent.backend
+    captured_calls: list[tuple[str, dict]] = []
+
+    async def _fake_execute(function_name, arguments_json, max_retries=3):  # noqa: ANN001
+        del max_retries
+        args = json.loads(arguments_json)
+        captured_calls.append((function_name, args))
+        return ('{"success": true}', {"success": True, "operation": "continue_subagent"})
+
+    backend._execute_mcp_function_with_retry = _fake_execute
+
+    continued = orchestrator.continue_subagent_from_tui(
+        "sub-1",
+        "Continue and add citations.",
+    )
+
+    assert continued is True
+    assert captured_calls == [
+        (
+            f"mcp__subagent_{agent_id}__continue_subagent",
+            {
+                "subagent_id": "sub-1",
+                "message": "Continue and add citations.",
+            },
+        ),
+    ]
+
+
 def test_send_runtime_message_to_subagent_falls_back_to_direct_inbox_write(
     mock_orchestrator,
     tmp_path,
@@ -392,6 +424,44 @@ def test_send_runtime_message_to_subagent_falls_back_to_direct_inbox_write(
     payload = json.loads(msg_files[0].read_text())
     assert payload["content"] == "focus on Bob Dylan's early years"
     assert payload["target_agents"] == ["agent_b"]
+
+
+def test_send_runtime_message_fallback_uses_temp_workspace_parent(
+    mock_orchestrator,
+    tmp_path,
+):
+    """Fallback delivery should resolve run workspace root from temp workspace metadata."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent = orchestrator.agents["agent_a"]
+    backend = agent.backend
+
+    run_workspace = tmp_path / "run_workspace"
+    active_workspace = run_workspace / "agent_1_abcd1234"
+    active_workspace.mkdir(parents=True, exist_ok=True)
+
+    sub_workspace = run_workspace / "subagents" / "sub-1" / "workspace"
+    sub_workspace.mkdir(parents=True, exist_ok=True)
+
+    orchestrator._agent_temporary_workspace = str(run_workspace / "temp")
+    backend.filesystem_manager = SimpleNamespace(
+        get_current_workspace=lambda: active_workspace,
+    )
+
+    async def _fake_execute(function_name, arguments_json, max_retries=3):  # noqa: ANN001
+        del function_name, arguments_json, max_retries
+        return ('{"success": false}', {"success": False, "error": "MCP server busy"})
+
+    backend._execute_mcp_function_with_retry = _fake_execute
+
+    delivered = orchestrator.send_runtime_message_to_subagent(
+        "sub-1",
+        "use workspace-root fallback",
+    )
+
+    assert delivered is True
+    inbox_dir = sub_workspace / ".massgen" / "runtime_inbox"
+    msg_files = sorted(inbox_dir.glob("msg_*.json"))
+    assert len(msg_files) == 1
 
 
 def test_runtime_inbox_poller_uses_temp_workspace_parent_for_subagent_runs(mock_orchestrator, tmp_path):
@@ -514,6 +584,7 @@ def test_poll_runtime_inbox_reads_messages_from_temp_workspace_parent(mock_orche
     pending_messages = orchestrator._human_input_hook.get_pending_messages(agent_ids=["agent_a"])
     assert len(pending_messages) == 1
     assert pending_messages[0]["content"] == "include beatles comparison"
+    assert pending_messages[0]["source"] == "parent"
 
 
 @pytest.mark.asyncio

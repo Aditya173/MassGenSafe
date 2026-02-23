@@ -154,9 +154,14 @@ async def read_media(
         For batch mode, returns results array with per-input status.
 
     Examples:
-        # Simple single file analysis
-        read_media(file_path="screenshot.png", prompt="Describe this")
-        → Returns description of the image
+        # Analyze a screenshot
+        read_media(file_path="screenshot.png", prompt="What layout issues do you see?")
+        → Returns critique of static layout
+
+        # Analyze a video recording of an interaction or animation
+        read_media(file_path="interaction_recording.mp4",
+                   prompt="Does the animation play smoothly? Are there visual glitches?")
+        → Returns analysis of the recorded behavior
 
         # Batch with multi-image comparison (parallel processing)
         read_media(
@@ -168,9 +173,9 @@ async def read_media(
         )
         → Returns batch results with each input processed in parallel
 
-        # Critical evaluation
-        read_media(file_path="website.png",
-                   prompt="What flaws or issues do you see? Be critical.")
+        # Critical evaluation of any media type
+        read_media(file_path="game_recording.mp4",
+                   prompt="Does gameplay look correct? Are controls responsive? Be critical.")
         → Returns critique-focused analysis
     """
     # Validate file_path / inputs - exactly one must be provided
@@ -255,7 +260,7 @@ async def read_media(
                     "allowed_paths": allowed_paths,
                     "task_context": task_context,
                     "backend_type": backend_type,
-                    "model": image_config.get("model") or model or "gpt-4.1",
+                    "model": image_config.get("model") or model or "gpt-5.2",
                 }
 
                 result = await asyncio.wait_for(understand_image(**image_kwargs), timeout=MEDIA_ANALYSIS_TIMEOUT)
@@ -362,7 +367,7 @@ async def read_media(
                             "allowed_paths": allowed_paths,
                             "task_context": task_context,
                             "backend_type": backend_type,
-                            "model": image_config.get("model") or model or "gpt-4.1",
+                            "model": image_config.get("model") or model or "gpt-5.2",
                         }
 
                         result = await asyncio.wait_for(understand_image(**image_kwargs), timeout=MEDIA_ANALYSIS_TIMEOUT)

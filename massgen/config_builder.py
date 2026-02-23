@@ -4383,7 +4383,7 @@ class ConfigBuilder:
                     "[dim]Install quickstart skill packages now?[/dim]",
                 )
                 console.print(
-                    "[dim]Includes openskills + Anthropic/OpenAI/Vercel collections, Agent Browser skill, and Crawl4AI.[/dim]\n",
+                    "[dim]Includes openskills + Anthropic/OpenAI/Vercel collections, Agent Browser skill, Remotion, and Crawl4AI.[/dim]\n",
                 )
                 install_skills_now = questionary.confirm(
                     "Install missing quickstart skill packages now?",

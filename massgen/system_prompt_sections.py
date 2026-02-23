@@ -1159,7 +1159,9 @@ class SkillsSection(SystemPromptSection):
         parts.append("When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively.")
         parts.append("")
         parts.append("How to use skills:")
-        parts.append("- To load a skill's full instructions, read its SKILL.md file from the skills directory (.agent/skills/<skill-name>/SKILL.md)")
+        parts.append(
+            "- To load a skill's full instructions, read its SKILL.md file from .agent/skills/<skill-name>/SKILL.md (workspace-relative) or ~/.agent/skills/<skill-name>/SKILL.md (home/Docker path)",
+        )
         parts.append(
             "- Skills may be hierarchical: a single SKILL.md can contain multiple sections covering related sub-capabilities (e.g., a web-app-dev skill with frontend, backend, and testing sections)",
         )
@@ -3075,7 +3077,8 @@ Aim for similar effort bands across agents while maintaining a strong quality ba
 
 2. **Full awareness**: When you see other agents' work, READ and UNDERSTAND all of it. Maintain awareness of the entire project state, not just your subtask.
 
-3. **Selective integration**: Integrate parts that touch your subtask — adapt interfaces, align contracts, resolve conflicts. For parts outside your area, maintain awareness but don't redo their work.
+3. **Selective integration**: Integrate parts that touch your subtask — adapt interfaces, align contracts, resolve conflicts. \
+For parts outside your area, maintain awareness but don't redo their work.
 
 4. **Quality bar for `new_answer`**: When you submit `new_answer`, include concrete deliverables in your scope, validation evidence (tests/checks/manual verification), and boundary integration notes.
 
@@ -3597,7 +3600,7 @@ class SubagentSection(SystemPromptSection):
                     lines.append(f"- {item}")
             if t.name.lower() == "evaluator":
                 lines.append(
-                    "Use this when the task is mostly programmatic execution/reporting (batch tests, Playwright flows, screenshot sweeps, scripted validation).",
+                    "Use this when the task is mostly programmatic execution/reporting (batch tests, Playwright flows, evidence capture sweeps, scripted validation).",
                 )
             lines.append("")
 
@@ -3615,7 +3618,7 @@ class SubagentSection(SystemPromptSection):
 - What to run (tests, scripts, flows, URLs, targets)
 - How to set it up (install/build/start steps, ports, env vars, prerequisites)
 - Exact commands (copy-pastable command list in order)
-- What evidence to capture (screenshots, logs, timings, failing cases, artifact paths)
+- What evidence to capture (screenshots, video recordings, audio samples, logs, timings, failing cases, artifact paths)
 - Pass/fail format (explicit rubric or required report sections)
 """
             specialized_guidance = f"""
@@ -3658,7 +3661,7 @@ Task D: Build website (deps: A, B, C)       ← Sequential, do yourself after A/
 **IDEAL USE CASES:**
 - **Research and exploration** - gathering information, searching, analyzing sources
 - **Parallel data collection** - multiple independent lookups that can run simultaneously
-- **Programmatic evaluation at scale** - batch test runs, Playwright verification, screenshot sweeps, repetitive scripted checks
+- **Programmatic evaluation at scale** - batch test runs, Playwright verification, evidence capture sweeps, repetitive scripted checks
 - Complex subtasks that benefit from fresh context (avoid context pollution)
 - Experimental operations you want isolated from your main workspace
 
@@ -3678,7 +3681,7 @@ to a background subagent so you can keep working on implementation. Spawn with
 
 Subagent handles (procedural observations):
 - High-volume batch workflows where execution is mostly mechanical and repeatable
-- Serving a website and taking screenshots, running Playwright tests, using read_media
+- Serving a website and capturing evidence (screenshots, video recordings, etc.), running Playwright tests, using read_media
 - Executing test suites, linters, or validation scripts against generated code
 - Running benchmarks, profiling, or performance measurements
 - Checking file integrity, link resolution, or cross-references in documents
@@ -4193,7 +4196,7 @@ Python scripts you'll write. Document BEFORE writing them:
 ## Verification & Improvement
 How to verify and iterate on output (output-first approach):
 - For code: Run it, fix issues, rerun until working correctly
-- For websites: Screenshot and view, adjust layout/styling, re-screenshot until polished
+- For websites/UIs: Interact and capture evidence (screenshots for layout, recordings for behavior), adjust, re-verify until polished
 - For files: Open and inspect, refine content, re-check until quality meets bar
 - For data: Validate format/values, fix accuracy issues, re-validate until correct
 
@@ -4296,19 +4299,24 @@ This is an **improvement loop**, not just a verification step:
 
 ### Dynamic Verification: Think Like a User
 
-Static screenshots or a single code run are often not sufficient. Users don't just look at artifacts - they interact with them:
+A single static observation (screenshot, one test run) is often not sufficient. Users don't just look at artifacts - they interact with them:
 
-| Artifact Type | Static Check (incomplete) | Dynamic Check (required) |
+| Artifact Type | Shallow Check (incomplete) | Full Check (required) |
 |--------------|---------------------------|--------------------------|
 | Website/App | Screenshot looks good | Click all buttons, navigate all pages, test forms, verify links work |
 | Game | Screenshot shows UI | Play the game - test controls, scoring, game over states, restart |
+| Animation/transition | Single frame looks correct | Record and review the full motion sequence |
 | Interactive tool | Interface renders | Use every feature, test edge cases, verify all interactions |
 | Script/Code | No errors on run | Test with various inputs, edge cases, invalid data |
 | API | Single call works | Test all endpoints, error states, authentication flows |
+| Audio output | File exists | Listen/analyze the actual audio content |
 | Data pipeline | Output exists | Validate accuracy, test with edge case inputs |
 
 **For any artifact not listed above:** Apply the same principle - ask "How will a user actually USE this?" and test that way.
 The goal is always to verify the complete user experience, not just surface appearance.
+**Choose evidence that matches the artifact.** A screenshot proves static layout; a \
+video recording proves animation and interaction flow; audio analysis proves sound output. \
+Use `read_media` with the evidence format that actually demonstrates correctness.
 
 ### The User Experience Test
 
@@ -4350,29 +4358,31 @@ Before considering any interactive artifact complete, ask:
 
 class MultimodalToolsSection(SystemPromptSection):
     """
-    Guidance for using read_media to verify visual artifacts.
+    Guidance for using read_media to verify artifacts with appropriate evidence.
 
-    MEDIUM priority - extends output-first verification to visual content.
+    MEDIUM priority - extends output-first verification with evidence capture.
     Only included when multimodal tools are enabled.
     """
 
     def __init__(self):
         super().__init__(
-            title="Visual Verification Tools",
+            title="Evidence-Based Verification",
             priority=Priority.MEDIUM,
-            xml_tag="visual_verification_tools",
+            xml_tag="evidence_based_verification",
         )
 
     def build_content(self) -> str:
-        return """## Visual & Interactive Verification
+        return """## Evidence-Based Verification
 
-Use `read_media` for visual analysis, but remember: **interact first, screenshot second.**
+Use `read_media` to analyze evidence of your work, but remember: **interact first, capture evidence second.**
 
 ### Key Principle
-Screenshots verify appearance. Interaction verifies functionality. Do both:
+Choose the evidence format that actually proves correctness for your artifact:
 1. **Interact** with the artifact as a user would (click, navigate, play, input)
-2. **Screenshot** key states during/after interaction
+2. **Capture** evidence that demonstrates correctness — screenshots for layout, video recordings for animations/interactions, audio analysis for sound
 3. **Analyze** with read_media using **critical prompts**
+
+You can create any evidence you need: Playwright `recordVideo()`, `ffmpeg` screen/audio capture, VHS terminal recordings, or plain screenshots. `read_media` accepts images, video, and audio.
 
 ### CRITICAL: Be Skeptical, Not Charitable
 When evaluating your own or others' work, use prompts that look for **flaws**:
@@ -4391,7 +4401,7 @@ When evaluating your own or others' work, use prompts that look for **flaws**:
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye.
+A beautiful screenshot means nothing if buttons don't work. A single frame cannot prove an animation is smooth. Test functionality, then verify with evidence that matches what you're proving.
 
 ### Image Sourcing Fallback
 If you encounter legal restrictions when trying to use or reference existing photographs

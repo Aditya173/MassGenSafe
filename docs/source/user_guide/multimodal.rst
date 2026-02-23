@@ -278,7 +278,7 @@ Complete Multimodal Workflow
          multimodal_config:
            image:
              backend: openai
-             model: gpt-4.1
+             model: gpt-5.2
            video:
              backend: google
              model: veo-2
@@ -321,7 +321,7 @@ Multi-Agent with Specialized Backends
          multimodal_config:
            image:
              backend: openai
-             model: gpt-4.1  # Best for images
+             model: gpt-5.2  # Best for images
 
      - id: video_specialist
        backend:

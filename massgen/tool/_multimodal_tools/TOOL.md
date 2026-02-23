@@ -1,12 +1,12 @@
 ---
 name: multimodal-tools
-description: Understand images/screenshots/charts, transcribe audio/video, analyze PDFs with AI vision
+description: Analyze visual, audio, and video evidence — screenshots, recordings, charts, transcriptions, PDFs
 category: multimodal
 requires_api_keys: [OPENAI_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY]
 tasks:
   - "Analyze and understand images with vision models"
   - "Understand and transcribe audio files"
-  - "Analyze video content frame-by-frame"
+  - "Analyze video recordings and video content"
   - "Process and understand various file formats (PDF, DOCX, etc.)"
   - "Generate images from text descriptions (OpenAI, Google Imagen, OpenRouter)"
   - "Generate videos from text prompts (OpenAI Sora, Google Veo)"
@@ -22,7 +22,7 @@ Comprehensive suite of tools for processing and understanding vision, audio, vid
 ## Purpose
 
 Enable agents to work with media beyond text:
-- **Vision**: Analyze images, screenshots, charts, diagrams
+- **Vision**: Analyze images, screenshots, recordings, charts, diagrams
 - **Audio**: Transcribe speech, understand audio content
 - **Video**: Process and analyze video frames
 - **File Processing**: Extract content from PDFs, documents, etc.
@@ -31,7 +31,7 @@ Enable agents to work with media beyond text:
 ## When to Use This Tool
 
 **Use multimodal tools when:**
-- Analyzing screenshots, charts, or visual data
+- Verifying artifacts with appropriate evidence (screenshots for layout, video for behavior, audio for sound)
 - Extracting information from images or videos
 - Transcribing audio recordings or understanding speech
 - Processing document files (PDF, DOCX, XLSX)
@@ -365,10 +365,11 @@ Always consider cost when processing large batches.
 
 ## Common Use Cases
 
-1. **Screenshot analysis**: Understand UI elements, extract text from images
+1. **Evidence analysis**: Verify artifacts with screenshots, video recordings, or audio captures
 2. **Document processing**: Extract information from PDFs, reports
 3. **Media transcription**: Convert audio/video to text
 4. **Visual content creation**: Generate images for presentations, reports
 5. **Accessibility**: Convert text to speech, extract text from images
 6. **Video analysis**: Understand video content without watching
 7. **Chart/graph interpretation**: Extract data from visual charts
+8. **Interaction/behavior verification**: Record and analyze dynamic behavior with video

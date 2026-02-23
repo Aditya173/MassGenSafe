@@ -950,7 +950,7 @@ def create_app(
 
         Request body:
         {
-            "package": "anthropic" | "openai" | "vercel" | "agent_browser" | "crawl4ai"
+            "package": "anthropic" | "openai" | "vercel" | "agent_browser" | "remotion" | "crawl4ai"
         }
 
         Returns:
@@ -962,6 +962,7 @@ def create_app(
             install_crawl4ai_skill,
             install_openai_skills,
             install_openskills_cli,
+            install_remotion_skill,
             install_vercel_skills,
         )
 
@@ -972,6 +973,7 @@ def create_app(
             "openai": (install_openai_skills, "OpenAI skills"),
             "vercel": (install_vercel_skills, "Vercel agent skills"),
             "agent_browser": (install_agent_browser_skill, "Vercel Agent Browser skill"),
+            "remotion": (install_remotion_skill, "Remotion skill"),
         }
 
         if package_id in openskills_installers:

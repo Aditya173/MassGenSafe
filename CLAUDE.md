@@ -43,6 +43,8 @@ After implementing any feature that involves passing parameters through multiple
 
 For cross-backend tool-calling behavior (OpenAI-compatible, Claude, Gemini, Codex/Claude Code via MCP, etc.), treat backend-side argument normalization and schema validation as the source of truth. Prompt guidance can encourage correct argument shape, but correctness must not depend on prompt compliance alone (e.g., tolerate/detect accidentally stringified JSON argument payloads in adapters and tool gateways).
 
+When fixing `E501` in prompt text (especially triple-quoted system prompts), preserve the rendered prompt exactly. Wrap long source lines using escaped line continuation (`\` at end-of-line) so lint passes without introducing extra newline characters or changing prompt behavior.
+
 ## Anti-Patterns
 
 - **No keyword/heuristic matching for categorization or similarity.** Avoid writing code that infers categories, detects similarity, or organizes content using keyword lists, Jaccard similarity, Levenshtein distance, or similar heuristics. These approaches are brittle and produce low-quality results. Use LLM-based approaches instead -- that's the whole point of this project.

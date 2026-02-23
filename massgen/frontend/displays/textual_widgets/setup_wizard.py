@@ -1083,6 +1083,7 @@ class SetupWizard(WizardModal):
                     install_crawl4ai_skill,
                     install_openai_skills,
                     install_openskills_cli,
+                    install_remotion_skill,
                     install_vercel_skills,
                 )
 
@@ -1091,6 +1092,7 @@ class SetupWizard(WizardModal):
                     "openai": install_openai_skills,
                     "vercel": install_vercel_skills,
                     "agent_browser": install_agent_browser_skill,
+                    "remotion": install_remotion_skill,
                 }
 
                 requested_openskills_packages = [pkg for pkg in packages_to_install if pkg in openskills_installers]

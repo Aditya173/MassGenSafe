@@ -2309,6 +2309,66 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 error=f"Subagent workspace not found: {workspace}",
             )
 
+        state = self._subagents.get(subagent_id)
+        if state is None:
+            resumed_task = str(subagent_entry.get("task") or "")
+            resumed_config = SubagentConfig(
+                id=subagent_id,
+                task=resumed_task,
+                parent_agent_id=self.parent_agent_id,
+                timeout_seconds=self._clamp_timeout(timeout_seconds),
+            )
+            state = SubagentState(
+                config=resumed_config,
+                status="running",
+                workspace_path=str(workspace),
+                started_at=datetime.now(),
+                finished_at=None,
+                result=None,
+            )
+            self._subagents[subagent_id] = state
+        else:
+            state.status = "running"
+            state.workspace_path = str(workspace)
+            state.started_at = datetime.now()
+            state.finished_at = None
+            state.result = None
+
+        def _state_status_from_result(result: SubagentResult) -> str:
+            if result.success:
+                return "completed"
+            if result.status in ("timeout", "completed_but_timeout", "partial"):
+                return result.status
+            return "failed"
+
+        def _persist_continuation_outcome(
+            result: SubagentResult,
+            *,
+            resumed_session_id: str | None = None,
+        ) -> None:
+            state.status = _state_status_from_result(result)
+            state.result = result
+            state.finished_at = datetime.now()
+
+            if resumed_session_id:
+                self._subagent_sessions[subagent_id] = resumed_session_id
+                subagent_entry["session_id"] = resumed_session_id
+            elif subagent_id not in self._subagent_sessions and subagent_entry.get("session_id"):
+                self._subagent_sessions[subagent_id] = str(subagent_entry.get("session_id"))
+
+            subagent_entry["status"] = state.status
+            subagent_entry["workspace"] = str(workspace)
+            subagent_entry["success"] = result.success
+            subagent_entry["execution_time_seconds"] = result.execution_time_seconds
+            subagent_entry["last_continued_at"] = datetime.now().isoformat()
+
+            try:
+                registry_file.write_text(json.dumps(registry, indent=2))
+            except Exception as exc:
+                logger.warning(
+                    f"[SubagentManager] Failed to persist continuation metadata for {subagent_id}: {exc}",
+                )
+
         logger.info(
             f"[SubagentManager] Continuing subagent {subagent_id} with session {session_id}, " f"message: {new_message[:100]}...",
         )
@@ -2381,7 +2441,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
                 execution_time = time.time() - start_time
                 log_dir = self._get_subagent_log_dir(subagent_id)
-                return SubagentResult.create_error(
+                timeout_result = SubagentResult.create_error(
                     subagent_id=subagent_id,
                     error=f"Continuation timed out after {timeout}s",
                     workspace_path=str(workspace),
@@ -2389,6 +2449,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     log_path=str(log_dir) if log_dir else None,
                     warning=runtime_warning,
                 )
+                _persist_continuation_outcome(timeout_result)
+                return timeout_result
             finally:
                 # Remove from active processes
                 self._active_processes.pop(continuation_id, None)
@@ -2404,7 +2466,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 execution_time = time.time() - start_time
 
                 # Get token usage and log path from subprocess's status.json
-                token_usage, subprocess_log_dir, session_id = self._parse_subprocess_status(workspace)
+                token_usage, subprocess_log_dir, resumed_session_id = self._parse_subprocess_status(workspace)
 
                 # Write reference to subprocess log directory
                 self._write_subprocess_log_reference(subagent_id, subprocess_log_dir)
@@ -2412,12 +2474,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 # Get log directory path for the result
                 log_dir = self._get_subagent_log_dir(subagent_id)
 
-                # Update registry with new status
-                subagent_entry["status"] = "completed"
-                subagent_entry["last_continued_at"] = datetime.now().isoformat()
-                registry_file.write_text(json.dumps(registry, indent=2))
-
-                return SubagentResult.create_success(
+                result = SubagentResult.create_success(
                     subagent_id=subagent_id,
                     answer=answer,
                     workspace_path=str(workspace),
@@ -2426,6 +2483,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     log_path=str(log_dir) if log_dir else None,
                     warning=runtime_warning,
                 )
+                _persist_continuation_outcome(result, resumed_session_id=resumed_session_id)
+                return result
             else:
                 stderr_text = stderr.decode() if stderr else ""
                 stdout_text = stdout.decode() if stdout else ""
@@ -2445,7 +2504,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 self._write_subprocess_log_reference(subagent_id, subprocess_log_dir, error=error_msg)
                 log_dir = self._get_subagent_log_dir(subagent_id)
 
-                return SubagentResult.create_error(
+                error_result = SubagentResult.create_error(
                     subagent_id=subagent_id,
                     error=error_msg,
                     workspace_path=str(workspace),
@@ -2453,17 +2512,21 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     log_path=str(log_dir) if log_dir else None,
                     warning=runtime_warning,
                 )
+                _persist_continuation_outcome(error_result)
+                return error_result
 
         except Exception as e:
             execution_time = time.time() - start_time
             logger.error(f"[SubagentManager] Error continuing subagent {subagent_id}: {e}")
-            return SubagentResult.create_error(
+            error_result = SubagentResult.create_error(
                 subagent_id=subagent_id,
                 error=str(e),
                 workspace_path=str(workspace),
                 execution_time_seconds=execution_time,
                 warning=runtime_warning,
             )
+            _persist_continuation_outcome(error_result)
+            return error_result
 
     def get_subagent_status(self, subagent_id: str) -> dict[str, Any] | None:
         """

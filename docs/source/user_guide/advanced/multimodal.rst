@@ -499,7 +499,7 @@ Video Understanding
 Analyze and extract information from video files using the ``understand_video`` custom tool.
 
 .. note::
-   The ``understand_video`` tool uses OpenAI's API backend with the ``gpt-4.1`` model by default for analyzing video frames. This requires an OpenAI API key regardless of which backend your agent uses.
+   The ``understand_video`` tool now routes to the agent's native backend when it supports ``video_understanding``. If the agent's backend doesn't support video understanding, it falls back to OpenAI ``gpt-5.2``. The OpenAI fallback requires an ``OPENAI_API_KEY``.
 
 .. code-block:: yaml
 

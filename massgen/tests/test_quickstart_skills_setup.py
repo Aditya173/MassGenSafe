@@ -14,6 +14,7 @@ def _package_status(
     openai_installed: bool,
     vercel_installed: bool,
     agent_browser_installed: bool,
+    remotion_installed: bool,
     crawl4ai_installed: bool,
 ) -> dict:
     """Build package status payload matching check_skill_packages_installed()."""
@@ -39,6 +40,11 @@ def _package_status(
             "description": "Agent browser skill",
             "installed": agent_browser_installed,
         },
+        "remotion": {
+            "name": "Remotion Skill",
+            "description": "Video generation and editing skill powered by Remotion",
+            "installed": remotion_installed,
+        },
         "crawl4ai": {
             "name": "Crawl4AI",
             "description": "Crawl4AI skill",
@@ -59,6 +65,7 @@ def test_install_quickstart_skills_skips_when_packages_already_installed(monkeyp
             openai_installed=True,
             vercel_installed=True,
             agent_browser_installed=True,
+            remotion_installed=True,
             crawl4ai_installed=True,
         ),
     )
@@ -94,6 +101,11 @@ def test_install_quickstart_skills_skips_when_packages_already_installed(monkeyp
     )
     monkeypatch.setattr(
         skills_installer,
+        "install_remotion_skill",
+        lambda: calls.append("remotion") or True,
+    )
+    monkeypatch.setattr(
+        skills_installer,
         "install_crawl4ai_skill",
         lambda: calls.append("crawl4ai") or True,
     )
@@ -114,6 +126,7 @@ def test_install_quickstart_skills_installs_only_missing_packages(monkeypatch):
             openai_installed=False,
             vercel_installed=False,
             agent_browser_installed=False,
+            remotion_installed=False,
             crawl4ai_installed=False,
         ),
     )
@@ -149,12 +162,17 @@ def test_install_quickstart_skills_installs_only_missing_packages(monkeypatch):
     )
     monkeypatch.setattr(
         skills_installer,
+        "install_remotion_skill",
+        lambda: calls.append("remotion") or True,
+    )
+    monkeypatch.setattr(
+        skills_installer,
         "install_crawl4ai_skill",
         lambda: calls.append("crawl4ai") or True,
     )
 
     assert skills_installer.install_quickstart_skills() is True
-    assert calls == ["openskills", "anthropic", "openai", "vercel", "agent_browser", "crawl4ai"]
+    assert calls == ["openskills", "anthropic", "openai", "vercel", "agent_browser", "remotion", "crawl4ai"]
 
 
 def test_install_quickstart_skills_handles_partial_failures(monkeypatch):
@@ -169,6 +187,7 @@ def test_install_quickstart_skills_handles_partial_failures(monkeypatch):
             openai_installed=False,
             vercel_installed=False,
             agent_browser_installed=False,
+            remotion_installed=False,
             crawl4ai_installed=False,
         ),
     )
@@ -204,6 +223,11 @@ def test_install_quickstart_skills_handles_partial_failures(monkeypatch):
     )
     monkeypatch.setattr(
         skills_installer,
+        "install_remotion_skill",
+        lambda: calls.append("remotion") or True,
+    )
+    monkeypatch.setattr(
+        skills_installer,
         "install_crawl4ai_skill",
         lambda: calls.append("crawl4ai") or True,
     )
@@ -224,6 +248,7 @@ def test_install_quickstart_skills_installs_openskills_when_missing(monkeypatch)
             openai_installed=True,
             vercel_installed=True,
             agent_browser_installed=True,
+            remotion_installed=True,
             crawl4ai_installed=True,
         ),
     )
@@ -256,6 +281,11 @@ def test_install_quickstart_skills_installs_openskills_when_missing(monkeypatch)
         skills_installer,
         "install_agent_browser_skill",
         lambda: calls.append("agent_browser") or True,
+    )
+    monkeypatch.setattr(
+        skills_installer,
+        "install_remotion_skill",
+        lambda: calls.append("remotion") or True,
     )
     monkeypatch.setattr(
         skills_installer,
@@ -424,6 +454,23 @@ def test_openai_detected_from_marker_skills(monkeypatch, tmp_path):
     result = skills_installer.check_skill_packages_installed()
 
     assert result["openai"]["installed"] is True
+
+
+def test_remotion_detected_from_marker_skills(monkeypatch, tmp_path):
+    """Remotion should be detected when marker skills exist on disk."""
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps({}))
+    monkeypatch.setattr(skills_installer, "_get_package_manifest_path", lambda: manifest_path)
+
+    monkeypatch.setattr(
+        skills_installer,
+        "list_available_skills",
+        lambda: _fake_available_skills(project_skills=["remotion"]),
+    )
+
+    result = skills_installer.check_skill_packages_installed()
+
+    assert result["remotion"]["installed"] is True
 
 
 def test_anthropic_detected_from_marker_skills_not_manifest(monkeypatch, tmp_path):

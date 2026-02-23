@@ -67,3 +67,24 @@ def test_banner_set_messages_renders_ids_and_pending_agents():
     assert "#12" in text
     assert "[agent_b]" in text
     assert "pending: agent_b" in text
+
+
+def test_banner_set_messages_renders_source_label():
+    banner = QueuedInputBanner()
+    rendered = []
+    banner.update = lambda content: rendered.append(content)
+
+    banner.set_messages(
+        [
+            {
+                "id": 21,
+                "content": "Status update from parent",
+                "target_label": "all agents",
+                "pending_agents": ["agent_a"],
+                "source_label": "parent",
+            },
+        ],
+    )
+
+    text = rendered[-1].plain
+    assert "source: parent" in text

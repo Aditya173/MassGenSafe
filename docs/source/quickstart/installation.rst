@@ -189,7 +189,7 @@ These are optional - basic MassGen works without them.
    In ``uv run massgen --quickstart``, when Docker mode is selected the wizard includes
    a Skills step where you can select package(s) and install them immediately with
    on-page status updates (Anthropic/OpenAI/Vercel collections, Agent Browser skill,
-   and Crawl4AI). Use ``--setup-skills`` to retry or pre-install manually.
+   Remotion, and Crawl4AI). Use ``--setup-skills`` to retry or pre-install manually.
 
 Development Installation
 ========================

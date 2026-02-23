@@ -7,7 +7,7 @@ from massgen.frontend.displays import textual_terminal_display as textual_displa
 
 class _HookStub:
     def __init__(self) -> None:
-        self.pending_calls: list[tuple[str, list[str] | None]] = []
+        self.pending_calls: list[tuple[str, list[str] | None, str]] = []
         self.counts: dict[str, int] = {}
         self.pending_messages: list[dict] = []
         self._next_id = 1
@@ -22,9 +22,9 @@ class _HookStub:
                 counts[aid] = counts.get(aid, 0) + 1
         self.counts = counts
 
-    def set_pending_input(self, content: str, target_agents=None) -> int:
+    def set_pending_input(self, content: str, target_agents=None, source: str = "human") -> int:
         targets = list(target_agents) if target_agents is not None else None
-        self.pending_calls.append((content, targets))
+        self.pending_calls.append((content, targets, source))
         message_id = self._next_id
         self._next_id += 1
         pending_agents = list(targets or [])
@@ -34,6 +34,8 @@ class _HookStub:
                 "content": content,
                 "pending_agents": pending_agents,
                 "target_label": "all agents" if not targets else ", ".join(targets),
+                "source": source,
+                "source_label": source,
             },
         )
         self._recompute_counts()
@@ -84,8 +86,8 @@ class _BannerStub:
         self.last_counts: dict[str, int] = {}
         self.cleared = 0
 
-    def add_message(self, text: str, target_label: str = "") -> None:
-        self.messages.append((text, target_label))
+    def add_message(self, text: str, target_label: str = "", source_label: str = "") -> None:
+        self.messages.append((text, target_label, source_label))
 
     def set_messages(self, messages: list[dict]) -> None:
         self.replaced_messages = [dict(msg) for msg in messages]
@@ -216,12 +218,13 @@ def test_queue_human_input_uses_targeted_agents_and_updates_per_agent_counts():
 
     textual_display_module.TextualApp._queue_human_input(app, "Need stronger citations.")
 
-    assert hook.pending_calls == [("Need stronger citations.", ["agent_b"])]
+    assert hook.pending_calls == [("Need stronger citations.", ["agent_b"], "human")]
     assert tab_bar.last_counts == {"agent_a": 0, "agent_b": 1}
     assert banner.last_counts == {"agent_a": 0, "agent_b": 1}
     assert banner.replaced_messages
     assert banner.replaced_messages[0]["content"] == "Need stronger citations."
     assert banner.replaced_messages[0]["pending_agents"] == ["agent_b"]
+    assert banner.replaced_messages[0]["source"] == "human"
     assert any("agent_b" in msg for msg in notifications)
 
 

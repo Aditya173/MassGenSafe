@@ -6731,13 +6731,19 @@ Your answer:"""
         for msg in messages:
             content = msg["content"] if isinstance(msg, dict) else msg
             target_agents = msg.get("target_agents") if isinstance(msg, dict) else None
+            source = msg.get("source") if isinstance(msg, dict) else None
             logger.info(
-                "[Orchestrator] Injecting runtime inbox message: '%s' (target=%s)",
+                "[Orchestrator] Injecting runtime inbox message: '%s' (target=%s, source=%s)",
                 content[:80],
                 target_agents,
+                source,
             )
             if self._human_input_hook:
-                self._human_input_hook.set_pending_input(content, target_agents=target_agents)
+                self._human_input_hook.set_pending_input(
+                    content,
+                    target_agents=target_agents,
+                    source=str(source or "parent"),
+                )
 
     @staticmethod
     def _try_parse_json_dict_from_text(raw_text: str | None) -> dict[str, Any] | None:
@@ -6939,19 +6945,8 @@ Your answer:"""
         This bypasses MCP request/response delivery and is useful when the
         subagent MCP server is busy handling a blocking spawn call.
         """
-        agent = self.agents.get(parent_agent_id)
-        backend = getattr(agent, "backend", None) if agent else None
-        filesystem_manager = getattr(backend, "filesystem_manager", None)
-        get_workspace = getattr(filesystem_manager, "get_current_workspace", None) if filesystem_manager else None
-        if not callable(get_workspace):
-            return False
-
-        workspace = get_workspace()
-        if not workspace:
-            return False
-
-        parent_workspace = Path(workspace)
-        if not parent_workspace.exists():
+        parent_workspace = self._resolve_subagent_parent_workspace(parent_agent_id)
+        if parent_workspace is None or not parent_workspace.exists():
             return False
 
         subagent_workspace = parent_workspace / "subagents" / subagent_id / "workspace"
@@ -6977,6 +6972,52 @@ Your answer:"""
             f"[Orchestrator] Runtime message delivered via direct inbox fallback for subagent {subagent_id} " f"(parent={parent_agent_id}, target={target_agents})",
         )
         return True
+
+    def _resolve_subagent_parent_workspace(self, parent_agent_id: str) -> Path | None:
+        """Resolve parent workspace root for subagent workspace operations."""
+        agent = self.agents.get(parent_agent_id)
+        backend = getattr(agent, "backend", None) if agent else None
+        filesystem_manager = getattr(backend, "filesystem_manager", None) if backend else None
+
+        backend_workspace_path: Path | None = None
+        get_workspace = getattr(filesystem_manager, "get_current_workspace", None) if filesystem_manager else None
+        if callable(get_workspace):
+            try:
+                resolved = get_workspace()
+                if resolved:
+                    backend_workspace_path = Path(resolved)
+            except Exception:
+                backend_workspace_path = None
+
+        if backend_workspace_path is None and filesystem_manager is not None:
+            cwd = getattr(filesystem_manager, "cwd", None)
+            if cwd:
+                backend_workspace_path = Path(cwd)
+
+        workspace_path: Path | None = None
+        if self._agent_temporary_workspace:
+            temp_workspace = Path(self._agent_temporary_workspace)
+            if temp_workspace.name == "temp" and temp_workspace.parent:
+                workspace_path = temp_workspace.parent
+            elif temp_workspace.name == "temp_workspaces":
+                workspace_path = None
+            elif temp_workspace.parent.name == "temp_workspaces":
+                workspace_path = temp_workspace
+
+        if workspace_path is None:
+            workspace_path = backend_workspace_path
+
+        if workspace_path is None:
+            return None
+
+        # Some backends expose per-agent subdirectories (workspace/agent_1_...).
+        # Subagent workspaces are rooted one level up at workspace/subagents/.
+        if not (workspace_path / "subagents").exists():
+            parent_candidate = workspace_path.parent
+            if (parent_candidate / "subagents").exists():
+                workspace_path = parent_candidate
+
+        return workspace_path
 
     def send_runtime_message_to_subagent(
         self,
@@ -7015,6 +7056,43 @@ Your answer:"""
             )
         logger.warning(
             f"[Orchestrator] Failed to deliver runtime message to subagent {subagent_id} " f"after trying {len(self.agents)} parent agent route(s)",
+        )
+        return False
+
+    def continue_subagent_from_tui(
+        self,
+        subagent_id: str,
+        message: str,
+        timeout_seconds: int | None = None,
+    ) -> bool:
+        """Continue a terminal subagent from TUI runtime controls."""
+        params: dict[str, Any] = {
+            "subagent_id": subagent_id,
+            "message": message,
+        }
+        if timeout_seconds is not None:
+            params["timeout_seconds"] = timeout_seconds
+
+        for parent_agent_id in self.agents:
+            result = self._call_subagent_mcp_tool(
+                parent_agent_id=parent_agent_id,
+                tool_name="continue_subagent",
+                params=params,
+            )
+            if isinstance(result, dict) and result.get("success"):
+                logger.info(
+                    f"[Orchestrator] Continue request dispatched for subagent {subagent_id} via {parent_agent_id}",
+                )
+                return True
+            logger.debug(
+                "[Orchestrator] Continue subagent attempt via %s failed for %s (result=%s)",
+                parent_agent_id,
+                subagent_id,
+                result,
+            )
+
+        logger.warning(
+            f"[Orchestrator] Failed to continue subagent {subagent_id} after trying {len(self.agents)} parent agent route(s)",
         )
         return False
 
@@ -7147,6 +7225,9 @@ Your answer:"""
         if display and hasattr(display, "set_subagent_message_callback"):
             display.set_subagent_message_callback(self.send_runtime_message_to_subagent)
             logger.info("[Orchestrator] Shared subagent message callback with TUI display")
+        if display and hasattr(display, "set_subagent_continue_callback"):
+            display.set_subagent_continue_callback(self.continue_subagent_from_tui)
+            logger.info("[Orchestrator] Shared subagent continue callback with TUI display")
 
     def _register_round_timeout_hooks(
         self,
