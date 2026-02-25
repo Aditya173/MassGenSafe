@@ -122,6 +122,24 @@ API keys can be configured through webui or cli setup. However, they can also be
    mkdir -p ~/.config/massgen
    echo "OPENROUTER_API_KEY=sk-or-v1-..." >> ~/.config/massgen/.env
 
+**Optional: ElevenLabs audio generation**
+
+For multimodal text-to-speech with the ElevenLabs backend, add this key to one of your
+``.env`` files:
+
+.. code-block:: bash
+
+   ELEVENLABS_API_KEY=your-elevenlabs-key
+
+If you are using multimodal tools and want ElevenLabs by default for audio generation:
+
+.. code-block:: yaml
+
+   orchestrator:
+     audio_generation_backend: "elevenlabs"
+     # Optional: override default model
+     # audio_generation_model: "eleven_multilingual_v2"
+
 Re-run Setup
 ------------
 

@@ -95,7 +95,7 @@ class ModeToggle(Static):
 
     # Labels for states - concise without redundant ON/OFF
     LABELS = {
-        "plan": {"normal": "Normal", "plan": "Planning", "execute": "Executing", "analysis": "Analyzing"},
+        "plan": {"normal": "Normal", "plan": "Planning", "spec": "Spec", "execute": "Executing", "analysis": "Analyzing"},
         "agent": {"multi": "Multi-Agent", "single": "Single"},
         "coordination": {"parallel": "Parallel", "decomposition": "Decomposition"},
         "refinement": {"on": "Refine", "off": "Refine OFF"},
@@ -103,7 +103,7 @@ class ModeToggle(Static):
     }
 
     COMPACT_LABELS = {
-        "plan": {"normal": "Norm", "plan": "Plan", "execute": "Exec", "analysis": "Anly"},
+        "plan": {"normal": "Norm", "plan": "Plan", "spec": "Spec", "execute": "Exec", "analysis": "Anly"},
         "agent": {"multi": "Multi", "single": "Single"},
         "coordination": {"parallel": "Par", "decomposition": "Decomp"},
         "refinement": {"on": "Refine", "off": "Refine Off"},

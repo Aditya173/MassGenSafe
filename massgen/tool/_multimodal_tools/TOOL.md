@@ -110,18 +110,18 @@ result = await understand_file(
 
 ### Generation Tools
 
-#### `generate_media(prompt: str, mode: str, backend: str = "auto", ...) -> ExecutionResult`
+#### `generate_media(prompt: str, mode: str, backend_type: str = "auto", ...) -> ExecutionResult`
 **Unified media generation tool** - Generate images, videos, or audio with automatic backend selection.
 
 This is the recommended tool for all media generation. It automatically selects the best available backend based on:
-1. Explicit `backend` parameter
+1. Explicit `backend_type` parameter
 2. Available API keys
-3. Priority order (Google > OpenAI > OpenRouter)
+3. Modality-specific priority order (e.g., audio: ElevenLabs > OpenAI)
 
 **Parameters:**
 - `prompt`: Text description of what to generate (or text to speak for audio)
 - `mode`: Type of media - `"image"`, `"video"`, or `"audio"`
-- `backend`: Preferred backend - `"auto"`, `"openai"`, `"google"`, or `"openrouter"`
+- `backend_type`: Preferred backend - `"auto"`, `"openai"`, `"google"`, `"openrouter"`, or `"elevenlabs"`
 - `model`: Override default model
 - `duration`: For video/audio, length in seconds
 - `voice`: For audio, voice ID (e.g., `"alloy"`, `"nova"`, `"shimmer"`)
@@ -133,7 +133,7 @@ This is the recommended tool for all media generation. It automatically selects 
 |------|----------|--------|
 | image | google, openai, openrouter | Imagen 3, GPT-4.1, Nano Banana |
 | video | google, openai | Veo 2, Sora-2 |
-| audio | openai | gpt-4o-mini-tts |
+| audio | elevenlabs, openai | eleven_multilingual_v2, gpt-4o-mini-tts |
 
 **Examples:**
 ```python
@@ -147,7 +147,7 @@ result = await generate_media(
 result = await generate_media(
     "A robot walking through a city",
     mode="video",
-    backend="google",
+    backend_type="google",
     duration=8
 )
 
@@ -158,20 +158,6 @@ result = await generate_media(
     voice="nova"
 )
 ```
-
-#### `text_to_image_generation(prompt: str, output_path: str, ...) -> ExecutionResult`
-Generate images from text descriptions. **(Alias for `generate_media(mode="image", backend="openai")`)**
-
-**Example:**
-```python
-result = await text_to_image_generation(
-    "A serene mountain landscape at sunset",
-    "landscape.png"
-)
-# Saves: landscape.png
-```
-
-**Model:** DALL-E or similar image generation models.
 
 #### `image_to_image_generation(image_path: str, prompt: str, output_path: str, ...) -> ExecutionResult`
 Transform existing images based on prompts.
@@ -185,34 +171,6 @@ result = await image_to_image_generation(
 )
 # Saves: watercolor.png
 ```
-
-#### `text_to_video_generation(prompt: str, output_path: str, ...) -> ExecutionResult`
-Generate videos from text descriptions. **(Alias for `generate_media(mode="video", backend="openai")`)**
-
-**Example:**
-```python
-result = await text_to_video_generation(
-    "A cat playing with yarn",
-    "cat_video.mp4"
-)
-# Saves: cat_video.mp4
-```
-
-**Note:** Video generation may take significant time and credits. For Google Veo, use `generate_media(mode="video", backend="google")`.
-
-#### `text_to_speech_transcription_generation(text: str, output_path: str, ...) -> ExecutionResult`
-Convert text to natural speech. **(Alias for `generate_media(mode="audio", backend="openai")`)**
-
-**Example:**
-```python
-result = await text_to_speech_transcription_generation(
-    "Hello, this is a test of the speech synthesis system.",
-    "speech.mp3"
-)
-# Saves: speech.mp3
-```
-
-**Features:** Multiple voices, adjustable speed, natural prosody.
 
 #### `text_to_speech_continue_generation(text: str, previous_audio: str, output_path: str, ...) -> ExecutionResult`
 Continue speech generation with context from previous audio.
@@ -250,6 +208,9 @@ result = await text_to_file_generation(
 ```bash
 # Required for OpenAI backends (image, video, audio)
 export OPENAI_API_KEY="your-api-key"
+
+# Optional - for ElevenLabs audio generation
+export ELEVENLABS_API_KEY="your-api-key"
 
 # Optional - for Google backends (Imagen, Veo)
 export GOOGLE_API_KEY="your-api-key"
@@ -290,7 +251,7 @@ orchestrator:
   # Set default backends for all agents
   image_generation_backend: "openai"
   video_generation_backend: "openai"
-  audio_generation_backend: "openai"
+  audio_generation_backend: "elevenlabs"
 
   # Optionally set default models
   image_generation_model: "imagen-3.0-generate-002"
@@ -332,7 +293,7 @@ agents:
 |-------|--------------------------------|----------------|
 | image | google, openai, openrouter     | imagen-3.0-generate-002, gpt-5.2, gemini-2.5-flash-image-preview |
 | video | google, openai                 | veo-2.0-generate-001, sora-2 |
-| audio | openai                         | gpt-4o-mini-tts |
+| audio | elevenlabs, openai             | eleven_multilingual_v2, gpt-4o-mini-tts |
 
 ## Path Handling
 

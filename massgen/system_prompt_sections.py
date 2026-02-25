@@ -1448,13 +1448,13 @@ from servers.github import create_issue
 from custom_tools.string_utils import reverse_string
 
 # Tool in subdirectory: from custom_tools.{{dir}}.{{file}} import {{function}}
-# Example from TOOL.md: entry_points[0] = {{file: "_multimodal_tools/text_to_image_generation.py", function: "text_to_image_generation"}}
-from custom_tools._multimodal_tools.text_to_image_generation import text_to_image_generation
+# Example from TOOL.md: entry_points[0] = {{file: "_multimodal_tools/generation/generate_media.py", function: "generate_media"}}
+from custom_tools._multimodal_tools.generation.generate_media import generate_media
 
 # Use the tools
 weather = get_forecast("San Francisco", days=3)
 reversed_text = reverse_string("hello")
-image = await text_to_image_generation(prompt="sunset", output_path="sunset.png")
+image = await generate_media(prompt="sunset", mode="image")
 ```
 
 **Important:**
@@ -3469,6 +3469,29 @@ A developer who was not present should be able to read the changedoc and:
 - See where each idea originated (Origin field)
 - Identify which ideas were genuinely new contributions (NEW markers)
 - Follow how decisions evolved through the deliberation trail"""
+
+_SPEC_PRESENTER_INSTRUCTIONS = """\
+
+### Spec Compliance Report
+
+Before presenting the final answer, produce a spec compliance summary. \
+For each requirement in the spec:
+
+1. List the requirement by ID and title
+2. Mark status: **SATISFIED** / **PARTIAL** / **NOT ADDRESSED**
+3. For PARTIAL requirements, explain what remains
+4. Note any requirements blocked by dependencies or deferred to a later chunk
+5. Report overall coverage (e.g., "8/10 requirements satisfied, 1 partial, 1 deferred")
+
+Format as a markdown table in your changedoc under `## Spec Compliance`:
+
+| REQ-ID | Title | Status | Notes |
+|--------|-------|--------|-------|
+| REQ-001 | ... | SATISFIED | Implemented in src/auth.py |
+| REQ-002 | ... | PARTIAL | Missing edge case handling |
+
+This compliance report is the primary quality signal for spec-driven execution. \
+Be honest — marking an unsatisfied requirement as SATISFIED defeats the purpose."""
 
 
 class NoveltyPressureSection(SystemPromptSection):
