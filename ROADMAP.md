@@ -44,8 +44,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 |---------|--------|---------|-------|----------|
 | **v0.1.57** | 02/27/26 | Per-Subagent Runtime Isolation in Docker | @ncrispino | True per-subagent isolation when parent runs in Docker ([#910](https://github.com/massgen/MassGen/issues/910)) |
 | | | Improve Iterative Refinement | @ncrispino | Better convergence detection and quality-driven iteration ([#874](https://github.com/massgen/MassGen/issues/874)) |
-| **v0.1.58** | 03/01/26 | Restore Continuing Subagents | @ncrispino | Fix subagent continuation as resumable MassGen runs ([#908](https://github.com/massgen/MassGen/issues/908)) |
-| | | ElevenLabs TTS & STT Support | @ncrispino | Add ElevenLabs support for TTS and speech-to-text in generate/read media ([#942](https://github.com/massgen/MassGen/issues/942)) |
+| **v0.1.58** | 03/01/26 | ElevenLabs TTS & STT Support | @ncrispino | Add ElevenLabs support for TTS and speech-to-text in generate/read media ([#942](https://github.com/massgen/MassGen/issues/942)) |
 | **v0.1.59** | 03/04/26 | Improve Skill Use and Exploration | @ncrispino | Local skill execution, skill registry, and lifecycle management ([#873](https://github.com/massgen/MassGen/issues/873)) |
 
 *All releases ship on MWF @ 9am PT when ready*
@@ -76,24 +75,17 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.58 - Subagent Continuation & ElevenLabs Media
+## 📋 v0.1.58 - ElevenLabs Media
 
 ### Features
 
-**1. Restore Continuing Subagents** (@ncrispino)
-- Issue: [#908](https://github.com/massgen/MassGen/issues/908)
-- Fix subagent continuation to behave like resuming a MassGen run (`--continue` style)
-- Reuse prior subagent run context/history instead of starting from scratch
-- **Use Case**: Resumable subagent workflows with full context preservation
-
-**2. ElevenLabs TTS & STT Support** (@ncrispino)
+**1. ElevenLabs TTS & STT Support** (@ncrispino)
 - Issue: [#942](https://github.com/massgen/MassGen/issues/942)
 - Add ElevenLabs as a provider for text-to-speech and speech-to-text
 - Integration with existing `generate_media` and `read_media` tools
 - **Use Case**: High-quality voice synthesis and transcription via ElevenLabs API
 
 ### Success Criteria
-- ✅ Subagent continuation reuses prior run context/history
 - ✅ ElevenLabs TTS working via `generate_media`
 - ✅ ElevenLabs STT working via `read_media`
 

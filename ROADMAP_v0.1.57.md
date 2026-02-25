@@ -120,5 +120,5 @@ This release builds on previous work:
 - **v0.1.56**: Critic Subagent (#945), Spec Plan Mode, Audio Multimodal, ask_others Targeting
 
 And sets the foundation for:
-- **v0.1.58**: Restore continuing subagents (#908), ElevenLabs TTS & STT (#942)
+- **v0.1.58**: ElevenLabs TTS & STT (#942)
 - **v0.1.59**: Improve skill use and exploration (#873)
