@@ -365,6 +365,9 @@ class Orchestrator(ChatAgent):
         # before the next safe checkpoint (consumed by enforcement-message injection).
         self._no_hook_pending_background_tool_results: dict[str, list[dict[str, Any]]] = {}
 
+        # Per-agent injection directories for auto-populating planning MCP from propose_improvements
+        self._planning_injection_dirs: dict[str, Path] = {}
+
         # Background subagent configuration (parsed from coordination_config)
         background_subagent_config = {}
         if hasattr(self.config, "coordination_config"):
@@ -536,6 +539,7 @@ class Orchestrator(ChatAgent):
                             f"[Orchestrator] Added Docker mount for delegation dir: {del_resolved}",
                         )
 
+            workspace_token = self.coordination_tracker.get_path_token(agent_id)
             agent.backend.filesystem_manager.setup_orchestration_paths(
                 agent_id=agent_id,
                 snapshot_storage=self._snapshot_storage,
@@ -543,6 +547,7 @@ class Orchestrator(ChatAgent):
                 skills_directory=skills_directory,
                 massgen_skills=massgen_skills,
                 load_previous_session_skills=load_previous_session_skills,
+                workspace_token=workspace_token,
             )
             # Setup workspace directories for massgen skills
             if hasattr(self.config, "coordination_config") and hasattr(
@@ -875,6 +880,8 @@ class Orchestrator(ChatAgent):
         }
         self._push_cached_criteria_to_display(force=True)
 
+        tracker = getattr(self, "coordination_tracker", None)
+
         for agent_id, agent in self.agents.items():
             backend = agent.backend
 
@@ -929,13 +936,35 @@ class Orchestrator(ChatAgent):
                 "builder_subagent_enabled": "builder" in [t.lower() for t in _active_subagent_types],
                 # Quality rethinking subagent: per-element craft improvements
                 "quality_rethinking_subagent_enabled": "quality_rethinking" in [t.lower() for t in _active_subagent_types],
-                # Always spawn quality/novelty subagents every round (not just on plateau)
-                "always_spawn_quality_subagents": bool(
+                # Planning injection dir for auto-populating task plan from propose_improvements
+                "planning_injection_dir": str(getattr(self, "_planning_injection_dirs", {}).get(agent_id, "")),
+                # Whether subagents are enabled (for delegation guidance in propose_improvements message)
+                "subagents_enabled": bool(
+                    hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_subagents") and self.config.coordination_config.enable_subagents,
+                ),
+                "agent_answer_count": (len(tracker.answers_by_agent.get(agent_id, [])) if tracker is not None and hasattr(tracker, "answers_by_agent") else 0),
+                "enable_quality_rethink_on_iteration": bool(
                     getattr(
                         getattr(self.config, "coordination_config", None),
-                        "always_spawn_quality_subagents",
+                        "enable_quality_rethink_on_iteration",
                         False,
                     ),
+                ),
+                "enable_novelty_on_iteration": bool(
+                    getattr(
+                        getattr(self.config, "coordination_config", None),
+                        "enable_novelty_on_iteration",
+                        False,
+                    ),
+                ),
+                # Impact gate config for propose_improvements validation
+                "improvements": dict(
+                    getattr(
+                        getattr(self.config, "coordination_config", None),
+                        "improvements",
+                        {},
+                    )
+                    or {},
                 ),
             }
             backend._checklist_state = checklist_state
@@ -1078,7 +1107,16 @@ class Orchestrator(ChatAgent):
         _agent_id = agent_id
 
         # Track last failed criteria for propose_improvements validation
-        _last_checklist_result: dict[str, Any] = {"failed_criteria": [], "items": [], "all_criteria_ids": []}
+        _last_checklist_result: dict[str, Any] = {
+            "failed_criteria": [],
+            "items": [],
+            "all_criteria_ids": [],
+            "failing_criteria_detail": [],
+            "plateaued_criteria": [],
+            "checklist_explanation": "",
+            "diagnostic_report_path": "",
+            "diagnostic_report_artifact_paths": [],
+        }
 
         @tool(
             name="submit_checklist",
@@ -1137,9 +1175,17 @@ class Orchestrator(ChatAgent):
                 state=_state,
                 checklist_history=agent_state.checklist_history if agent_state else None,
             )
+            report_data = result.get("report") if isinstance(result.get("report"), dict) else {}
+            resolved_path = str(report_data.get("resolved_path") or "")
+            fallback_path = str(report_data.get("path") or "")
             _last_checklist_result["failed_criteria"] = result.get("failed_criteria", [])
             _last_checklist_result["items"] = list(items)
             _last_checklist_result["all_criteria_ids"] = [f"E{i+1}" for i in range(len(items))]
+            _last_checklist_result["failing_criteria_detail"] = list(result.get("failing_criteria_detail", []))
+            _last_checklist_result["plateaued_criteria"] = list(result.get("plateaued_criteria", []))
+            _last_checklist_result["checklist_explanation"] = str(result.get("explanation", ""))
+            _last_checklist_result["diagnostic_report_path"] = resolved_path or fallback_path
+            _last_checklist_result["diagnostic_report_artifact_paths"] = list(report_data.get("artifact_paths", []))
 
             # Only accepted checklist submissions should consume this round's quota.
             # Validation failures (incomplete/malformed payloads or gated rejections)
@@ -1202,7 +1248,39 @@ class Orchestrator(ChatAgent):
                 items=_last_checklist_result["items"] or list(items),
                 all_criteria_ids=_last_checklist_result.get("all_criteria_ids"),
                 preserve=preserve,
+                state=_state,
+                latest_evaluation={
+                    "failed_criteria": _last_checklist_result.get("failed_criteria", []),
+                    "failing_criteria_detail": _last_checklist_result.get("failing_criteria_detail", []),
+                    "plateaued_criteria": _last_checklist_result.get("plateaued_criteria", []),
+                    "checklist_explanation": _last_checklist_result.get("checklist_explanation", ""),
+                    "diagnostic_report_path": _last_checklist_result.get("diagnostic_report_path", ""),
+                    "diagnostic_report_artifact_paths": _last_checklist_result.get("diagnostic_report_artifact_paths", []),
+                },
             )
+            if result.get("valid"):
+                _orchestrator._write_planning_injection(_agent_id, result["task_plan"])
+                result = dict(result)  # Don't mutate original
+                task_count = len(result["task_plan"])
+                result["message"] = (
+                    f"Your task plan has been pre-populated with {task_count} items. "
+                    "Call get_task_plan to see the list and start executing. "
+                    "Preserve items are guardrails — verify after implementing. "
+                    "Do not skip criteria."
+                )
+                # Append subagent delegation hint if subagents are enabled
+                _subagents_enabled = (
+                    hasattr(_orchestrator.config, "coordination_config")
+                    and hasattr(_orchestrator.config.coordination_config, "enable_subagents")
+                    and _orchestrator.config.coordination_config.enable_subagents
+                )
+                if _subagents_enabled:
+                    result["message"] += (
+                        " Review the pre-populated plan for subagent delegation"
+                        " opportunities. Tasks without mutual dependencies can be"
+                        " spawned as parallel background subagents. Mark tasks"
+                        " with subagent_id/subagent_name, then spawn."
+                    )
             return {
                 "content": [
                     {
@@ -1327,6 +1405,7 @@ class Orchestrator(ChatAgent):
             {
                 "remaining": _cl_remaining,
                 "has_existing_answers": _has_answers,
+                "agent_answer_count": len(self.coordination_tracker.answers_by_agent.get(agent_id, [])),
                 "required": _checklist_required_true(
                     effective_t,
                     num_items=len(getattr(agent.backend, "_checklist_items", [])) or 4,
@@ -1350,8 +1429,12 @@ class Orchestrator(ChatAgent):
                 "critic_subagent_enabled": state.get("critic_subagent_enabled", False),
                 # Preserve builder gating from initial state
                 "builder_subagent_enabled": state.get("builder_subagent_enabled", False),
-                # Preserve always_spawn_quality_subagents from initial state
-                "always_spawn_quality_subagents": state.get("always_spawn_quality_subagents", False),
+                # Preserve quality_rethinking gating from initial state
+                "quality_rethinking_subagent_enabled": state.get("quality_rethinking_subagent_enabled", False),
+                # Preserve quality-rethinking auto-injection toggle from initial state
+                "enable_quality_rethink_on_iteration": state.get("enable_quality_rethink_on_iteration", False),
+                # Preserve novelty auto-injection toggle from initial state
+                "enable_novelty_on_iteration": state.get("enable_novelty_on_iteration", False),
                 # Update available agent labels so checklist enforces complete coverage.
                 # Includes labels injected mid-stream (updated by update_agent_context_with_new_answers).
                 "available_agent_labels": list(
@@ -1773,8 +1856,28 @@ class Orchestrator(ChatAgent):
         if learning_capture_mode == "round":
             return True
         if learning_capture_mode == "final_only":
+            disable_fallback = getattr(
+                coordination_config,
+                "disable_final_only_round_capture_fallback",
+                False,
+            )
+            if disable_fallback is True:
+                return False
             return bool(getattr(self.config, "skip_final_presentation", False))
         return False
+
+    def _is_round_verification_capture_enabled(self) -> bool:
+        """Return whether round-time verification replay capture should be enabled."""
+        if self._is_round_learning_capture_enabled():
+            return True
+
+        coordination_config = getattr(self.config, "coordination_config", None)
+        learning_capture_mode = getattr(
+            coordination_config,
+            "learning_capture_mode",
+            "round",
+        )
+        return learning_capture_mode == "verification_and_final_only"
 
     def _create_planning_mcp_config(self, agent_id: str, agent: Any) -> dict[str, Any]:
         """
@@ -1842,6 +1945,11 @@ class Orchestrator(ChatAgent):
                     logger.info(
                         f"[Orchestrator] Enabling filesystem mode for task planning: {workspace_path}",
                     )
+                    # Pass anonymous workspace token so plan.json doesn't reveal real agent_id
+                    _tracker = getattr(self, "coordination_tracker", None)
+                    if _tracker is not None and hasattr(_tracker, "get_path_token"):
+                        workspace_token = _tracker.get_path_token(agent_id)
+                        args.extend(["--workspace-token", workspace_token])
                 else:
                     logger.warning(
                         f"[Orchestrator] Agent {agent_id} filesystem_manager.cwd is None",
@@ -1877,6 +1985,8 @@ class Orchestrator(ChatAgent):
         )
         if memory_enabled and round_learning_capture_enabled:
             args.append("--memory-enabled")
+        if memory_enabled and self._is_round_verification_capture_enabled() and not round_learning_capture_enabled:
+            args.append("--verification-memory-enabled")
 
         # Enable git commits on task completion if two-tier workspace is enabled
         # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
@@ -1896,6 +2006,21 @@ class Orchestrator(ChatAgent):
                 f"[Orchestrator] Adding --use-two-tier-workspace flag to planning MCP for {agent_id}",
             )
 
+        # Create injection directory for task injection from propose_improvements
+        # Use log session dir (persists for entire run, accessible in Docker)
+        log_dir = get_log_session_dir()
+        if log_dir:
+            injection_dir = log_dir / "planning_injection" / agent_id
+        else:
+            import tempfile as _tempfile
+
+            injection_dir = Path(_tempfile.mkdtemp(prefix=f"massgen_plan_inject_{agent_id}_"))
+        injection_dir.mkdir(parents=True, exist_ok=True)
+        if not hasattr(self, "_planning_injection_dirs"):
+            self._planning_injection_dirs = {}
+        self._planning_injection_dirs[agent_id] = injection_dir
+        args.extend(["--injection-dir", str(injection_dir)])
+
         # Pass hook directory for MCP server-level hook injection (Codex)
         if hasattr(agent, "backend") and hasattr(agent.backend, "supports_mcp_server_hooks") and agent.backend.supports_mcp_server_hooks() and hasattr(agent.backend, "get_hook_dir"):
             hook_dir = agent.backend.get_hook_dir()
@@ -1914,6 +2039,26 @@ class Orchestrator(ChatAgent):
         }
 
         return config
+
+    def _write_planning_injection(self, agent_id: str, task_plan: list[dict]) -> None:
+        """Write inject_tasks.json to agent's planning injection directory.
+
+        Called after propose_improvements returns a valid task_plan. The planning
+        MCP server picks up the file on its next tool call.
+
+        Args:
+            agent_id: Agent whose planning MCP should receive the tasks
+            task_plan: Raw task_plan from evaluate_proposed_improvements
+        """
+        if agent_id not in self._planning_injection_dirs:
+            return
+
+        from .mcp_tools.checklist_tools_server import _write_inject_file
+
+        _write_inject_file(self._planning_injection_dirs[agent_id], task_plan)
+        logger.info(
+            f"[Orchestrator] Wrote planning injection for {agent_id}: {len(task_plan)} tasks",
+        )
 
     def _inject_subagent_tools_for_all_agents(self) -> None:
         """
@@ -2181,6 +2326,8 @@ class Orchestrator(ChatAgent):
                 parent_coordination_config["task_planning_filesystem_mode"] = coord_cfg.task_planning_filesystem_mode
             if hasattr(coord_cfg, "learning_capture_mode"):
                 parent_coordination_config["learning_capture_mode"] = coord_cfg.learning_capture_mode
+            if hasattr(coord_cfg, "disable_final_only_round_capture_fallback"):
+                parent_coordination_config["disable_final_only_round_capture_fallback"] = coord_cfg.disable_final_only_round_capture_fallback
             use_skills = getattr(coord_cfg, "use_skills", False)
             enabled_skill_names = getattr(coord_cfg, "enabled_skill_names", None)
             if use_skills or enabled_skill_names is not None:
@@ -7025,6 +7172,14 @@ Your answer:"""
                             answers.update(selected_answers)
                             self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
                             self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
+                            # Update context labels BEFORE refreshing checklist state so
+                            # available_agent_labels reflects the newly-injected labels
+                            # (e.g. agent1.2 replacing agent1.1). Same ordering as the
+                            # mid-stream hook path at _build_injection_callback.
+                            self.coordination_tracker.update_agent_context_with_new_answers(
+                                agent_id,
+                                list(selected_answers.keys()),
+                            )
                             self._refresh_checklist_state_for_agent(agent_id)
                             self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
 
@@ -7046,10 +7201,6 @@ Your answer:"""
                                 agent_id,
                                 ActionType.UPDATE_INJECTED,
                                 f"Mid-stream (MCP hook): {len(selected_answers)} answer(s)",
-                            )
-                            self.coordination_tracker.update_agent_context_with_new_answers(
-                                agent_id,
-                                list(selected_answers.keys()),
                             )
 
         # Write combined content to hook file
@@ -8355,6 +8506,14 @@ Your answer:"""
             self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
             self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
 
+            # Update context labels BEFORE refreshing checklist state so
+            # available_agent_labels reflects the newly-injected labels
+            # (e.g. agent1.2 replacing agent1.1). Same ordering as all other paths.
+            self.coordination_tracker.update_agent_context_with_new_answers(
+                agent_id,
+                list(selected_answers.keys()),
+            )
+
             # Refresh checklist tool state after injection (streak may have reset)
             self._refresh_checklist_state_for_agent(agent_id)
 
@@ -8379,12 +8538,6 @@ Your answer:"""
                 agent_id,
                 ActionType.UPDATE_INJECTED,
                 f"Mid-stream (native): {len(selected_answers)} answer(s)",
-            )
-
-            # Update agent's context labels
-            self.coordination_tracker.update_agent_context_with_new_answers(
-                agent_id,
-                list(selected_answers.keys()),
             )
 
             return injection
@@ -14882,6 +15035,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                 symlinks=True,
                 ignore_dangling_symlinks=True,
             )
+            self._namespace_verification_memory_files(archive_path, agent_id)
             logger.info(
                 f"[Orchestrator] Archived memories for {agent_id} answer {answer_num} to {archive_path}",
             )
@@ -14889,6 +15043,24 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             logger.error(
                 f"[Orchestrator] Failed to archive memories for {agent_id}: {e}",
             )
+
+    @staticmethod
+    def _namespace_verification_memory_files(archive_path: Path, agent_id: str) -> None:
+        """Namespace verification_latest memories so per-agent files never collide."""
+        namespaced_name = f"verification_latest__{agent_id}.md"
+        for tier in ("short_term", "long_term"):
+            tier_dir = archive_path / tier
+            if not tier_dir.exists():
+                continue
+
+            legacy_file = tier_dir / "verification_latest.md"
+            if not legacy_file.exists():
+                continue
+
+            namespaced_file = tier_dir / namespaced_name
+            if namespaced_file.exists():
+                namespaced_file.unlink()
+            legacy_file.rename(namespaced_file)
 
     def _get_previous_turns_context_paths(self) -> list[dict[str, Any]]:
         """

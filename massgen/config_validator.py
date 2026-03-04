@@ -165,7 +165,11 @@ class ConfigValidator:
     VALID_NOVELTY_INJECTION = {"none", "gentle", "moderate", "aggressive"}
     VALID_SUBAGENT_RUNTIME_MODES = {"isolated", "inherited"}
     VALID_SUBAGENT_RUNTIME_FALLBACK_MODES = {"inherited"}
-    VALID_LEARNING_CAPTURE_MODES = {"round", "final_only"}
+    VALID_LEARNING_CAPTURE_MODES = {
+        "round",
+        "verification_and_final_only",
+        "final_only",
+    }
 
     # Valid gap report modes
     VALID_GAP_REPORT_MODES = {"changedoc", "separate", "none"}
@@ -1058,6 +1062,44 @@ class ConfigValidator:
                             f"{location}.coordination.novelty_injection",
                             f"Use one of: {valid_values}",
                         )
+                if "enable_novelty_on_iteration" in coordination and not isinstance(
+                    coordination["enable_novelty_on_iteration"],
+                    bool,
+                ):
+                    result.add_error(
+                        "'enable_novelty_on_iteration' must be a boolean",
+                        f"{location}.coordination.enable_novelty_on_iteration",
+                        "Use true or false",
+                    )
+                if "enable_quality_rethink_on_iteration" in coordination and not isinstance(
+                    coordination["enable_quality_rethink_on_iteration"],
+                    bool,
+                ):
+                    result.add_error(
+                        "'enable_quality_rethink_on_iteration' must be a boolean",
+                        f"{location}.coordination.enable_quality_rethink_on_iteration",
+                        "Use true or false",
+                    )
+                if "improvements" in coordination:
+                    improvements = coordination["improvements"]
+                    improvements_location = f"{location}.coordination.improvements"
+                    if not isinstance(improvements, dict):
+                        result.add_error(
+                            "'improvements' must be a dictionary",
+                            improvements_location,
+                            "Use keys like min_transformative, min_structural, min_non_incremental",
+                        )
+                    else:
+                        for key in ("min_transformative", "min_structural", "min_non_incremental"):
+                            if key not in improvements:
+                                continue
+                            value = improvements[key]
+                            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                                result.add_error(
+                                    f"'{key}' must be a non-negative integer",
+                                    f"{improvements_location}.{key}",
+                                    "Use values like 0, 1, 2",
+                                )
                 if "learning_capture_mode" in coordination:
                     learning_capture_mode = coordination["learning_capture_mode"]
                     if learning_capture_mode not in self.VALID_LEARNING_CAPTURE_MODES:
@@ -1069,6 +1111,15 @@ class ConfigValidator:
                             f"{location}.coordination.learning_capture_mode",
                             f"Use one of: {valid_values}",
                         )
+                if "disable_final_only_round_capture_fallback" in coordination and not isinstance(
+                    coordination["disable_final_only_round_capture_fallback"],
+                    bool,
+                ):
+                    result.add_error(
+                        "'disable_final_only_round_capture_fallback' must be a boolean",
+                        f"{location}.coordination.disable_final_only_round_capture_fallback",
+                        "Use true or false",
+                    )
 
                 if "subagent_types" in coordination:
                     st = coordination["subagent_types"]

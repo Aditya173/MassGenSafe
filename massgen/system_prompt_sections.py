@@ -373,6 +373,37 @@ fix the failures you identified? Be targeted:
 - "Agent 1's data model is stronger but Agent 3's UI handles edge cases better"
 - Don't just say "combine the best of both" — specify exactly what to take and why.
 
+**For visual deliverables** (websites, screenshots, rendered pages, images,
+diagrams): text descriptions cannot capture visual differentiation — "clean
+modern layout" describes both a mediocre and an excellent design equally.
+Before reasoning about relative quality or what to synthesize, view all
+agents' visual outputs together using `read_media`, with each comparable
+section as a separate named input:
+
+    read_media(inputs=[
+        {{
+            "files": {{
+                "agent1_section": "<shared_ref>/agent1/.../section.png",
+                "agent2_section": "<shared_ref>/agent2/.../section.png"
+            }},
+            "prompt": "Compare these sections head-to-head. Which is stronger
+and why? What does each have that the other lacks?"
+        }},
+        # one input item per comparable section
+    ])
+
+Direct visual comparison is the only reliable basis for judging which
+approach is stronger. Peer image paths: explore the Shared Reference
+agent subdirectories (agent1/, agent2/, ...) shown in your filesystem
+context.
+
+For **video deliverables**: true joint comparison is not yet supported.
+1. Extract representative frames (opening, mid, closing) from each video
+   and compare them as images using the `read_media` pattern above.
+2. When describing your video output, use a consistent structure
+   (appropriate to the task — overall quality, pacing, visual style,
+   etc.) so other agents can compare your output directly with theirs.
+
 ### Approach Challenge
 
 Before scoring, answer honestly: **Is the current approach the right approach,
@@ -507,8 +538,10 @@ fix the failures you identified? Be targeted:
 Classify each planned change as:
 - **TRANSFORMATIVE**: Fundamentally different approach, architecture, or creative direction
 - **STRUCTURAL**: Meaningful redesign of a component, new capability, or significant quality lift —
-  the bar is: *would a user with no knowledge of the implementation notice this as a meaningfully
-  different experience?*
+  the bar is outcome, not degree of change. A rewrite achieving significantly better quality
+  (stronger prose, more compelling argument, more immersive experience) counts as structural
+  even when keeping the same theme or approach. *Quick test: would a demanding user say
+  "much better"? → structural. "Nice touch, barely noticed"? → incremental.*
 - **INCREMENTAL**: Minor polish, formatting, or small additions
 
 The following are INCREMENTAL, not STRUCTURAL — do not upgrade them:
@@ -704,6 +737,32 @@ Rate your confidence on each item, count how many meet the {cutoff} cutoff,
 then apply the decision rule above."""
 
 
+def _build_impact_requirement(improvements_cfg: dict | None) -> str:
+    """Build a dynamic sentence describing the impact gate requirements."""
+    cfg = improvements_cfg or {}
+    min_t = cfg.get("min_transformative", 0)
+    min_s = cfg.get("min_structural", 0)
+    min_ni = cfg.get("min_non_incremental", 1)
+
+    constraints: list[str] = []
+    if min_t > 0:
+        word = "improvement" if min_t == 1 else "improvements"
+        constraints.append(f"at least {min_t} transformative {word}")
+    if min_s > 0:
+        word = "improvement" if min_s == 1 else "improvements"
+        constraints.append(f"at least {min_s} structural {word}")
+    # Only add combined floor if it isn't already implied by the individual floors.
+    if min_ni > 0 and (min_t + min_s) < min_ni:
+        word = "improvement" if min_ni == 1 else "improvements"
+        constraints.append(f"at least {min_ni} structural or transformative {word} combined")
+
+    if not constraints:
+        return "**`impact` is informational for this run** — use it to communicate " "ambition, but no specific level is enforced."
+
+    req = "; ".join(constraints).capitalize() + "."
+    return f"**Impact requirement: {req}** " "All-incremental proposals will be rejected — a round at this cost needs bolder changes."
+
+
 def _build_checklist_gated_decision(
     checklist_items: list,
     terminate_action: str = "vote",
@@ -711,6 +770,7 @@ def _build_checklist_gated_decision(
     require_gap_report: bool = True,
     gap_report_mode: str = "changedoc",
     builder_enabled: bool = True,
+    improvements_cfg: dict | None = None,
 ) -> str:
     """Build checklist_gated decision section (tool-gated, hidden threshold).
 
@@ -756,6 +816,8 @@ def _build_checklist_gated_decision(
     else:
         # "none" — no report instructions
         report_requirement = ""
+
+    impact_requirement = _build_impact_requirement(improvements_cfg)
 
     # Phase 3 execution guidance — conditional on builder availability
     if builder_enabled:
@@ -868,11 +930,15 @@ Classify each planned change as:
   GraphQL, rewriting a synchronous pipeline as event-driven, choosing a completely different
   data model or storage engine.
 - **STRUCTURAL**: Meaningful redesign of a component, new capability, or significant quality
-  lift — the bar is: *would a user with no knowledge of the implementation notice this as a
-  meaningfully different experience?*
+  lift. The bar is outcome-based, not degree of change — a rewrite that achieves significantly
+  better quality (stronger prose, more compelling argument, clearer explanation, more immersive
+  experience) counts as structural even when keeping the same theme, approach, or structure.
+  *Quick test: would a demanding user say "much better"? → structural. "Nice touch, barely
+  noticed"? → incremental.*
   Examples: adding real-time collaboration to a single-user editor, introducing a caching
   layer that changes perceived performance, redesigning navigation to support a new workflow,
-  adding offline support, building a new visualization that reveals patterns previously hidden.
+  adding offline support, building a new visualization that reveals patterns previously hidden,
+  a rewrite that is dramatically more vivid, persuasive, or correct than the prior version.
 - **INCREMENTAL**: Minor polish, formatting, or small additions that do not change the user's
   experience in a meaningful way.
   Examples: CSS tweaks and animation refinements, adding aria labels or alt text to existing
@@ -936,8 +1002,9 @@ to call `{terminate_action}` or `{iterate_action}`. Follow the verdict.
 
 **Phase 1 — Gather evidence. Do this BEFORE calling `submit_checklist`.**
 
-Spawn **one evaluator** that sees **all candidate answers together**,
-while you do qualitative analysis in parallel:
+Spawn **one evaluator** that sees **all candidate answers together**.
+Run it in blocking mode (`background=False, refine=False`) because its evidence
+is required before scoring:
 
 - Give the evaluator paths to all agents' answers. Instruct it to compare
   cross-agent: what does each answer have that the others lack? What gaps appear
@@ -946,6 +1013,11 @@ while you do qualitative analysis in parallel:
 - Evaluators handle: screenshots + visual observations (for visual artifacts:
   render to images or video first, then view), test runs, completeness checks,
   feature verification. Evaluators observe and report — they do NOT make changes.
+  **When multiple agents have visual outputs**: pass all agents' images in a
+  single `read_media` call using the `files` dict (one input per section,
+  named by agent) — not one image per call. The evaluator must see all
+  outputs simultaneously to make grounded comparative judgments about
+  which is stronger and what to adopt.
 - Split into parallel evaluators only when concerns are truly independent and
   span all answers equally (e.g. "visual quality" vs "link integrity") — never
   split by agent.
@@ -955,6 +1027,11 @@ while you do qualitative analysis in parallel:
   path for files you created this round — those are only archived there after you
   submit, not during execution. For fully isolated research subagents that don't
   need your files, pass `include_parent_workspace: false`.
+- **Peer build verification**: Shared Reference snapshots under `temp_workspaces`
+  are read-only. If verification requires mutable commands (`npm install`,
+  `pip install`, `vite build`, tests that write caches, etc.), copy only the
+  needed files into your workspace scratch first (for example
+  `.massgen_scratch/peer_eval/<agent>/`) and run commands there.
 - You handle: read all agents' answers, identify qualitative gaps, assess
   creative/craft quality. You make the value judgments — evaluator gives you
   evidence to reason from, not scores.
@@ -986,36 +1063,61 @@ When verdict is `{iterate_action}`, review each existing answer before proposing
 - Which answer has the strongest element for each failing criterion?
 Use this to fill in the `sources` and `preserve` fields accurately.
 
+Output quality takes precedence over documentation quality:
+- Do NOT treat missing/weak changedoc alone as proof an answer is worse.
+- If an answer is materially better for the user but weaker on changedoc,
+  still use its strengths as `sources`; then include explicit changedoc
+  repairs in `improvements`.
+
 You MUST call `propose_improvements` with:
-- **`improvements`**: plans for **every** failing criterion — each entry has a `plan` \
-and `sources` (which answers you're drawing from for that specific change)
+- **`improvements`**: plans for **every** failing criterion — each entry has a `plan`, \
+`sources` (which answers you're drawing from), and `impact` (how bold the change is)
 - **`preserve`**: what's already working and must not regress — each entry has `what` \
 (the specific strength) and `source` (which answer it comes from)
 
+**`impact` levels** (required on every improvement entry):
+- **`transformative`**: fundamentally different approach, architecture, or creative direction
+- **`structural`**: meaningful redesign, new capability, or significant quality lift; \
+fixing a crash or unblocking major functionality also counts as structural. \
+The bar is outcome-based: a rewrite achieving significantly better quality counts as \
+structural even with the same theme. *Quick test: "much better"? → structural. \
+"Nice touch"? → incremental.*
+- **`incremental`**: polish, formatting, small additions — important but not round-justifying alone
+
+If your plan for a criterion has multiple independent improvements (e.g., rewrite the copy AND \
+add a new section AND fix the CTA), list them as separate entries — each gets its own impact \
+level and sources.
+
+{impact_requirement}
+
   propose_improvements(
     improvements={{
-      "E2": [{{"plan": "rethink the feature cards with distinct visual identity", "sources": ["agent_b.1"]}}],
-      "E5": [{{"plan": "build a full signup form CTA", "sources": ["agent_b.1", "agent_a.1"]}}],
+      "E2": [{{"plan": "rethink the feature cards with distinct visual identity", \
+"sources": ["agent2.1"], "impact": "structural"}}],
+      "E5": [{{"plan": "build a full signup form CTA", \
+"sources": ["agent2.1", "agent1.2"], "impact": "transformative"}}],
     }},
     preserve={{
-      "E1": {{"what": "hero section visual impact — gradient animation and typography", "source": "agent_a.2"}},
-      "E2": {{"what": "section header and layout grid — preserve while reworking cards", "source": "agent_a.2"}},
-      "E3": {{"what": "sci-fi color palette coherence — neon-on-dark theme unified", "source": "agent_a.2"}},
+      "E1": {{"what": "hero section visual impact — gradient animation and typography", "source": "agent1.2"}},
+      "E2": {{"what": "section header and layout grid — preserve while reworking cards", "source": "agent1.2"}},
+      "E3": {{"what": "sci-fi color palette coherence — neon-on-dark theme unified", "source": "agent1.2"}},
     }}
   )
 
-- `improvements`: each entry names a `plan` and its `sources` — which answers \
-you're drawing from. This traces provenance of every change.
+- `improvements`: each entry names a `plan`, its `sources`, and an `impact` level. \
+This traces provenance and ambition of every change.
 - `preserve` forces you to articulate what's WORKING before changing anything. \
-A criterion can appear in BOTH — fix one part, protect another.
+A criterion can appear in BOTH — fix one part, protect another. \
+Preserved items are injected as a single verification checkpoint at the END of your \
+task plan — confirm they're intact before submitting.
 
-The tool validates all failing criteria are covered and returns a task_plan.
-Add each item to your task plan tool, then proceed to Phase 3.
+The tool validates all failing criteria are covered and auto-populates your \
+task plan. Call `get_task_plan` to review the items and proceed to Phase 3.
 
 **Phase 3 — Execute improvements (`{iterate_action}` verdict only).**
 
-Your `propose_improvements` call returned a validated `task_plan`. Add these
-tasks to your task plan tool, then execute them.
+Your `propose_improvements` call has pre-populated your task plan. Call \
+`get_task_plan` to review, then execute.
 
 {_phase3_execution}
 
@@ -1038,7 +1140,16 @@ After all tasks complete:
    output with fewer features is always better than a broken output with more.
 2. Confirm you implemented the full scope of identified improvements, not just some.
    Each round is expensive — deliver everything you identified, not just the easiest item.
-3. Call `{iterate_action}` to submit your improved answer and end this round.
+3. Write/update `memory/short_term/verification_latest.md` with a **verification replay**
+   summary for this answer. This memo must be replayable — a future agent should be able to
+   re-run verification from it without guessing. Required fields:
+   - **Environment**: workspace path, artifact under test, tools used (e.g. Playwright Python)
+   - **Pipeline**: exact commands or script paths used (e.g. `python .massgen_scratch/verification/check.py`
+     or `npx -y playwright@1.52.0 screenshot ...`). Scripts must live under `.massgen_scratch/verification/`.
+   - **Artifacts**: list every file produced (screenshots, logs, scripts) with paths relative to workspace
+   - **Freshness**: state whether artifacts were generated this run or reused from a prior run
+   Absolute paths are allowed; they are normalized when replay memories are auto-injected in later rounds.
+4. Call `{iterate_action}` to submit your improved answer and end this round.
 
 Your answer MUST be **obviously and substantially better** than the prior round —
 not just marginally different. A user should immediately notice the improvement.
@@ -1785,9 +1896,17 @@ class MemorySection(SystemPromptSection):
         memory_config: Dictionary containing memory system configuration
                       including short-term and long-term memory content
         read_only: If True, show memory context without write/reminder instructions.
+        allow_verification_capture: If True, explicitly allow round-time updates to
+            `memory/short_term/verification_latest.md` while keeping other memory
+            writes read-only.
     """
 
-    def __init__(self, memory_config: dict[str, Any], read_only: bool = False):
+    def __init__(
+        self,
+        memory_config: dict[str, Any],
+        read_only: bool = False,
+        allow_verification_capture: bool = False,
+    ):
         super().__init__(
             title="Memory System",
             priority=Priority.HIGH,
@@ -1795,10 +1914,20 @@ class MemorySection(SystemPromptSection):
         )
         self.memory_config = memory_config
         self.read_only = read_only
+        self.allow_verification_capture = allow_verification_capture
 
     def build_content(self) -> str:
         """Build memory system instructions."""
         content_parts = []
+
+        def _is_verification_replay_name(mem_name: str) -> bool:
+            normalized = mem_name.strip().lower()
+            return normalized == "verification_latest" or normalized.startswith("verification_latest__")
+
+        def _extract_memory_content(mem_data: Any) -> str:
+            if isinstance(mem_data, dict):
+                return str(mem_data.get("content", "")).strip()
+            return str(mem_data).strip()
 
         # Header - concise overview
         content_parts.append(
@@ -1857,30 +1986,52 @@ class MemorySection(SystemPromptSection):
 
         # Show current memories from temp workspaces (all agents' current work)
         temp_workspace_memories = self.memory_config.get("temp_workspace_memories", [])
+        verification_replay_entries: list[dict[str, str]] = []
         if temp_workspace_memories:
-            content_parts.append("\n### Current Agent Memories (For Comparison)\n")
-            content_parts.append(
-                "These are the current memories from all agents working on this task. " "Review to compare approaches and avoid duplicating work.\n",
-            )
-
+            has_non_verification_memories = False
             for agent_mem in temp_workspace_memories:
                 agent_label = agent_mem.get("agent_label", "unknown")
                 memories = agent_mem.get("memories", {})
+                short_term_memories = memories.get("short_term", {})
+                long_term_memories = memories.get("long_term", {})
+
+                non_verification_short_term = {}
+                for mem_name, mem_data in short_term_memories.items():
+                    if _is_verification_replay_name(mem_name):
+                        verification_replay_entries.append(
+                            {
+                                "source": agent_label,
+                                "name": f"{mem_name}.md",
+                                "content": _extract_memory_content(mem_data),
+                            },
+                        )
+                    else:
+                        non_verification_short_term[mem_name] = mem_data
+
+                if not non_verification_short_term and not long_term_memories:
+                    continue
+
+                if not has_non_verification_memories:
+                    content_parts.append("\n### Current Agent Memories (For Comparison)\n")
+                    content_parts.append(
+                        "These are the current non-verification memories from all agents working on this task. " "Review to compare approaches and avoid duplicating work.\n",
+                    )
+                    has_non_verification_memories = True
 
                 content_parts.append(f"\n**{agent_label}:**")
 
                 # Show short_term memories (full content)
-                if memories.get("short_term"):
+                if non_verification_short_term:
                     content_parts.append("\n*short_term:*")
-                    for mem_name, mem_data in memories["short_term"].items():
+                    for mem_name, mem_data in non_verification_short_term.items():
                         content = mem_data.get("content", mem_data) if isinstance(mem_data, dict) else mem_data
                         content_parts.append(f"- `{mem_name}.md`")
-                        content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+                        content_parts.append(f"  ```\n  {str(content).strip()}\n  ```")
 
                 # Show long_term memories (name + description only)
-                if memories.get("long_term"):
+                if long_term_memories:
                     content_parts.append("\n*long_term:*")
-                    for mem_name, mem_data in memories["long_term"].items():
+                    for mem_name, mem_data in long_term_memories.items():
                         if isinstance(mem_data, dict):
                             description = mem_data.get("description", "No description")
                             content_parts.append(f"- `{mem_name}.md`: {description}")
@@ -1888,21 +2039,45 @@ class MemorySection(SystemPromptSection):
                             # Fallback if not parsed
                             content_parts.append(f"- `{mem_name}.md`")
 
-                if not memories.get("short_term") and not memories.get("long_term"):
-                    content_parts.append("  *No memories*")
-
         # Show archived memories (deduplicated historical context)
         archived = self.memory_config.get("archived_memories", {})
-        if archived and (archived.get("short_term") or archived.get("long_term")):
+        archived_short_term = archived.get("short_term", {}) if archived else {}
+        archived_short_term_non_verification = {}
+        for mem_name, mem_data in archived_short_term.items():
+            if _is_verification_replay_name(mem_name):
+                verification_replay_entries.append(
+                    {
+                        "source": str(mem_data.get("source", "Archived")) if isinstance(mem_data, dict) else "Archived",
+                        "name": f"{mem_name}.md",
+                        "content": _extract_memory_content(mem_data),
+                    },
+                )
+            else:
+                archived_short_term_non_verification[mem_name] = mem_data
+
+        if verification_replay_entries:
+            content_parts.append("\n### Verification Replay Memories (Auto-Injected)\n")
+            content_parts.append(
+                "These memories capture how prior answers were verified. Reuse the pipeline directly when still valid, " "or rerun and refresh if artifacts are stale.\n",
+            )
+            for entry in verification_replay_entries:
+                source = entry.get("source", "unknown")
+                mem_name = entry.get("name", "verification_latest.md")
+                mem_content = entry.get("content", "")
+                content_parts.append(f"\n- **{source}** → `{mem_name}`")
+                if mem_content:
+                    content_parts.append(f"  ```\n  {mem_content}\n  ```")
+
+        if archived and (archived_short_term_non_verification or archived.get("long_term")):
             content_parts.append("\n### Archived Memories (Historical - Deduplicated)\n")
             content_parts.append(
                 "These are historical memories from previous answers. Duplicate names have been resolved " "(showing only the most recent version of each memory). This is read-only context.\n",
             )
 
             # Show short_term archived memories (full content)
-            if archived.get("short_term"):
+            if archived_short_term_non_verification:
                 content_parts.append("\n**Short-term (full content):**")
-                for mem_name, mem_data in archived["short_term"].items():
+                for mem_name, mem_data in archived_short_term_non_verification.items():
                     content = mem_data.get("content", "")
                     content_parts.append(f"\n- `{mem_name}.md`")
                     content_parts.append(f"  ```\n  {content.strip()}\n  ```")
@@ -1931,6 +2106,10 @@ class MemorySection(SystemPromptSection):
                 "Round-time memory capture is disabled for this run. Use the memory context above as read-only guidance "
                 "during coordination. Consolidation can happen at final presentation.\n",
             )
+            if self.allow_verification_capture:
+                content_parts.append(
+                    "Exception: you may still write/update `memory/short_term/verification_latest.md` at the end of each " "answer so verification can be replayed in the next round.\n",
+                )
             return "\n".join(content_parts)
 
         # File operations - simple and direct
@@ -1940,6 +2119,10 @@ class MemorySection(SystemPromptSection):
             "Save memories by writing markdown files to the memory directory:\n"
             "- **Short-term** → `memory/short_term/{name}.md` (auto-loaded every turn)\n"
             "- **Long-term** → `memory/long_term/{name}.md` (load manually when needed)\n\n"
+            "- **Verification replay** → `memory/short_term/verification_latest.md` "
+            "(required before checklist-gated `new_answer` submissions; must include: environment context "
+            "(workspace path, artifact under test, tools used), exact commands/script paths under "
+            "`.massgen_scratch/verification/`, artifact paths, and freshness status)\n\n"
             "**File Format (REQUIRED YAML Frontmatter):**\n"
             "```markdown\n"
             "---\n"
@@ -1954,7 +2137,8 @@ class MemorySection(SystemPromptSection):
             "**Important:** You are stateless - you don't have a persistent identity across restarts. "
             "When you call `new_answer`, your workspace is cleared and archived. The system shows you:\n"
             "1. Current memories from all agents (for comparing approaches)\n"
-            "2. Historical archived memories (deduplicated - newest version of each name)\n\n"
+            "2. Verification Replay Memories (auto-injected)\n"
+            "3. Historical archived memories (deduplicated - newest version of each name)\n\n"
             "If the same memory name appears multiple times, only the most recent version is shown.\n",
         )
 
@@ -2509,7 +2693,7 @@ class FilesystemOperationsSection(SystemPromptSection):
                     for i, agent_id in enumerate(sorted(self.agent_answers.keys()), 1):
                         agent_mapping[agent_id] = f"agent{i}"
 
-                workspace_tree += "   Available agent workspaces:\n"
+                workspace_tree += "   Workspaces from other agents (more may appear as other agents complete " "their work):\n"
                 # Sort by anon ID to ensure consistent display order
                 agent_items = sorted(agent_mapping.items(), key=lambda x: x[1])
                 for idx, (agent_id, anon_id) in enumerate(agent_items):
@@ -2523,11 +2707,16 @@ class FilesystemOperationsSection(SystemPromptSection):
                 "working with.\n"
                 "   - **Selective Copying**: Only copy specific files you'll actually modify or "
                 "use, not entire directories wholesale.\n"
+                "   - **Mutable Commands in Local Scratch**: Shared Reference directories are "
+                "read-only snapshots. To run commands that write files (`npm install`, "
+                "`pip install`, `vite build`, tests creating caches), copy the minimal subset "
+                "into your workspace first (for example `.massgen_scratch/peer_eval/agentX/`) "
+                "and build in your own workspace copy.\n"
                 "   - **Merging Approaches**: If combining work from multiple agents, consider "
-                "merging complementary parts (e.g., agent1's data model + agent2's API layer) "
+                "merging complementary parts (e.g., one workspace's data model + another's API layer) "
                 "rather than picking one entire solution.\n"
                 "   - **Attribution**: Be explicit in your answer about what you built on (e.g., "
-                "'Extended agent1's parser.py to handle edge cases').\n"
+                "'Extended the parser from a peer workspace to handle edge cases').\n"
                 "   - **Verify Files**: Not all workspaces may have matching answers in CURRENT "
                 "ANSWERS section (restart scenarios). Check actual files in Shared Reference.\n"
             )
@@ -2646,7 +2835,7 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "**Workspace Management**: \n"
             "- **Selective Copying**: When building on other agents' work, only copy the specific "
             "files you need to modify or use. Do not copy entire workspaces wholesale. Be explicit "
-            "about what you're building on (e.g., 'Using agent1's parser.py with "
+            "about what you're building on (e.g., 'Using a peer workspace's parser.py with "
             "modifications').\n"
             "- **Never Copy Gitignored Files**: Do NOT copy files/directories that are typically "
             "gitignored: `node_modules/`, `__pycache__/`, `.git/`, `venv/`, `env/`, `.env`, "
@@ -2700,7 +2889,14 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "optional context, but it may be incomplete or stale — always verify independently.\n"
             "- **Focus verification**: Prioritize critical functionality and substantial differences "
             "rather than exhaustively reviewing every file\n"
-            "- **Don't rely solely on answer text**: Ensure the actual work matches their claims\n",
+            "- **Don't rely solely on answer text**: Ensure the actual work matches their claims\n"
+            "- **For visual deliverables**: Viewing each agent's output in isolation produces\n"
+            "  evaluations that cannot be grounded against each other. Compare all agents'\n"
+            "  visual outputs in a single `read_media` call, with each comparable section\n"
+            "  as a separate named input using the `files` dict. Peer image paths are in\n"
+            "  the Shared Reference agent subdirectories. This applies to: rendered websites,\n"
+            "  UI screenshots, generated images, diagrams, charts, video frames, etc — treat\n"
+            "  visual artifacts like code: read the actual output, not a description of it.\n",
         )
 
         return "\n".join(parts)
@@ -2790,7 +2986,12 @@ class TaskPlanningSection(SystemPromptSection):
         filesystem_mode: If True, includes guidance about filesystem-based task storage
     """
 
-    def __init__(self, filesystem_mode: bool = False, decomposition_mode: bool = False):
+    def __init__(
+        self,
+        filesystem_mode: bool = False,
+        decomposition_mode: bool = False,
+        specialized_subagents=None,
+    ):
         super().__init__(
             title="Task Planning",
             priority=Priority.MEDIUM,
@@ -2798,43 +2999,75 @@ class TaskPlanningSection(SystemPromptSection):
         )
         self.filesystem_mode = filesystem_mode
         self.decomposition_mode = decomposition_mode
+        self.specialized_subagents = specialized_subagents or []
+
+    def _build_subagent_classification_step(self) -> str:
+        """Build STEP 2 only when subagents are available, listing actual types."""
+        if not self.specialized_subagents:
+            return ""
+        type_names = [t.name for t in self.specialized_subagents]
+        types_str = ", ".join(f'`"{n}"` ' for n in type_names)
+        step_number_note = "## STEP 2 — Classify Every Task for Delegation or Inline Execution\n"
+        return (
+            step_number_note + "\n"
+            "**Immediately after creating or reviewing your task plan, classify each task** "
+            "before starting any execution. This is a required planning step, not an afterthought.\n"
+            "\n"
+            "For each task, decide:\n"
+            "- **Delegate to subagent** — mechanical execution, large file reads, standalone "
+            "artifact generation, parallel independent work (documentation research, batch testing, "
+            "rendering)\n"
+            "- **Do inline** — quality judgment, synthesis, architectural decisions, anything "
+            "needing your full reasoning, tasks with live dependencies on in-flight work\n"
+            "\n"
+            f"Available subagent types: {types_str}\n"
+            "\n"
+            "Label each delegated task using `subagent_name` when creating tasks "
+            "(`create_task_plan`, `add_task`) or later with `edit_task`:\n"
+            '- `subagent_name` — e.g., `"builder"`, `"evaluator"`, `"novelty"`\n'
+            "- `subagent_id` — the ID of a specific already-spawned subagent\n"
+            "\n"
+            "**Spawn all independent delegated tasks in a single call** — they run in parallel. "
+            "While they run, execute your inline tasks.\n"
+            "\n"
+            "When tasks come from `propose_improvements`, structural and transformative criteria "
+            'are pre-filled with `subagent_name: "builder"` as an advisory signal. '
+            "Scope each builder to exactly one task. Never bundle multiple criteria into one "
+            "builder spec.\n"
+            "\n"
+            "Novelty/quality tasks (`type: novelty_quality_spawn`) may appear at the top of "
+            "your plan on iteration 2+. Spawn those in background first so they run while you "
+            "implement improvements.\n"
+            "\n"
+        )
 
     def build_content(self) -> str:
-        base_guidance = """
-# Task Planning and Management
+        subagent_step = self._build_subagent_classification_step()
+        has_subagents = bool(self.specialized_subagents)
+        # Execution step number shifts depending on whether subagent step is present
+        execute_step = "STEP 3" if has_subagents else "STEP 2"
+        summary_step = "STEP 4" if has_subagents else "STEP 3"
+        # Flow line varies too
+        if has_subagents:
+            flow_line = "propose_improvements → get_task_plan → classify → spawn delegated tasks " "→ execute inline tasks\n→ collect subagent results → verify each task → submit"
+        else:
+            flow_line = "propose_improvements → get_task_plan → execute each task " "→ verify each task → submit"
 
-You have access to task planning tools to organize complex work.
+        base_guidance = f"""
+# Task Planning and Management (REQUIRED)
 
-**IMPORTANT WORKFLOW - Plan Before Executing:**
+MassGen is built for complex, multi-step tasks. **A task plan is REQUIRED for all substantive
+work.** This is not optional guidance — it is the core execution discipline of this system.
 
-When working on multi-step tasks:
-1. **Think first** - Understand the requirements (some initial research/analysis is fine)
-2. **Create your task plan EARLY** - Use the task plan tool BEFORE executing file operations or major
-   actions
-3. **Execute tasks** - Work through your plan systematically
-4. **Update as you go** - Use the **add_task** tool to capture new requirements you discover
+**When do you need a task plan?**
+Almost always. The only exceptions are purely conversational responses (answering a question
+with no execution) or a single atomic operation. If you are writing files, calling tools,
+building things, or making improvements — you need a task plan.
 
-**DO NOT:**
-- ❌ Jump straight into creating files without planning first
-- ❌ Start executing complex work without a clear task breakdown
-- ❌ Ignore the planning tools for multi-step work
-
-**DO:**
-- ✅ Create a task plan early, even if it's just 3-4 high-level tasks
-- ✅ Refine your plan as you learn more (tasks can be added/edited/deleted)
-- ✅ Brief initial analysis is OK before planning (e.g., reading docs, checking existing code)
-
-**When to create a task plan:**
-- Multi-step tasks with dependencies (most common)
-- Multiple files or components to create
-- Complex features requiring coordination
-- Work that needs to be tracked or broken down
-- Any task where you'd benefit from a checklist
-
-**Skip task planning ONLY for:**
-- Trivial single-step tasks
-- Simple questions/analysis with no execution
-- Quick one-off operations
+- ✅ Create a task plan even for "simple" tasks — you'll discover the work is larger than expected
+- ✅ Create a task plan even when `propose_improvements` populates it for you — review it before executing
+- ❌ Do NOT start writing files or making changes without first having a task plan
+- ❌ Do NOT submit your answer with tasks marked pending or in_progress — address them all
 
 **Tools available:**
 - **create_task_plan** - Create a plan with tasks, dependencies, and verification criteria
@@ -2850,30 +3083,66 @@ When working on multi-step tasks:
 Tool responses may include important reminders and guidance (e.g., when completing high-priority tasks,
 you'll receive reminders to save learnings to memory). Always read tool response messages carefully.
 
-**Recommended workflow:**
-1. **Create your task plan** with tasks including verification criteria:
-   - `{"id": "research", "description": "Research OAuth providers", "verification": "Comparison table with 3+ providers", "verification_method": "Review output table"}`
-   - `{"id": "design", "description": "Design auth flow", "depends_on": ["research"], "verification": "Flow diagram renders correctly", "verification_method": "Screenshot and visual check"}`
-   - `{"id": "implement", "description": "Implement endpoints", "depends_on": ["design"], "verification": "Endpoints return 200", "verification_method": "curl test each endpoint"}`
-2. **Update task status** as you work: set status="in_progress", then "completed", then "verified" after confirming
-3. **Add tasks** as you discover new requirements:
-   - `description="Write integration tests", depends_on=["implement"], verification="Integration tests pass for auth flow", verification_method="Run integration test suite"`
-4. **Check ready tasks** to see what's unblocked next
+---
+
+## STEP 1 — Create Your Task Plan (before any execution)
+
+Brief initial research is fine (reading docs, checking existing code), but create your plan
+BEFORE making any changes or writing any files.
+
+Create tasks with verification criteria:
+- `{{"id": "research", "description": "Research OAuth providers", "verification": "Comparison table with 3+ providers", "verification_method": "Review output table"}}`
+- `{{"id": "design", "description": "Design auth flow", "depends_on": ["research"], "verification": "Flow diagram renders correctly", "verification_method": "Screenshot and visual check"}}`
+- `{{"id": "implement", "description": "Implement endpoints", "depends_on": ["design"], \
+"priority": "high", "subagent_name": "builder", "verification": "Endpoints return 200", \
+"verification_method": "curl test each endpoint"}}`
 
 **Dependency formats:**
-Tasks support two dependency styles:
-- **By index** (0-based): `{"description": "Task 2", "depends_on": [0], "verification": "Task 2 output is complete"}` — depends on the first task
-- **By ID** (recommended): `{"id": "api", "description": "Build API", "depends_on": ["auth"], "verification": "API returns expected responses"}` — depends on task with id "auth"
+- **By index** (0-based): `{{"description": "Task 2", "depends_on": [0]}}` — depends on the first task
+- **By ID** (recommended): `{{"id": "api", "description": "Build API", "depends_on": ["auth"]}}` \
+  — depends on task with id "auth"
 
-**IMPORTANT - Including Task Plan in Your Answer:**
-If you created a task plan, include a summary at the end of your `new_answer` showing:
+---
+
+{subagent_step}---
+
+## {execute_step} — Execute Every Task. Track Status As You Go.
+
+**For EACH task in your plan:**
+1. Call `update_task_status(status="in_progress")` when you start it
+2. Do the work
+3. Call `update_task_status(status="completed")` when done
+4. Verify it actually works, then call `update_task_status(status="verified")`
+
+**CRITICAL — When `propose_improvements` populates your task plan:**
+Every criterion added to the plan MUST be addressed before you submit. Do not cherry-pick the
+easy improvements and skip the hard ones. Call `get_task_plan` to see all items, then work
+through them one by one. If a task is truly infeasible this round, explicitly mark it `[skip]`
+in the description with a reason — do not silently leave it pending.
+
+The flow is:
+```
+{flow_line}
+```
+
+**Add tasks** as you discover new requirements:
+- `description="Write integration tests", depends_on=["implement"], verification="Tests pass"`
+
+**Check ready tasks** to see what's unblocked:
+- `get_ready_tasks()` — shows tasks whose dependencies are satisfied
+
+---
+
+## {summary_step} — Include Task Summary in Your Answer
+
+Always include a task execution summary at the end of your `new_answer`:
 1. Each task name
-2. Status: ✓ (verified), ◐ (completed but unverified), ✗ (not done)
+2. Status: ✓ (verified), ◐ (completed but unverified), ✗ (not done / skipped)
 3. Brief description of what you did
 
-**Verification is required.** When you mark a task `completed`, you must then verify it
-actually works (screenshots, tests, visual inspection) and mark it `verified`. Tasks left
-at `completed` without verification are unverified — they will show as ◐ in your summary.
+**Verification is required.** When you mark a task `completed`, verify it actually works
+(screenshots, tests, visual inspection) and mark it `verified`. Tasks left at `completed`
+without verification are unfinished — they will show as ◐ in your summary.
 
 Example format:
 ```
@@ -2884,12 +3153,12 @@ Example format:
 ✓ Research OAuth providers - Analyzed OAuth 2.0 spec and compared providers
 ✓ Design auth flow - Created flow diagram with PKCE and token refresh (verified: diagram renders correctly)
 ◐ Implement endpoints - Built /auth/login, /auth/callback, /auth/refresh (unverified: no test run yet)
-✗ Write tests - Not started
+✗ Write tests - [skip: no test infra available this round]
 
 Status: 2/4 verified, 1/4 completed (unverified), 1/4 not done
 ```
 
-This helps other agents understand your approach and evaluate your work."""
+This helps other agents evaluate your work and continue where you left off."""
 
         if self.filesystem_mode:
             filesystem_guidance = """
@@ -2936,6 +3205,7 @@ class EvaluationSection(SystemPromptSection):
         item_verify_by: dict[str, str] | None = None,
         has_existing_answers: bool = True,
         builder_enabled: bool = True,
+        improvements_cfg: dict | None = None,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -2957,6 +3227,7 @@ class EvaluationSection(SystemPromptSection):
         self.item_verify_by = item_verify_by
         self.has_existing_answers = has_existing_answers
         self.builder_enabled = builder_enabled
+        self.improvements_cfg = improvements_cfg
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -3107,6 +3378,7 @@ Your goal is to iteratively refine answers until they meet the quality bar.
                     require_gap_report=self.checklist_require_gap_report,
                     gap_report_mode=self.gap_report_mode,
                     builder_enabled=self.builder_enabled,
+                    improvements_cfg=self.improvements_cfg,
                 )
                 evaluation_section = f"""{analysis}
 
@@ -3223,7 +3495,7 @@ When calling `new_answer`, your content should be HIGH-LEVEL and concise:
 EXAMPLE FORMAT:
 ```
 I created a Snake game with mobile support and saved it to deliverable/.
-Workspace: /workspace/agent1/
+Workspace: /workspace/my-workspace/
 Files created:
 - deliverable/index.html (main game)
 - deliverable/README.md (instructions)
@@ -3269,6 +3541,7 @@ class DecompositionSection(SystemPromptSection):
         custom_checklist_items: list[str] | None = None,
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
+        improvements_cfg: dict | None = None,
     ):
         super().__init__(
             title="MassGen Decomposition Coordination",
@@ -3286,6 +3559,7 @@ class DecompositionSection(SystemPromptSection):
         self.custom_checklist_items = custom_checklist_items
         self.item_categories = item_categories
         self.item_verify_by = item_verify_by
+        self.improvements_cfg = improvements_cfg
 
     def _build_decision_block(self) -> str:
         """Build the new_answer vs stop decision block, threshold-aware if set."""
@@ -3337,7 +3611,8 @@ Both are terminal actions that end your round.
                     iterate_action="new_answer",
                     require_gap_report=self.checklist_require_gap_report,
                     gap_report_mode=self.gap_report_mode,
-                    builder_enabled=self.builder_enabled,
+                    builder_enabled=getattr(self, "builder_enabled", True),
+                    improvements_cfg=self.improvements_cfg,
                 )
                 return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round.
@@ -3426,7 +3701,7 @@ Your `new_answer` content should be HIGH-LEVEL and concise:
 EXAMPLE:
 ```
 I completed the authentication module and saved it to deliverable/auth/.
-Workspace: /workspace/agent2/
+Workspace: /workspace/my-workspace/
 Files created:
 - deliverable/auth/login.py (JWT-based auth)
 - deliverable/auth/middleware.py (request validation)
@@ -3435,8 +3710,8 @@ How to use:
 - Import AuthMiddleware in your app
 - Add JWT_SECRET to environment
 Integration points:
-- Exports authenticate() function for agent1's API
-- Uses database models from agent3
+- Exports authenticate() function for the API layer
+- Uses database models from the data layer
 Tests: 12/12 passing
 ```
 Remember: Other agents need to understand what you delivered and how to integrate with it, not HOW you implemented it.
@@ -3967,10 +4242,10 @@ class SubagentSection(SystemPromptSection):
         if not self.specialized_subagents:
             return ""
 
-        # All subagent types default to background=True — they do substantial work
-        # that should not block the main agent's context. Override only when a type
-        # genuinely must be blocking (e.g., a quick synchronous check).
-        background_by_type: dict[str, bool] = {}
+        # Most types run background=True (fire-and-forget while main agent keeps working).
+        # evaluator is blocking (background=False) so the main agent waits for evidence
+        # before scoring — scores without evidence are meaningless.
+        background_by_type: dict[str, bool] = {"evaluator": False}
 
         lines = [
             "",
@@ -4041,14 +4316,29 @@ class SubagentSection(SystemPromptSection):
         specialized_guidance = ""
         if specialized_names:
             evaluator_guidance = ""
+            novelty_quality_guidance = ""
             if "evaluator" in specialized_names:
                 evaluator_guidance = """
 **FOR `EVALUATOR` TASKS, EXPLICITLY INCLUDE:**
+- **Evaluation criteria verbatim** — paste the full E1..EN criterion text (and `verify_by` \
+instructions where present) from your checklist directly into the task. The evaluator has \
+no other way to know what each criterion means. Without this, it guesses.
 - What to run (tests, scripts, flows, URLs, targets)
 - How to set it up (install/build/start steps, ports, env vars, prerequisites)
 - Exact commands (copy-pastable command list in order)
-- What evidence to capture (screenshots, video recordings, audio samples, logs, timings, failing cases, artifact paths)
-- Pass/fail format (explicit rubric or required report sections)
+- What evidence to capture per criterion (screenshots, logs, timings, artifact paths)
+- Output format: detailed observations keyed to each criterion ID — NOT pass/fail verdicts \
+or scores (those are the main agent's job)
+"""
+            if "novelty" in specialized_names or "quality_rethinking" in specialized_names:
+                novelty_quality_guidance = """
+**FOR `NOVELTY` AND `QUALITY_RETHINKING` TASKS, EXPLICITLY INCLUDE:**
+- **Evaluation Input (verbatim)** — paste the full structured evaluation packet from your \
+task metadata (`evaluation_input`) directly into the subagent task.
+- **Evidence/report paths** — include `diagnostic_report_path` and \
+`diagnostic_report_artifact_paths` when present so subagents can ground proposals in evidence.
+- **Constraint**: Do NOT ask them to re-evaluate or re-score. They must use your provided \
+evaluation packet and focus only on generating stronger directions/proposals.
 """
             specialized_guidance = f"""
 **WHEN WRITING A `TASK` FOR SPECIALIZED SUBAGENTS:**
@@ -4064,6 +4354,7 @@ Read the "Expected input for this type" bullets in ATTACHED SUBAGENTS and adapt 
 If that checklist is present, treat it as required inputs for your task brief.
 
 {evaluator_guidance}
+{novelty_quality_guidance}
 """
         return f"""{attached}
 # Subagent Delegation
@@ -4072,27 +4363,56 @@ You can spawn **subagents** to execute tasks with fresh context and isolated wor
 
 ## When to Use Subagents
 
-**USING TASK DEPENDENCIES TO IDENTIFY SUBAGENT CANDIDATES:**
-When you create a task plan, tasks with the SAME dependencies (or no dependencies) can potentially run in parallel via subagents. Look at your plan:
-- Tasks that share dependencies → candidates for parallel subagent execution
-- Tasks that depend on each other → must be sequential (do NOT subagent)
-- Simple/quick tasks → do yourself (subagent overhead not worth it)
+**THE GUIDING PRINCIPLE: keep the intelligent work, delegate the mechanical work.**
+You are the most capable agent in this run. Your context window and reasoning should be
+spent on work that genuinely requires it — synthesis, quality judgment, improvement strategy,
+creative decisions. Subagents run on simpler models. Offload the rest to them.
 
-Example task plan analysis:
+Ask yourself: *does this task require my full reasoning, or just execution?*
+- **Requires full reasoning** → do it yourself
+- **Execution with a clear spec** → delegate
+
+**Delegate when ALL of these are true:**
+1. The task is **mechanical** — execution with a clear spec, not open-ended judgment
+2. The task is **self-contained** — a complete spec can be written upfront, with needed \
+   files accessible via `include_parent_workspace` or `context_paths`
+3. The task is **independent** — it does not need the output of another in-flight task to start
+4. The task is **worth the overhead** — roughly 10+ tool calls, reads large docs/files, \
+   or produces a standalone artifact; tiny tasks cost more to spawn than to just do
+
+**Strong delegation signals (delegate these):**
+- Reading large documentation files to discover HOW to do something — mechanical and expensive;
+  let a subagent absorb the docs in its own context, not yours
+- Producing a standalone artifact (complete file, rendered output, full report) you'll integrate later
+- Mechanical tool execution: running tests, rendering, screenshotting, validating, batch checking
+- Parallel data collection: multiple independent lookups or research threads
+
+**Keep inline (these need your full capability):**
+- Quality judgment and improvement strategy — what to fix, in what order, and why
+- Cross-agent synthesis — identifying the best elements across peer answers
+- Creative and architectural decisions — the choices that determine outcome quality
+- Anything where the answer to "what should I do here?" is non-obvious
+- Sequential tasks whose output directly determines your next step
+- Small tasks < ~10 tool calls where spawning overhead exceeds the work saved
+
+Note: a task can be large (many tool calls) and still belong inline if it requires quality
+judgment throughout. Size alone is not the criterion — nature of the work is.
+
+**PLANNING SUBAGENT DELEGATION IN YOUR TASK PLAN:**
+After `propose_improvements` pre-populates your task plan, review each independent task:
+- Does it have documentation-heavy discovery or mechanical execution? → Mark with `subagent_id`
+  and `subagent_name` via `update_task` to flag it for delegation
+- Does it require your judgment, synthesis, or live context? → Keep inline
+- Can it be split into smaller independent deliverables? → Consider splitting first
+
+Tasks that share dependencies (or have none) are parallelizable:
 ```
-Task A: Research biography (no deps)        ← Can parallelize
-Task B: Research discography (no deps)      ← Can parallelize
-Task C: Research quotes (no deps)           ← Can parallelize
-Task D: Build website (deps: A, B, C)       ← Sequential, do yourself after A/B/C
+Task A: Research biography (no deps)        ← Delegate (exploration)
+Task B: Research discography (no deps)      ← Delegate (exploration)
+Task C: Research quotes (no deps)           ← Delegate (exploration)
+Task D: Build website (deps: A, B, C)       ← Do yourself (synthesis + judgment)
 ```
 → Spawn subagents for A, B, C simultaneously. Wait for results. Then do D yourself.
-
-**IDEAL USE CASES:**
-- **Research and exploration** - gathering information, searching, analyzing sources
-- **Parallel data collection** - multiple independent lookups that can run simultaneously
-- **Programmatic evaluation at scale** - batch test runs, Playwright verification, evidence capture sweeps, repetitive scripted checks
-- Complex subtasks that benefit from fresh context (avoid context pollution)
-- Experimental operations you want isolated from your main workspace
 
 **SUBAGENT RELIABILITY:**
 Subagents are useful helpers but have limitations:
@@ -4103,10 +4423,10 @@ Subagents are useful helpers but have limitations:
 
 {specialized_guidance}
 
-**EVALUATION DELEGATION (background pattern):**
+**EVALUATION DELEGATION (blocking evaluator pattern):**
 When your output needs testing or evaluation that involves procedural tool use, delegate it
-to a background subagent so you can keep working on implementation. Spawn with
-`background=True, refine=False` — the subagent evaluates while you continue building.
+to an evaluator subagent and wait for its report before scoring or proposing improvements.
+Spawn with `background=False, refine=False` for evaluator tasks.
 
 Subagent handles (procedural observations):
 - High-volume batch workflows where execution is mostly mechanical and repeatable
@@ -4155,10 +4475,12 @@ quality and priorities, since you have the full context and the subagent may run
 **DO NOT submit your answer until ALL subagents have returned results.**
 
 When you spawn subagents:
-1. **Use `background=True` (default)** — the tool returns immediately with subagent IDs.
-   Continue your own work while subagents run. Results are auto-injected or retrievable via `list_subagents()`.
-2. **Do NOT say "I will now run subagents"** and submit an answer before collecting results.
-3. **Only after receiving results** should you integrate outputs and submit your answer.
+1. **Use `background=False` for prerequisite tasks (default)** — especially `evaluator`,
+   where downstream scoring and iteration depend on returned evidence.
+2. **Use `background=True` only for independent work** where you can keep making
+   meaningful progress without those results.
+3. **Do NOT say "I will now run subagents"** and submit an answer before collecting results.
+4. **Only after receiving results** should you integrate outputs and submit your answer.
 
 **BAD**: "I spawned 5 subagents. I will now wait for them and report back." (submitting answer before results)
 **GOOD**: Wait for spawn tool to return → read results → integrate → then submit answer with completed work
@@ -4232,7 +4554,7 @@ spawn_subagents(
         {{"task": "Create discography table in discography.md", "subagent_id": "discog"}},
         {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs"}}
     ],
-    background=True,  # default: run async, continue working; set False only when you must block
+    background=True,  # optional async mode for independent tasks; default is False (blocking)
     refine=False,  # default: single-pass, fast/cheap; set True only when quality justifies cost
 )
 
@@ -4243,12 +4565,12 @@ spawn_subagents(
 # ])
 ```
 
-**background parameter (async mode):**
-- `background=True` **(default)**: Spawn in background and continue working asynchronously.
-  Results are often auto-injected on a later tool call. Use `list_subagents()` to check
-  status and discover workspace paths.
-- `background=False`: Wait for results before proceeding. Only use when you genuinely
-  cannot continue any meaningful work until the subagent completes.
+**background parameter:**
+- `background=False` **(default)**: Blocking mode. Wait for results before proceeding.
+  Use this for evaluator/precondition tasks whose outputs are required for your next step.
+- `background=True`: Spawn in background and continue working asynchronously.
+  Use this only for independent tasks; results are often auto-injected on a later tool call.
+  Use `list_subagents()` to check status and discover workspace paths.
 
 **refine parameter:**
 - `refine=False` **(default)**: Single-pass execution. Faster and cheaper. Use for most tasks.
@@ -4276,6 +4598,9 @@ they will complete on their own. If one appears to be going in the wrong directi
 only as a last resort when the subagent is clearly going nowhere and redirecting won't
 help. Finding partial files in the workspace is normal while a subagent runs — that
 alone is not a reason to cancel.
+Only use `send_message_to_subagent` when you see execution-direction problems
+(wrong scope, wrong target, wrong method). Do not send "finish now" or
+"complete now" nudges — they add noise and usually do not improve outcomes.
 
 **Monitoring a running subagent's progress:**
 Use `list_subagents()` to get the workspace path, then:

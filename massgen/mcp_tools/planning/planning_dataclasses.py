@@ -84,6 +84,7 @@ class TaskPlan:
     """
 
     agent_id: str
+    display_id: str | None = None  # Anonymous ID for serialization; defaults to agent_id if None
     tasks: list[Task] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -232,6 +233,8 @@ class TaskPlan:
         verification: str | None = None,
         verification_method: str | None = None,
         skip_verification: bool = False,
+        subagent_id: str | None = None,
+        subagent_name: str | None = None,
     ) -> Task:
         """
         Add a new task to the plan.
@@ -278,6 +281,10 @@ class TaskPlan:
             metadata["verification"] = verification
         if verification_method:
             metadata["verification_method"] = verification_method
+        if subagent_id:
+            metadata["subagent_id"] = subagent_id
+        if subagent_name:
+            metadata["subagent_name"] = subagent_name
 
         # Create task
         task = Task(
@@ -531,7 +538,7 @@ class TaskPlan:
     def to_dict(self) -> dict[str, Any]:
         """Convert plan to dictionary for serialization."""
         return {
-            "agent_id": self.agent_id,
+            "agent_id": self.display_id if self.display_id is not None else self.agent_id,
             "tasks": [task.to_dict() for task in self.tasks],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

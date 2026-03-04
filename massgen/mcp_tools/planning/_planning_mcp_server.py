@@ -119,6 +119,13 @@ _workspace_path: Path | None = None
 # Whether two-tier workspace with git versioning is enabled
 _use_two_tier_workspace: bool = False
 
+# Optional injection directory for tasks from checklist propose_improvements
+_injection_dir: Path | None = None
+
+# Whether to append write_verification_memo when injection populates an otherwise-empty plan.
+# Set from --verification-memory-enabled / --memory-enabled args in create_server().
+_verification_memory_enabled: bool = False
+
 
 def _git_commit_on_task_completion(task_id: str, completion_notes: str | None) -> bool:
     """
@@ -254,7 +261,81 @@ def _load_plan_from_filesystem(agent_id: str) -> TaskPlan | None:
         return None
 
 
-def _get_or_create_plan(agent_id: str, orchestrator_id: str, require_verification: bool = True) -> TaskPlan:
+def _check_and_inject_pending_tasks(plan: TaskPlan, injection_dir: Path | None = None) -> list[str]:
+    """Check for and inject pending tasks from propose_improvements.
+
+    Reads inject_tasks.json from the injection directory, adds tasks to the plan,
+    deletes the file to prevent double-injection, and saves the plan.
+
+    Args:
+        plan: TaskPlan to inject tasks into
+        injection_dir: Directory to check for inject_tasks.json, or None
+
+    Returns:
+        List of added task IDs (empty if no injection file or on error)
+    """
+    if injection_dir is None:
+        return []
+    inject_file = injection_dir / "inject_tasks.json"
+    if not inject_file.exists():
+        return []
+    try:
+        tasks = json.loads(inject_file.read_text())
+        plan_was_empty = len(plan.tasks) == 0
+        added_ids = []
+        for t in tasks:
+            task = plan.add_task(
+                description=t["description"],
+                task_id=t.get("id"),
+                priority=t.get("priority", "medium"),
+                verification=t.get("verification"),
+                verification_method=t.get("verification_method"),
+                subagent_name=t.get("subagent_name"),
+                subagent_id=t.get("subagent_id"),
+                skip_verification=True,
+            )
+            # Merge extra metadata (criterion_id, type, sources, etc.)
+            task.metadata.update(t.get("metadata", {}))
+            for key in ("criterion_id", "impact", "sources", "type"):
+                if key in t and key not in task.metadata:
+                    task.metadata[key] = t[key]
+            added_ids.append(task.id)
+        inject_file.unlink()  # Consume — prevent double-add
+
+        # Sink write_verification_memo to the end: it was appended during create_task_plan
+        # before propose_improvements existed, so injected tasks land after it.
+        # Move it to the tail and update its dependencies to include the new tasks.
+        memo_tasks = [t for t in plan.tasks if t.id.startswith("write_verification_memo")]
+        for memo_task in memo_tasks:
+            plan.tasks.remove(memo_task)
+            memo_task.dependencies = [t.id for t in plan.tasks]
+            plan.tasks.append(memo_task)
+
+        # If injection was the sole populator of an empty plan (i.e. create_task_plan was not
+        # called first), the framework never got a chance to append write_verification_memo.
+        # Append it now so R1+ plans always end with the memo task.
+        if plan_was_empty and _verification_memory_enabled and not memo_tasks:
+            memo_specs = _append_terminal_verification_memory_task(
+                [{"id": t.id} for t in plan.tasks],
+            )
+            memo_spec = memo_specs[-1]
+            memo_task = plan.add_task(
+                description=memo_spec["description"],
+                task_id=memo_spec["id"],
+                depends_on=memo_spec.get("depends_on", []),
+                skip_verification=True,
+            )
+            memo_task.metadata.update(memo_spec.get("metadata", {}))
+
+        _save_plan_to_filesystem(plan)
+        logger.info(f"[PlanningMCP] Injected {len(added_ids)} tasks from propose_improvements")
+        return added_ids
+    except Exception as e:
+        logger.warning(f"[PlanningMCP] Failed to process injection file: {e}")
+        return []
+
+
+def _get_or_create_plan(agent_id: str, orchestrator_id: str, require_verification: bool = True, workspace_token: str | None = None) -> TaskPlan:
     """
     Get existing plan or create new one for agent.
 
@@ -264,23 +345,30 @@ def _get_or_create_plan(agent_id: str, orchestrator_id: str, require_verificatio
         agent_id: Agent identifier
         orchestrator_id: Orchestrator identifier
         require_verification: Whether to require verification fields on new tasks
+        workspace_token: Anonymous token for plan serialization to hide real agent_id (MAS-338)
 
     Returns:
         TaskPlan for the agent
     """
     key = f"{orchestrator_id}:{agent_id}"
+    display_key = f"{orchestrator_id}:{workspace_token}" if workspace_token else key
 
     if key not in _task_plans:
         # Try loading from filesystem if configured
         loaded_plan = _load_plan_from_filesystem(key)
         if loaded_plan is not None:
             loaded_plan.require_verification = require_verification
+            loaded_plan.display_id = display_key
             _task_plans[key] = loaded_plan
         else:
-            _task_plans[key] = TaskPlan(agent_id=key, require_verification=require_verification)
+            _task_plans[key] = TaskPlan(agent_id=key, display_id=display_key, require_verification=require_verification)
     else:
         # Update flag on existing plan (in case it changed)
         _task_plans[key].require_verification = require_verification
+        _task_plans[key].display_id = display_key
+
+    # Check for pending task injection from propose_improvements
+    _check_and_inject_pending_tasks(_task_plans[key], _injection_dir)
 
     return _task_plans[key]
 
@@ -346,6 +434,48 @@ def _resolve_dependency_references(
     return normalized_tasks
 
 
+def _append_terminal_verification_memory_task(task_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Append a terminal task to capture verification replay memory details.
+
+    The appended task depends on all prior task IDs so it naturally executes at the
+    end of the plan.
+
+    Args:
+        task_list: Existing normalized task dictionaries.
+
+    Returns:
+        A new task list including the terminal verification-memory task.
+    """
+    existing_ids = [t.get("id") for t in task_list if isinstance(t, dict) and t.get("id")]
+    existing_id_set = {task_id for task_id in existing_ids if isinstance(task_id, str)}
+
+    task_id = "write_verification_memo"
+    if task_id in existing_id_set:
+        task_id = f"{task_id}_{uuid.uuid4().hex[:8]}"
+
+    verification_task = {
+        "id": task_id,
+        "description": (
+            "Write/update memory/short_term/verification_latest.md with a replayable verification summary for the "
+            "answer you are about to submit. Requirements: (1) Include environment context: workspace path, "
+            "artifact under test, and tools used. (2) List the exact commands or script paths used to verify "
+            "(e.g. `python .massgen_scratch/verification/check.py` or the npx playwright command), not just a "
+            "description of what was checked. (3) List every artifact path produced (screenshots, logs, scripts) "
+            "under .massgen_scratch/verification/ with relative paths. (4) Note freshness: 'generated this run' "
+            "or 'reused from prior run'. Absolute paths are allowed; "
+            "they are normalized on injection."
+        ),
+        "depends_on": existing_ids,
+        "priority": "medium",
+        "metadata": {
+            "type": "verification_replay_capture",
+            "injected": True,
+        },
+    }
+
+    return [*task_list, verification_task]
+
+
 async def create_server() -> fastmcp.FastMCP:
     """Factory function to create and configure the planning MCP server."""
     global _workspace_path
@@ -385,6 +515,11 @@ async def create_server() -> fastmcp.FastMCP:
         help="Enable memory discovery and saving task reminders",
     )
     parser.add_argument(
+        "--verification-memory-enabled",
+        action="store_true",
+        help="Enable terminal verification replay memory capture task",
+    )
+    parser.add_argument(
         "--use-two-tier-workspace",
         action="store_true",
         help="Enable git commits on task completion (requires two-tier workspace)",
@@ -400,6 +535,18 @@ async def create_server() -> fastmcp.FastMCP:
         default=None,
         help="Optional path to directory for hook IPC files (PostToolUse injection).",
     )
+    parser.add_argument(
+        "--injection-dir",
+        type=str,
+        default=None,
+        help="Dir for task injection files from checklist propose_improvements",
+    )
+    parser.add_argument(
+        "--workspace-token",
+        type=str,
+        default=None,
+        help="Anonymous token for plan serialization to hide real agent_id (MAS-338)",
+    )
     args = parser.parse_args()
 
     # Configure logging to stderr so it appears in MCP server output
@@ -411,7 +558,7 @@ async def create_server() -> fastmcp.FastMCP:
     logger.info(f"[PlanningMCP] Server starting for agent_id={args.agent_id}, orchestrator_id={args.orchestrator_id}")
 
     # Set workspace path if provided
-    global _workspace_path, _use_two_tier_workspace
+    global _workspace_path, _use_two_tier_workspace, _injection_dir, _verification_memory_enabled
     if args.workspace_path:
         _workspace_path = Path(args.workspace_path)
         logger.info(f"[PlanningMCP] Workspace path set to: {_workspace_path}")
@@ -419,6 +566,16 @@ async def create_server() -> fastmcp.FastMCP:
     # Set two-tier workspace flag for git commits on task completion
     _use_two_tier_workspace = args.use_two_tier_workspace
     logger.info(f"[PlanningMCP] Two-tier workspace flag: {_use_two_tier_workspace}")
+
+    # Set injection directory for task injection from propose_improvements
+    if args.injection_dir:
+        _injection_dir = Path(args.injection_dir)
+        logger.info(f"[PlanningMCP] Injection dir set to: {_injection_dir}")
+
+    # Mirror the verification memory flag so _check_and_inject_pending_tasks can append
+    # write_verification_memo when injection is the sole populator of an empty plan.
+    _verification_memory_enabled = args.verification_memory_enabled or args.memory_enabled
+    logger.info(f"[PlanningMCP] Verification memory enabled: {_verification_memory_enabled}")
 
     # Create the FastMCP server
     mcp = fastmcp.FastMCP("Agent Task Planning")
@@ -432,14 +589,22 @@ async def create_server() -> fastmcp.FastMCP:
     # Store agent and orchestrator IDs
     mcp.agent_id = args.agent_id
     mcp.orchestrator_id = args.orchestrator_id
+    mcp.workspace_token = args.workspace_token  # Anonymous token for plan serialization (MAS-338)
 
     # Store feature flags for auto-inserting discovery tasks
     mcp.skills_enabled = args.skills_enabled
     mcp.auto_discovery_enabled = args.auto_discovery_enabled
     mcp.memory_enabled = args.memory_enabled
+    mcp.verification_memory_enabled = args.verification_memory_enabled
     mcp.require_verification = not args.no_require_verification
 
-    logger.debug(f"[PlanningMCP] Server configured - skills={args.skills_enabled}, auto_discovery={args.auto_discovery_enabled}, memory={args.memory_enabled}")
+    logger.debug(
+        "[PlanningMCP] Server configured - skills=%s, auto_discovery=%s, memory=%s, verification_memory=%s",
+        args.skills_enabled,
+        args.auto_discovery_enabled,
+        args.memory_enabled,
+        args.verification_memory_enabled,
+    )
 
     @mcp.tool()
     def create_task_plan(tasks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -501,7 +666,7 @@ async def create_server() -> fastmcp.FastMCP:
         """
         try:
             # Get or create plan for this agent
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
 
             # Check if plan already has tasks - error to prevent duplicate work after recovery
             if plan.tasks:
@@ -573,28 +738,49 @@ async def create_server() -> fastmcp.FastMCP:
 
             # Combine: prep + user tasks + cleanup
             all_tasks = preparation_tasks + tasks + cleanup_tasks
+            framework_tasks = preparation_tasks + cleanup_tasks
+
+            # Ensure a terminal verification replay capture task is always present
+            # in memory mode so round-N evaluation setup can be reused in round N+1.
+            if mcp.memory_enabled:
+                all_tasks = _append_terminal_verification_memory_task(all_tasks)
+                framework_tasks.append(all_tasks[-1])
+            elif mcp.verification_memory_enabled:
+                all_tasks = _append_terminal_verification_memory_task(all_tasks)
+                framework_tasks.append(all_tasks[-1])
 
             # Validate and resolve dependencies
             normalized_tasks = _resolve_dependency_references(all_tasks)
             plan.validate_dependencies(normalized_tasks)
 
             # Collect framework-injected task IDs so we can exempt them from verification
-            framework_task_ids = {t["id"] for t in preparation_tasks + cleanup_tasks if isinstance(t, dict) and "id" in t}
+            framework_task_ids = {t["id"] for t in framework_tasks if isinstance(t, dict) and "id" in t}
 
             # Create tasks
             created_tasks = []
             for task_spec in normalized_tasks:
                 is_framework = task_spec.get("id") in framework_task_ids
+                metadata = task_spec.get("metadata")
+                task_metadata = metadata if isinstance(metadata, dict) else {}
+                subagent_id = task_spec.get("subagent_id") or task_metadata.get("subagent_id")
+                subagent_name = task_spec.get("subagent_name") or task_metadata.get("subagent_name")
 
                 task = plan.add_task(
                     description=task_spec["description"],
                     task_id=task_spec["id"],
                     depends_on=task_spec.get("depends_on", []),
                     priority=task_spec.get("priority", "medium"),
-                    verification=task_spec.get("verification") or task_spec.get("metadata", {}).get("verification"),
-                    verification_method=task_spec.get("verification_method") or task_spec.get("metadata", {}).get("verification_method"),
+                    verification=task_spec.get("verification") or task_metadata.get("verification"),
+                    verification_method=task_spec.get("verification_method") or task_metadata.get("verification_method"),
+                    subagent_id=subagent_id,
+                    subagent_name=subagent_name,
                     skip_verification=is_framework,
                 )
+                # Preserve caller metadata for create_task_plan parity with injected-task path.
+                if task_metadata:
+                    task.metadata.update(task_metadata)
+                if "verification_group" in task_spec and "verification_group" not in task.metadata:
+                    task.metadata["verification_group"] = task_spec["verification_group"]
                 created_tasks.append(task.to_dict())
 
             # Save to filesystem if configured
@@ -651,6 +837,8 @@ async def create_server() -> fastmcp.FastMCP:
         priority: str = "medium",
         verification: str | None = None,
         verification_method: str | None = None,
+        subagent_id: str | None = None,
+        subagent_name: str | None = None,
     ) -> dict[str, Any]:
         """
         Add a new task to the plan.
@@ -662,6 +850,8 @@ async def create_server() -> fastmcp.FastMCP:
             priority: Task priority (low/medium/high, defaults to medium)
             verification: What success looks like (acceptance criteria). Required by default unless server runs with --no-require-verification.
             verification_method: How to verify (specific steps, e.g. "screenshot and check with read_media")
+            subagent_id: Optional ID of the subagent you plan to delegate this task to
+            subagent_name: Optional friendly name of the subagent (e.g. 'researcher', 'subagent_2')
 
         Returns:
             Dictionary with new task details
@@ -686,7 +876,7 @@ async def create_server() -> fastmcp.FastMCP:
                     "error": f"Invalid priority '{priority}'. Must be one of: {', '.join(valid_priorities)}",
                 }
 
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
 
             task = plan.add_task(
                 description=description,
@@ -695,6 +885,8 @@ async def create_server() -> fastmcp.FastMCP:
                 priority=priority,
                 verification=verification,
                 verification_method=verification_method,
+                subagent_id=subagent_id,
+                subagent_name=subagent_name,
             )
 
             # Save to filesystem if configured
@@ -749,7 +941,7 @@ async def create_server() -> fastmcp.FastMCP:
                     f"Invalid status '{status}'. Must be one of: {valid_statuses}",
                 )
 
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
             result = plan.update_task_status(task_id, status, completion_notes)
 
             # Save to filesystem if configured
@@ -799,7 +991,7 @@ async def create_server() -> fastmcp.FastMCP:
             edit_task("research_oauth", "Research OAuth 2.0 providers and best practices")
         """
         try:
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
             task = plan.edit_task(task_id, description)
 
             # Save to filesystem if configured
@@ -833,7 +1025,7 @@ async def create_server() -> fastmcp.FastMCP:
             print(f"Awaiting verification: {plan['summary']['awaiting_verification']}")
         """
         try:
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
 
             ready_tasks = plan.get_ready_tasks()
             blocked_tasks = plan.get_blocked_tasks()
@@ -880,7 +1072,7 @@ async def create_server() -> fastmcp.FastMCP:
             delete_task("obsolete_task_id")
         """
         try:
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
             plan.delete_task(task_id)
 
             # Save to filesystem if configured
@@ -919,7 +1111,7 @@ async def create_server() -> fastmcp.FastMCP:
                 print(f"Ready: {task['description']}")
         """
         try:
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
             ready_tasks = plan.get_ready_tasks()
 
             return {
@@ -957,7 +1149,7 @@ async def create_server() -> fastmcp.FastMCP:
                 print(f"  Waiting on: {task['blocking_task_ids']}")
         """
         try:
-            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False))
+            plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id, getattr(mcp, "require_verification", False), getattr(mcp, "workspace_token", None))
             blocked_tasks = plan.get_blocked_tasks()
 
             # Add blocking task info for each blocked task

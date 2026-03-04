@@ -110,8 +110,12 @@ class APIParamsHandlerBase(ABC):
             "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
             "drift_conflict_policy",  # Isolated apply drift resolution policy
             "subagent_types",  # Which subagent types to expose (handled by orchestrator)
+            "enable_quality_rethink_on_iteration",  # Coordination-only quality task injection toggle
+            "enable_novelty_on_iteration",  # Coordination-only novelty task injection toggle
             "novelty_injection",  # Novelty pressure level (none/gentle/moderate/aggressive)
-            "learning_capture_mode",  # Learning capture timing (round/final_only)
+            "improvements",  # propose_improvements gate settings (orchestrator/checklist only)
+            "learning_capture_mode",  # Learning capture timing (round/verification_and_final_only/final_only)
+            "disable_final_only_round_capture_fallback",  # Coordination-only fallback control for final_only+skip_final_presentation
             # NLIP configuration belongs to MassGen routing, never provider APIs
             "enable_nlip",
             "nlip",

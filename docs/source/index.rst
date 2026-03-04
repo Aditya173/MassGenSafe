@@ -41,8 +41,8 @@ MassGen: Multi-Agent Scaling System for GenAI
 .. raw:: html
 
    <a href="https://www.youtube.com/watch?v=Dp2oldJJImw" style="display: block; text-align: center;">
-     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-light">
-     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
+     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action (4x speed)" class="theme-image-light">
+     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action (4x speed)" class="theme-image-dark">
    </a>
 
 What is MassGen?
@@ -224,6 +224,7 @@ Documentation
    .. grid-item-card:: 📖 User Guide
 
       * :doc:`user_guide/concepts`
+      * :doc:`user_guide/coordination_scrollytelling`
       * :doc:`user_guide/webui`
       * :doc:`user_guide/tools/index`
       * :doc:`user_guide/integration/index`
@@ -250,6 +251,7 @@ Documentation
    :caption: User Guide
 
    user_guide/concepts
+   user_guide/coordination_scrollytelling
    user_guide/task_planning
    user_guide/backends
    user_guide/webui

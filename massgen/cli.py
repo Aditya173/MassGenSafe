@@ -459,6 +459,20 @@ def _restore_terminal_for_input() -> None:
         pass  # Best effort
 
 
+def _format_chunk_target_line(target_chunks: int | None) -> str:
+    """Return chunk guidance text for planning/spec prompts."""
+    if target_chunks == 1 or target_chunks is None:
+        return "- Target chunks: exactly 1"
+    if target_chunks > 1:
+        return f"- Target chunks: around {target_chunks}"
+    return "- Target chunks: exactly 1"
+
+
+def should_include_quick_edit_hint(planning_turn_mode: str | None) -> bool:
+    """Show quick-edit hint only for explicit single-turn refinement mode."""
+    return planning_turn_mode == "single"
+
+
 def get_task_planning_prompt_prefix(
     plan_depth: str = "dynamic",
     target_steps: int | None = None,
@@ -497,10 +511,7 @@ def get_task_planning_prompt_prefix(
     else:
         task_target_line = f"- Target tasks: {cfg['target']}"
 
-    if target_chunks is not None and target_chunks > 0:
-        chunk_target_line = f"- Target chunks: around {target_chunks}"
-    else:
-        chunk_target_line = "- Target chunks: exactly 1 (single-run default unless dependencies require splitting)"
+    chunk_target_line = _format_chunk_target_line(target_chunks)
 
     # Subagent research section (only if enabled)
     subagent_section = ""
@@ -858,10 +869,7 @@ def get_spec_creation_prompt_prefix(
     Returns:
         The prompt prefix string to prepend to the user's question.
     """
-    if target_chunks is not None and target_chunks > 0:
-        chunk_target_line = f"- Target chunks: around {target_chunks}"
-    else:
-        chunk_target_line = "- Target chunks: exactly 1 " "(single-run default unless complexity requires splitting)"
+    chunk_target_line = _format_chunk_target_line(target_chunks)
 
     # Scope section reuses the same human vs autonomous pattern as plan mode
     if broadcast_mode == "human":
@@ -3087,6 +3095,10 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
         enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
         learning_capture_mode=coord_cfg.get("learning_capture_mode", "round"),
+        disable_final_only_round_capture_fallback=coord_cfg.get(
+            "disable_final_only_round_capture_fallback",
+            False,
+        ),
         compression_target_ratio=coord_cfg.get("compression_target_ratio", 0.20),
         use_skills=coord_cfg.get("use_skills", False),
         massgen_skills=coord_cfg.get("massgen_skills", []),
@@ -3110,7 +3122,10 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
         enable_changedoc=coord_cfg.get("enable_changedoc", True),
         subagent_types=coord_cfg.get("subagent_types"),
+        enable_quality_rethink_on_iteration=coord_cfg.get("enable_quality_rethink_on_iteration", False),
+        enable_novelty_on_iteration=coord_cfg.get("enable_novelty_on_iteration", False),
         novelty_injection=coord_cfg.get("novelty_injection", "none"),
+        improvements=coord_cfg.get("improvements", {}) or {},
         checklist_criteria_preset=coord_cfg.get("checklist_criteria_preset"),
         checklist_criteria_inline=coord_cfg.get("checklist_criteria_inline"),
         resume_from_log=coord_cfg.get("resume_from_log"),
@@ -6755,7 +6770,7 @@ async def run_textual_interactive_mode(
                     planning_refinement_appendix = build_plan_review_refinement_appendix(
                         question=question,
                         planning_feedback=planning_feedback,
-                        include_quick_edit_hint=effective_planning_mode == "single",
+                        include_quick_edit_hint=should_include_quick_edit_hint(planning_turn_mode),
                     )
                     if planning_refinement_appendix:
                         question += "\n\n" + planning_refinement_appendix
@@ -6788,7 +6803,7 @@ async def run_textual_interactive_mode(
                     planning_refinement_appendix = build_plan_review_refinement_appendix(
                         question=question,
                         planning_feedback=planning_feedback,
-                        include_quick_edit_hint=effective_planning_mode == "single",
+                        include_quick_edit_hint=should_include_quick_edit_hint(planning_turn_mode),
                     )
                     if planning_refinement_appendix:
                         question += "\n\n" + planning_refinement_appendix

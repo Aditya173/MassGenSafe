@@ -25,6 +25,66 @@ from massgen.tool._result import ExecutionResult, TextContent
 MEDIA_ANALYSIS_TIMEOUT = 600  # 10 minutes
 
 
+def _normalize_stringified_inputs(
+    inputs: list[dict[str, Any]] | str | None,
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """Normalize `inputs` when models pass JSON as a string.
+
+    Returns:
+        Tuple of (normalized_inputs, error_message). When normalization fails,
+        error_message contains a user-facing explanation and normalized_inputs
+        is None.
+    """
+    if not isinstance(inputs, str):
+        return inputs, None
+
+    raw = inputs.strip()
+    if not raw:
+        return None, "inputs string is empty; expected a JSON array"
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, f"inputs must be a valid JSON array string: {exc.msg}"
+
+    if not isinstance(parsed, list):
+        return None, "inputs JSON string must decode to an array"
+
+    return parsed, None
+
+
+def _normalize_inputs_aliases(inputs: list[dict]) -> list[dict]:
+    """Normalize common aliases in each input dict before validation.
+
+    Handles ``file_paths`` (list) as an alias for ``files`` (dict), since
+    models sometimes pluralize the top-level ``file_path`` parameter and
+    produce an array instead of a named mapping.
+
+    Rules:
+    - If ``files`` is already present, leave it unchanged (``file_paths`` ignored).
+    - If ``file_paths`` is a list, convert to ``files`` dict with keys
+      ``image_0``, ``image_1``, ... and remove ``file_paths``.
+    - If ``file_paths`` is not a list, leave it unchanged (validation will fail
+      with a clear error downstream).
+    """
+    result = []
+    for inp in inputs:
+        if not isinstance(inp, dict):
+            result.append(inp)
+            continue
+        if "files" in inp or "file_paths" not in inp:
+            result.append(inp)
+            continue
+        file_paths = inp["file_paths"]
+        if not isinstance(file_paths, list):
+            result.append(inp)
+            continue
+        normalized = {k: v for k, v in inp.items() if k != "file_paths"}
+        normalized["files"] = {f"image_{i}": p for i, p in enumerate(file_paths)}
+        result.append(normalized)
+    return result
+
+
 def _error_result(error: str) -> ExecutionResult:
     """Create an error ExecutionResult."""
     return ExecutionResult(
@@ -256,6 +316,11 @@ async def read_media(
                    prompt="Does gameplay look correct? Are controls responsive? Be critical.")
         → Returns critique-focused analysis
     """
+    # Normalize stringified JSON inputs before validation.
+    inputs, inputs_error = _normalize_stringified_inputs(inputs)
+    if inputs_error:
+        return _error_result(inputs_error)
+
     # Validate file_path / inputs / continue_from
     if file_path and inputs:
         return _error_result("Provide either 'file_path' or 'inputs', not both")
@@ -269,6 +334,10 @@ async def read_media(
             return _error_result(
                 f"Conversation '{continue_from}' not found. " "The conversation_id may have expired or belongs to a previous session.",
             )
+
+    # Normalize common aliases before validation
+    if inputs:
+        inputs = _normalize_inputs_aliases(inputs)
 
     # Validate inputs structure if provided
     if inputs:
@@ -474,6 +543,7 @@ async def read_media(
                         allowed_paths=allowed_paths,
                         task_context=task_context,
                         video_extraction_config=video_config,
+                        system_prompt=vision_system_prompt,
                     ),
                     timeout=MEDIA_ANALYSIS_TIMEOUT,
                 )
@@ -591,6 +661,7 @@ async def read_media(
                                 allowed_paths=allowed_paths,
                                 task_context=task_context,
                                 video_extraction_config=video_config,
+                                system_prompt=vision_system_prompt,
                             ),
                             timeout=MEDIA_ANALYSIS_TIMEOUT,
                         )
