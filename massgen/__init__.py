@@ -86,7 +86,7 @@ except Exception:  # pragma: no cover - environment-specific import side effects
 from .message_templates import MessageTemplates, get_templates
 from .orchestrator import Orchestrator, create_orchestrator
 
-__version__ = "0.1.59"
+__version__ = "0.1.60"
 __author__ = "MassGen Contributors"
 
 
@@ -215,8 +215,8 @@ def build_config(
                 },
             )
     else:
-        # Default: 2 agents with gpt-5.2
-        default_model = "gpt-5.2"
+        # Default: 2 agents with gpt-5.4
+        default_model = "gpt-5.4"
         default_backend = "openai"
         n = num_agents or 2
         provider_info = builder.PROVIDERS.get(default_backend, {})

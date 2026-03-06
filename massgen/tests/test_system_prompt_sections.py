@@ -5,6 +5,7 @@ from massgen.system_prompt_sections import (
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
     MemorySection,
+    OutputFirstVerificationSection,
     TaskPlanningSection,
     _build_checklist_analysis,
     _build_checklist_gated_decision,
@@ -65,6 +66,44 @@ def test_checklist_gated_decision_requires_blocking_evaluator_execution():
     lower = content.lower()
     assert "background=false, refine=false" in lower
     assert "required before scoring" in lower
+
+
+def test_checklist_gated_decision_round_evaluator_mode_requires_packet_before_submit():
+    """Round evaluator mode should require a manual blocking critique packet before checklist submission by default."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+        round_evaluator_before_checklist=True,
+    )
+    lower = content.lower()
+    assert "round_evaluator" in content
+    assert "criteria_interpretation" in content
+    assert "improvement_spec" in content
+    assert "very critical" in lower
+    assert "use that critique packet as evidence" in lower
+    assert "before round 2" in lower
+    assert "blocking `round_evaluator` subagent yourself" in lower
+    assert "wait for its packet before" in lower
+    assert "do not run a separate self-evaluation pass" in lower
+    assert "save or copy that round-evaluator report into your workspace" in lower
+    assert "spawn_subagents" not in content
+    assert "submit_checklist_args" not in content
+    assert "expected_verdict" not in content
+    assert "propose_improvements_args" not in content
+    assert "submit_checklist" in lower
+
+
+def test_checklist_gated_decision_orchestrator_managed_round_evaluator_mode_requires_packet_before_submit():
+    """Managed mode should explicitly say the orchestrator supplies the round-evaluator packet."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+        round_evaluator_before_checklist=True,
+        orchestrator_managed_round_evaluator=True,
+    )
+    lower = content.lower()
+    assert "orchestrator" in lower
+    assert "do not spawn another round_evaluator yourself" in lower
+    assert "do not run a separate self-evaluation pass" in lower
+    assert "save or copy that round-evaluator report into your workspace" in lower
 
 
 def test_checklist_gated_decision_includes_peer_build_copy_guidance():
@@ -203,3 +242,100 @@ def test_memory_section_renders_dedicated_verification_replay_block():
     assert "Verification Replay Memories (Auto-Injected)" in content
     assert "verification_latest.md" in content
     assert "uv run pytest" in content
+
+
+def test_checklist_gated_decision_requires_saving_script_outputs():
+    """Phase 5 guidance should instruct agents to save verification script outputs."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+    )
+    # Must tell agents to save stdout/stderr output files under verification dir
+    assert ".massgen_scratch/verification/" in content
+    assert "exit code" in content.lower() or "stdout" in content.lower()
+    # Must index output files in the memo
+    assert "output" in content.lower()
+
+
+def test_checklist_gated_decision_output_file_format():
+    """Phase 5 guidance should give a concrete format example for output files."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+    )
+    lower = content.lower()
+    # Must show the concrete key-value format (Command:, Exit code:, Output:)
+    assert "command:" in lower
+    assert "exit code:" in lower
+    assert "output:" in lower
+    # Must specify the output_<name>.txt naming convention
+    assert "output_" in content
+
+
+def test_checklist_gated_decision_includes_media_call_ledger_read_first_guidance():
+    """Checklist guidance should direct agents to consult the media ledger before new media calls."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+    )
+    lower = content.lower()
+    assert ".massgen_scratch/verification/media_call_ledger.json" in content
+    assert "read_media" in content
+    assert "generate_media" in content
+    assert "before making new media calls" in lower or "before issuing new" in lower
+
+
+def test_checklist_gated_decision_media_ledger_non_blocking_side_by_side():
+    """Ledger instructions should remain advisory and allow fresh side-by-side comparisons."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+    )
+    lower = content.lower()
+    assert "advisory" in lower or "informational" in lower
+    assert "side-by-side" in content or "side by side" in lower
+    assert "may still run fresh calls" in lower or "still run fresh" in lower
+
+
+def test_checklist_gated_decision_requires_media_map_finalization_reconciliation():
+    """Phase 5 should require reconciling moved artifacts and finalizing Current Media Map."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+    )
+    lower = content.lower()
+    assert "current media map" in lower
+    assert "moved or renamed" in lower or "moved/renamed" in lower
+    assert "superseded" in lower
+
+
+def test_checklist_gated_decision_mentions_context_snapshot_provenance():
+    """Ledger guidance should reference CONTEXT.md snapshot tracking for media calls."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+    )
+    assert "CONTEXT.md" in content
+    assert "context_snapshots" in content
+
+
+def test_output_first_verification_requires_capture_coverage_before_diagnosis():
+    """Output-first guidance should require checking capture completeness before
+    concluding an answer is broken."""
+    content = OutputFirstVerificationSection().build_content()
+    lower = content.lower()
+
+    assert "capture the full artifact" in lower
+    assert "scroll through long pages" in lower
+    assert "capture artifacts" in lower
+    assert "verification issue first" in lower
+
+
+def test_filesystem_best_practices_evaluator_uses_prior_outputs_as_starting_point():
+    """Evaluator guidance should direct agents to use prior verification outputs, not repeat blindly."""
+    section = FilesystemBestPracticesSection()
+    content = section.build_content()
+    lower = content.lower()
+    # Must reference where prior outputs are available (under .massgen_scratch, not .scratch_archive)
+    assert "scratch_archive" not in content
+    assert ".massgen_scratch/verification/" in content
+    # Must tell evaluators they can read artifact files directly and add their own
+    assert "read" in lower
+    # Must direct focus toward new/unverified/failing rather than blind re-running
+    assert "new" in lower or "unverified" in lower or "failing" in lower
+    # Must not say "always verify independently" (that discourages reuse)
+    assert "always verify independently" not in content

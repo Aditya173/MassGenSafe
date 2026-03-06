@@ -242,7 +242,8 @@ class TokenCostCalculator:
     # Default pricing data for various providers and models
     PROVIDER_PRICING: dict[str, dict[str, ModelPricing]] = {
         "OpenAI": {
-            # GPT-5 models (400K context window)
+            # GPT-5 models
+            "gpt-5.4": ModelPricing(0.0025, 0.015, 1050000, 128000),
             "gpt-5.2": ModelPricing(0.00175, 0.014, 400000, 128000),
             "gpt-5": ModelPricing(0.00125, 0.01, 400000, 128000),
             "gpt-5-mini": ModelPricing(0.00025, 0.002, 400000, 128000),
@@ -559,6 +560,7 @@ class TokenCostCalculator:
                 "completion_tokens",
                 "output_tokens",
                 "reasoning_tokens",
+                "cached_input_tokens",
                 "cache_read_input_tokens",
                 "cache_creation_input_tokens",
                 "prompt_token_count",
@@ -595,6 +597,10 @@ class TokenCostCalculator:
         # Extract cached tokens (Anthropic format - separate from input_tokens)
         breakdown["cached_input_tokens"] = u.get("cache_read_input_tokens", 0) or 0
         breakdown["cache_creation_tokens"] = u.get("cache_creation_input_tokens", 0) or 0
+
+        # Extract cached tokens (Codex/OpenAI top-level field)
+        if not breakdown["cached_input_tokens"]:
+            breakdown["cached_input_tokens"] = u.get("cached_input_tokens", 0) or 0
 
         # Extract cached tokens (OpenAI format - nested in prompt_tokens_details)
         if not breakdown["cached_input_tokens"]:
@@ -655,6 +661,7 @@ class TokenCostCalculator:
                     "input_tokens",
                     "output_tokens",
                     "reasoning_tokens",
+                    "cached_input_tokens",
                     "cache_read_input_tokens",
                     "cache_creation_input_tokens",
                     "completion_tokens_details",
@@ -676,6 +683,13 @@ class TokenCostCalculator:
                 usage_dict["prompt_tokens"] = usage_dict["prompt_token_count"]
             if "candidates_token_count" in usage_dict and "completion_tokens" not in usage_dict:
                 usage_dict["completion_tokens"] = usage_dict["candidates_token_count"]
+
+            # Normalize Codex/OpenAI top-level cached_input_tokens to prompt_tokens_details.
+            # This matches the canonical OpenAI usage shape litellm expects for cache discounts.
+            if usage_dict.get("cached_input_tokens", 0) and "prompt_tokens_details" not in usage_dict:
+                usage_dict["prompt_tokens_details"] = {
+                    "cached_tokens": usage_dict["cached_input_tokens"],
+                }
 
             # Create mock response as dict (litellm prefers this format)
             mock_response = {

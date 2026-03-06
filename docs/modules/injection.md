@@ -94,6 +94,10 @@ Errors are caught and logged but don't abort (fail-open), unless a hook has `fai
 | `HumanInputHook` | `*` | Delivers runtime human input from TUI/WebUI broadcast to agents mid-stream. |
 | `RoundTimeoutPostHook` | `*` | Soft timeout: injects a time-limit warning once, then starts a grace period. |
 
+Mid-stream answer injection messages include explicit answer-label transitions (for example `agent2.1 -> agent2.2`) so checklist scoring can target newest labels. In checklist-gated mode, injected guidance routes agents through `submit_checklist` re-evaluation first, then `propose_improvements` only after accepted iterate results.
+
+Peer-answer delivery can be configured independently from other runtime payloads. When `defer_peer_updates_until_restart: true`, peer answer updates are queued until the next safe restart instead of being injected mid-stream. Human input, background subagent completions, and background tool completions still use their normal delivery paths. In checklist-gated runs, `allow_midstream_peer_updates_before_checklist_submit` can keep peer updates mid-stream until the first accepted `submit_checklist` for the current answer.
+
 ### PreToolUse Hooks
 
 | Hook | Matcher | Purpose |
@@ -179,6 +183,17 @@ Atomic writes (write to `.tmp`, then `rename`) prevent partial reads.
 
 This means Codex injection is **best-effort mid-stream**: content is delivered on the next MCP tool call, or failing that, between turns. Unlike Claude Code (which intercepts all tools via SDK hooks), Codex has no mechanism to inject into provider-native tool results.
 
+**Limitation: file IPC is injection-only (not full hook execution).**
+`hook_post_tool_use.json` carries only injection payloads for middleware append.
+It does not provide a full request/response hook RPC channel for:
+- pre-tool decisions (`allow`/`deny`)
+- argument mutation (`modified_args`)
+- arbitrary post-tool side effects with callback state
+
+Implication: non-injection hooks (for example, provenance/ledger writers) must run in the actual tool execution path for that backend/runtime.
+For Codex custom tools, this means running those side-effect hooks in `custom_tools_server.py` (where tool name, args, output, and workspace context are available), not in the IPC middleware.
+For new backends that are neither standard-hook nor native-hook compatible, add an equivalent execution-path integration point for any non-injection hooks.
+
 ### Path 4: Hookless Fallback
 
 For backends that support neither native hooks nor file-based IPC (or when hooks fail), the orchestrator falls back to inter-turn delivery:
@@ -249,6 +264,7 @@ Per-agent hooks in YAML use the `backend.hooks` key and can set `override: true`
 | `massgen/backend/base_with_custom_tool_and_mcp.py` | Standard backend hook execution (inline `execute_hooks()`) |
 | `massgen/backend/claude_code.py` | Claude Code hook wiring (`_get_execution_trace_hooks`, options assembly) |
 | `massgen/backend/codex.py` | Codex IPC (`write_hook_injection`, `read_unconsumed_hook_content`) |
+| `massgen/mcp_tools/custom_tools_server.py` | Codex custom-tools execution path; runs non-injection side-effect hooks (for example media ledger capture) |
 | `massgen/orchestrator.py` | Hook setup (`_setup_hook_manager_for_agent`), hookless fallback |
 
 ## Testing
@@ -260,6 +276,7 @@ Hook tests are split across several files:
 | `test_hook_framework.py` | Core hook types, manager, aggregation, pattern matching |
 | `test_mcp_hook_middleware.py` | File-based IPC middleware (sequence, expiry, glob matching) |
 | `test_codex_hook_ipc.py` | Codex-specific write/read/clear cycle |
+| `test_custom_tools_server_background.py` | Codex custom-tools background execution path, including media ledger side-effect coverage |
 | `test_orchestrator_hooks_broadcast_subagents.py` | End-to-end orchestrator hook wiring with subagent completion |
 | `test_claude_code_background_tools.py` | Claude Code background tool + hook integration |
 | `test_specialized_subagents.py` | Subagent type profiles + hook delivery |

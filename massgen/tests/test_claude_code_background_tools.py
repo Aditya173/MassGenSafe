@@ -16,6 +16,7 @@ from massgen.backend.base_with_custom_tool_and_mcp import (
 )
 from massgen.backend.claude_code import ClaudeCodeBackend
 from massgen.tool import ToolManager
+from massgen.tool._decorators import context_params
 from massgen.tool._result import ExecutionResult, TextContent
 
 
@@ -72,6 +73,7 @@ async def test_claude_code_background_lifecycle_for_custom_tool(tmp_path):
     assert final["ready"] is True
     assert final["status"] == "completed"
     assert "weather::paris" in final["result"]
+    assert final["tool_success"] is True
 
     pending = backend.get_pending_background_tool_results()
     assert pending
@@ -126,6 +128,7 @@ async def test_claude_code_background_lifecycle_for_mcp_tool(tmp_path, monkeypat
     assert final["status"] == "completed"
     assert final["tool_type"] == "mcp"
     assert "hello" in final["result"]
+    assert "tool_success" not in final
 
 
 @pytest.mark.asyncio
@@ -288,6 +291,100 @@ async def test_claude_code_background_media_job_executes_tool_in_foreground_once
 
 
 @pytest.mark.asyncio
+async def test_claude_code_custom_tool_execution_injects_multimodal_context(tmp_path):
+    """Claude Code custom tools should receive backend/model/task context even without prior stream state."""
+    backend = ClaudeCodeBackend(cwd=str(tmp_path), model="claude-sonnet-4-6")
+    backend._custom_tool_manager = ToolManager()
+    (tmp_path / "CONTEXT.md").write_text("Review the current UI output.", encoding="utf-8")
+
+    @context_params("backend_type", "model", "agent_cwd", "task_context")
+    async def custom_tool__capture_context(
+        backend_type: str | None = None,
+        model: str | None = None,
+        agent_cwd: str | None = None,
+        task_context: str | None = None,
+    ) -> ExecutionResult:
+        payload = json.dumps(
+            {
+                "backend_type": backend_type,
+                "model": model,
+                "agent_cwd": agent_cwd,
+                "task_context": task_context,
+            },
+        )
+        return ExecutionResult(output_blocks=[TextContent(data=payload)])
+
+    backend._custom_tool_manager.add_tool_function(func=custom_tool__capture_context)
+
+    response = await backend._execute_massgen_custom_tool(
+        "custom_tool__capture_context",
+        {},
+    )
+
+    payload = json.loads(response["content"][0]["text"])
+    assert payload["backend_type"] == "claude_code"
+    assert payload["model"] == "claude-sonnet-4-6"
+    assert payload["agent_cwd"] == str(tmp_path)
+    assert payload["task_context"] == "Review the current UI output."
+
+
+@pytest.mark.asyncio
+async def test_claude_code_background_custom_tool_injects_multimodal_context(tmp_path):
+    """Background-managed Claude Code tools should preserve multimodal context injection."""
+    backend = ClaudeCodeBackend(cwd=str(tmp_path), model="claude-sonnet-4-6")
+    backend._custom_tool_manager = ToolManager()
+    (tmp_path / "CONTEXT.md").write_text("Review the current UI output.", encoding="utf-8")
+
+    @context_params("backend_type", "model", "agent_cwd", "task_context")
+    async def custom_tool__capture_context(
+        backend_type: str | None = None,
+        model: str | None = None,
+        agent_cwd: str | None = None,
+        task_context: str | None = None,
+    ) -> ExecutionResult:
+        payload = json.dumps(
+            {
+                "backend_type": backend_type,
+                "model": model,
+                "agent_cwd": agent_cwd,
+                "task_context": task_context,
+            },
+        )
+        return ExecutionResult(output_blocks=[TextContent(data=payload)])
+
+    backend._custom_tool_manager.add_tool_function(func=custom_tool__capture_context)
+
+    started = await backend._execute_background_management_tool(
+        BACKGROUND_TOOL_START_NAME,
+        {
+            "tool_name": "custom_tool__capture_context",
+            "arguments": {},
+        },
+    )
+    assert started["success"] is True
+    job_id = started["job_id"]
+
+    final = None
+    for _ in range(40):
+        final = await backend._execute_background_management_tool(
+            BACKGROUND_TOOL_RESULT_NAME,
+            {"job_id": job_id},
+        )
+        if final["ready"]:
+            break
+        await asyncio.sleep(0.01)
+
+    assert final is not None
+    assert final["success"] is True
+    assert final["ready"] is True
+    payload = json.loads(final["result"])
+    assert payload["backend_type"] == "claude_code"
+    assert payload["model"] == "claude-sonnet-4-6"
+    assert payload["agent_cwd"] == str(tmp_path)
+    assert payload["task_context"] == "Review the current UI output."
+
+
+@pytest.mark.asyncio
 async def test_claude_code_wait_for_next_background_tool(tmp_path):
     """Wait lifecycle API should block until the next background job completes."""
     backend = ClaudeCodeBackend(cwd=str(tmp_path))
@@ -317,6 +414,7 @@ async def test_claude_code_wait_for_next_background_tool(tmp_path):
     assert waited["job_id"] == started["job_id"]
     assert waited["status"] == "completed"
     assert "echo::berlin" in waited["result"]
+    assert waited["tool_success"] is True
 
 
 @pytest.mark.asyncio

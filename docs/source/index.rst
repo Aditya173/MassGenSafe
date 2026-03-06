@@ -190,6 +190,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.60 (March 6, 2026)** - Multimodal Tools, Subagent Enhancements & GPT-5.4
+
+Rewritten read_media tool with clearer schema and new MediaCallLedgerHook for media call tracking. Subagent enhancements with inherit_spawning_agent_backend and final_answer_strategy options. GPT-5.4 as default OpenAI flagship. Decomp mode cooperates with checklist workflow. Codex prompt caching calculation fix for pricing accuracy.
+
 **v0.1.59 (March 4, 2026)** - Quality Round Improvements
 
 Planning improvements with auto-added improvements to task plan and plan review enhancements. Checklist and evaluation enhancements with better eval gen config and Gemini tool name normalization. Subagent behavior adjustments and Docker skill write access fixes. Media generation fixes for video gen skills and impact metric restoration.
@@ -197,10 +201,6 @@ Planning improvements with auto-added improvements to task plan and plan review 
 **v0.1.58 (March 2, 2026)** - Multimodal Revamp, Nvidia NIM Backend & Quality Rethinking
 
 Comprehensive multimodal revamp with ElevenLabs TTS/STT, Nano Banana 2 image generation, and Grok multimedia. Nvidia NIM backend for NVIDIA Inference Microservices. Quality rethinking subagent for per-element craft improvements. Smarter checklists with improve/preserve listings and evaluation criteria defaults.
-
-**v0.1.57 (February 27, 2026)** - Delegated Subagent Protocol & Builder Subagent
-
-File-based delegation protocol for container-to-host subagent spawning. New builder subagent type for large artifact generation with fresh context. Smarter convergence with substantiveness tracking and diagnostic report gating. Claude Code reasoning parameters for updated SDK.
 
 :doc:`Full changelog → <changelog>`
 

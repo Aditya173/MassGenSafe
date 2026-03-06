@@ -111,7 +111,9 @@ from .base_with_custom_tool_and_mcp import (
     BACKGROUND_TOOL_WAIT_NAME,
     BACKGROUND_TOOL_WAIT_POLL_INTERVAL_SECONDS,
     BackgroundToolJob,
+    ExecutionContext,
 )
+from .capabilities import normalize_backend_type
 from .native_tool_mixin import NativeToolBackendMixin
 
 
@@ -1370,7 +1372,26 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             try:
                 execution_context = self._execution_context.model_dump()
             except Exception:
-                pass
+                execution_context = {}
+
+        task_context = None
+        if self.filesystem_manager and self.filesystem_manager.cwd:
+            from massgen.context.task_context import load_task_context
+
+            task_context = load_task_context(
+                str(self.filesystem_manager.cwd),
+                required=False,
+            )
+
+        execution_context.setdefault("backend_name", self.get_provider_name())
+        execution_context.setdefault(
+            "backend_type",
+            normalize_backend_type(self.get_provider_name()),
+        )
+        execution_context.setdefault("model", self.config.get("model", ""))
+        execution_context.setdefault("current_stage", self.coordination_stage)
+        if task_context is not None:
+            execution_context["task_context"] = task_context
 
         # Ensure agent_cwd is always available for custom tools
         # Use filesystem_manager's cwd which is set to the agent's workspace
@@ -1608,6 +1629,62 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         return None
 
     @staticmethod
+    def _looks_like_json_payload(raw_text: str) -> bool:
+        stripped = str(raw_text or "").lstrip()
+        return stripped.startswith("{") or stripped.startswith("[")
+
+    @classmethod
+    def _annotate_custom_tool_outcome_from_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        ready: bool,
+    ) -> None:
+        """Attach tool-level outcome fields for terminal custom-tool jobs."""
+        if not ready or payload.get("tool_type") != "custom":
+            return
+
+        status = str(payload.get("status") or "")
+        if status in {"error", "cancelled"}:
+            payload["tool_success"] = False
+            payload["tool_error"] = str(payload.get("error") or "Custom tool execution failed")
+            return
+
+        if status != "completed":
+            payload["tool_success"] = None
+            return
+
+        raw_result = str(payload.get("result") or "").strip()
+        if not raw_result:
+            payload["tool_success"] = False
+            payload["tool_error"] = "No final result payload captured from custom tool execution"
+            return
+
+        parsed = cls._parse_json_or_python_dict(raw_result)
+        if parsed is not None:
+            parsed_success = parsed.get("success")
+            if isinstance(parsed_success, bool):
+                payload["tool_success"] = parsed_success
+                if not parsed_success:
+                    parsed_error = parsed.get("error")
+                    payload["tool_error"] = str(parsed_error) if parsed_error is not None else "Custom tool reported success=false"
+            else:
+                payload["tool_success"] = True
+            return
+
+        if raw_result.startswith("Error:"):
+            payload["tool_success"] = False
+            payload["tool_error"] = raw_result
+            return
+
+        if cls._looks_like_json_payload(raw_result):
+            payload["tool_success"] = None
+            payload["result_parse_error"] = "Could not parse custom tool JSON result payload"
+            return
+
+        payload["tool_success"] = True
+
+    @staticmethod
     def _format_unix_timestamp(timestamp: float | None) -> str | None:
         """Convert unix timestamp to ISO-8601 string."""
         if timestamp is None:
@@ -1817,7 +1894,10 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                 force_foreground=True,
             )
             result_text = self._extract_text_from_mcp_response(response)
-            return (result_text, result_text.startswith("Error:"))
+            normalized_result = str(result_text or "").strip()
+            if not normalized_result or normalized_result == "Tool executed successfully":
+                return ("No final result payload captured from custom tool execution", True)
+            return (normalized_result, normalized_result.startswith("Error:"))
 
         if tool_type == "mcp":
             mcp_client = await self._get_background_mcp_client()
@@ -2101,6 +2181,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             ready = job.status in BACKGROUND_TOOL_TERMINAL_STATUSES
             payload = self._serialize_background_job(job, include_result=True)
             payload.update({"success": True, "ready": ready})
+            self._annotate_custom_tool_outcome_from_payload(payload, ready=ready)
             if not ready:
                 payload["message"] = "Background tool still running"
             return payload
@@ -2165,6 +2246,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                         "waited_seconds": round(time.time() - wait_started_at, 3),
                     },
                 )
+                self._annotate_custom_tool_outcome_from_payload(payload, ready=True)
                 return payload
 
             interrupt_payload = await self._get_background_wait_interrupt_payload()
@@ -2741,6 +2823,16 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         # Merge constructor config with stream kwargs (stream kwargs take priority)
         all_params = {**self.config, **kwargs}
 
+        # Load task context from CONTEXT.md if it exists (for multimodal tools and subagents)
+        task_context = None
+        if self.filesystem_manager and self.filesystem_manager.cwd:
+            from massgen.context.task_context import load_task_context
+
+            task_context = load_task_context(
+                str(self.filesystem_manager.cwd),
+                required=False,
+            )
+
         # Extract system message from messages for append mode (always do this)
         # This must be done BEFORE checking if we have a client to ensure workflow_system_prompt is always defined
         system_msg = next((msg for msg in messages if msg.get("role") == "system"), None)
@@ -2748,6 +2840,25 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             system_content = system_msg.get("content", "")  # noqa: E128
         else:
             system_content = ""
+
+        # Build execution context for custom tool injection parity with shared backends.
+        self._execution_context = ExecutionContext(
+            messages=messages,
+            agent_system_message=kwargs.get("system_message", None),
+            agent_id=agent_id or self.agent_id,
+            backend_name=self.get_provider_name(),
+            backend_type=normalize_backend_type(self.get_provider_name()),
+            model=kwargs.get("model", self.config.get("model", "")),
+            current_stage=self.coordination_stage,
+            agent_cwd=str(self.filesystem_manager.cwd) if self.filesystem_manager else None,
+            allowed_paths=(
+                self.filesystem_manager.path_permission_manager.get_mcp_filesystem_paths()
+                if self.filesystem_manager and hasattr(self.filesystem_manager, "path_permission_manager") and self.filesystem_manager.path_permission_manager
+                else None
+            ),
+            multimodal_config=self._multimodal_config if hasattr(self, "_multimodal_config") else None,
+            task_context=task_context,
+        )
 
         # Use text-based workflow tools (JSON parsing) for Claude Code
         # TODO: MCP-based workflow tools not yet working with Claude Code SDK

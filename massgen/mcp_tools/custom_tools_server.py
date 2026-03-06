@@ -7,6 +7,8 @@ via stdio MCP transport.
 Usage (launched by backend):
     fastmcp run massgen/mcp_tools/custom_tools_server.py:create_server -- \
         --tool-specs /path/to/tool_specs.json \
+        --backend-type codex \
+        --model gpt-5.4 \
         --allowed-paths /workspace
 
 The tool_specs.json file is written by the backend before launch and contains
@@ -57,6 +59,32 @@ def _resolve_hook_middleware() -> Any:
     from massgen.mcp_tools.hook_middleware import MassGenHookMiddleware
 
     return MassGenHookMiddleware
+
+
+def _resolve_media_call_ledger_hook() -> Any:
+    """Return MediaCallLedgerHook in package and standalone launch modes."""
+    try:
+        from massgen.mcp_tools.hooks import MediaCallLedgerHook
+
+        return MediaCallLedgerHook
+    except ImportError:
+        pass
+
+    try:
+        from .hooks import MediaCallLedgerHook
+
+        return MediaCallLedgerHook
+    except ImportError:
+        pass
+
+    # fastmcp file-path launches can drop package context; add repo root explicitly.
+    project_root = str(Path(__file__).resolve().parents[2])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from massgen.mcp_tools.hooks import MediaCallLedgerHook
+
+    return MediaCallLedgerHook
 
 
 BACKGROUND_TOOL_START_NAME = "custom_tool__start_background_tool"
@@ -194,6 +222,12 @@ class BackgroundToolManager:
         self._subagent_delegate_initialized = False
         self._subagent_tool_name_cache: dict[str, str] = {}
         self._wait_interrupt_file: Path | None = Path(wait_interrupt_file) if wait_interrupt_file else None
+        self._media_call_ledger_hook = None
+        try:
+            MediaCallLedgerHook = _resolve_media_call_ledger_hook()
+            self._media_call_ledger_hook = MediaCallLedgerHook()
+        except Exception:
+            logger.debug("Media call ledger hook unavailable in custom tools server", exc_info=True)
 
     @staticmethod
     def _filter_background_mcp_servers(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -346,7 +380,7 @@ class BackgroundToolManager:
         blocks = content if isinstance(content, list) else [content]
         return cls._extract_text_from_output_blocks(blocks)
 
-    async def _run_custom_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
+    async def _run_custom_tool(self, tool_name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
         tool_request = {"name": tool_name, "input": arguments}
         final_result = None
         async for result in self._tool_manager.execute_tool(
@@ -356,29 +390,52 @@ class BackgroundToolManager:
             final_result = result
 
         if final_result is None:
-            return "Tool executed successfully"
+            missing_result_error = "No final result payload captured from custom tool execution"
+            await self._record_media_call_ledger(tool_name, arguments, missing_result_error)
+            return (missing_result_error, True)
 
         output_blocks = getattr(final_result, "output_blocks", None)
         if isinstance(output_blocks, list):
             text = self._extract_text_from_output_blocks(output_blocks)
             if text:
-                return text
+                await self._record_media_call_ledger(tool_name, arguments, text)
+                return (text, False)
 
         if hasattr(final_result, "model_dump"):
             dumped = final_result.model_dump()
             text = self._extract_text_from_output_blocks(dumped.get("output_blocks", []))
             if text:
-                return text
-            return json.dumps(dumped, default=str)
+                await self._record_media_call_ledger(tool_name, arguments, text)
+                return (text, False)
+            dumped_text = json.dumps(dumped, default=str)
+            if dumped_text:
+                await self._record_media_call_ledger(tool_name, arguments, dumped_text)
+                return (dumped_text, False)
+            missing_result_error = "No final result payload captured from custom tool execution"
+            await self._record_media_call_ledger(tool_name, arguments, missing_result_error)
+            return (missing_result_error, True)
 
         if hasattr(final_result, "__dict__"):
             dumped = final_result.__dict__
             text = self._extract_text_from_output_blocks(dumped.get("output_blocks", []))
             if text:
-                return text
-            return json.dumps(dumped, default=str)
+                await self._record_media_call_ledger(tool_name, arguments, text)
+                return (text, False)
+            dumped_text = json.dumps(dumped, default=str)
+            if dumped_text:
+                await self._record_media_call_ledger(tool_name, arguments, dumped_text)
+                return (dumped_text, False)
+            missing_result_error = "No final result payload captured from custom tool execution"
+            await self._record_media_call_ledger(tool_name, arguments, missing_result_error)
+            return (missing_result_error, True)
 
-        return str(final_result)
+        result_text = str(final_result).strip()
+        if result_text:
+            await self._record_media_call_ledger(tool_name, arguments, result_text)
+            return (result_text, False)
+        missing_result_error = "No final result payload captured from custom tool execution"
+        await self._record_media_call_ledger(tool_name, arguments, missing_result_error)
+        return (missing_result_error, True)
 
     async def _get_mcp_client(self):
         if self._mcp_client is not None:
@@ -424,6 +481,104 @@ class BackgroundToolManager:
         if isinstance(parsed, dict):
             return parsed
         return None
+
+    @staticmethod
+    def _looks_like_json_payload(raw_text: str) -> bool:
+        stripped = str(raw_text or "").lstrip()
+        return stripped.startswith("{") or stripped.startswith("[")
+
+    @classmethod
+    def _annotate_custom_tool_outcome(
+        cls,
+        payload: dict[str, Any],
+        job: BackgroundToolJob,
+        *,
+        ready: bool,
+    ) -> None:
+        """Attach tool-level outcome fields for terminal custom-tool jobs."""
+        if not ready or job.tool_type != "custom":
+            return
+
+        if job.status in {"error", "cancelled"}:
+            payload["tool_success"] = False
+            payload["tool_error"] = str(job.error or "Custom tool execution failed")
+            return
+
+        if job.status != "completed":
+            payload["tool_success"] = None
+            return
+
+        raw_result = str(job.result or "").strip()
+        if not raw_result:
+            payload["tool_success"] = False
+            payload["tool_error"] = "No final result payload captured from custom tool execution"
+            return
+
+        parsed = cls._parse_json_payload(raw_result)
+        if parsed is not None:
+            parsed_success = parsed.get("success")
+            if isinstance(parsed_success, bool):
+                payload["tool_success"] = parsed_success
+                if not parsed_success:
+                    parsed_error = parsed.get("error")
+                    if parsed_error is not None:
+                        payload["tool_error"] = str(parsed_error)
+                    else:
+                        payload["tool_error"] = "Custom tool reported success=false"
+            else:
+                payload["tool_success"] = True
+            return
+
+        if raw_result.startswith("Error:"):
+            payload["tool_success"] = False
+            payload["tool_error"] = raw_result
+            return
+
+        if cls._looks_like_json_payload(raw_result):
+            payload["tool_success"] = None
+            payload["result_parse_error"] = "Could not parse custom tool JSON result payload"
+            return
+
+        payload["tool_success"] = True
+
+    async def _record_media_call_ledger(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        result_text: str,
+    ) -> None:
+        """Run media call ledger capture as a non-blocking side effect."""
+        hook = self._media_call_ledger_hook
+        if hook is None:
+            return
+
+        try:
+            arguments_str = json.dumps(arguments)
+        except (TypeError, ValueError):
+            arguments_str = "{}"
+
+        workspace_path = self._execution_context.get("agent_cwd")
+        context = {
+            "agent_id": self._execution_context.get("agent_id"),
+            "workspace_path": workspace_path,
+            "agent_cwd": workspace_path,
+            "tool_output": result_text,
+        }
+
+        try:
+            hook_result = await hook.execute(
+                tool_name,
+                arguments_str,
+                context=context,
+            )
+            if hook_result.has_errors():
+                logger.debug(
+                    "Media call ledger hook reported non-blocking errors for %s: %s",
+                    tool_name,
+                    "; ".join(hook_result.hook_errors),
+                )
+        except Exception:
+            logger.debug("Media call ledger capture failed for %s", tool_name, exc_info=True)
 
     async def _resolve_subagent_mcp_tool_name(self, tool_name: str) -> str | None:
         """Resolve list_subagents/cancel_subagent style names to concrete MCP names."""
@@ -531,9 +686,13 @@ class BackgroundToolManager:
         job.started_at = time.time()
         try:
             if job.tool_type == "custom":
-                result = await self._run_custom_tool(job.tool_name, job.arguments)
-                job.status = "completed"
-                job.result = result
+                result, is_error = await self._run_custom_tool(job.tool_name, job.arguments)
+                if is_error:
+                    job.status = "error"
+                    job.error = result
+                else:
+                    job.status = "completed"
+                    job.result = result
             elif job.tool_type == "mcp":
                 result, is_error = await self._run_mcp_tool(job.tool_name, job.arguments)
                 if is_error:
@@ -714,6 +873,7 @@ class BackgroundToolManager:
             ready = job.status in BACKGROUND_TOOL_TERMINAL_STATUSES
             payload = self._serialize_job(job, include_result=True)
             payload.update({"success": True, "ready": ready})
+            self._annotate_custom_tool_outcome(payload, job, ready=ready)
             if not ready:
                 payload["message"] = "Background tool still running"
             return payload
@@ -924,6 +1084,7 @@ class BackgroundToolManager:
                         "waited_seconds": round(time.time() - started_at, 3),
                     },
                 )
+                self._annotate_custom_tool_outcome(payload, ready_job, ready=True)
                 return payload
 
             delegate_ready_job = await self._next_waitable_delegate_job()
@@ -1022,6 +1183,18 @@ async def create_server() -> fastmcp.FastMCP:
         type=str,
         default="unknown",
         help="Agent ID for execution context",
+    )
+    parser.add_argument(
+        "--backend-type",
+        type=str,
+        default=None,
+        help="Canonical backend id for tool context injection",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name for tool context injection",
     )
     parser.add_argument(
         "--wait-interrupt-file",
@@ -1137,8 +1310,21 @@ async def create_server() -> fastmcp.FastMCP:
         "agent_id": args.agent_id,
         "allowed_paths": [str(Path(p).resolve()) for p in args.allowed_paths],
     }
+    if args.backend_type:
+        execution_context["backend_type"] = args.backend_type
+        execution_context["backend_name"] = args.backend_type
+    if args.model:
+        execution_context["model"] = args.model
     if args.allowed_paths:
         execution_context["agent_cwd"] = args.allowed_paths[0]
+        try:
+            from massgen.context.task_context import load_task_context
+
+            task_context = load_task_context(args.allowed_paths[0], required=False)
+            if task_context is not None:
+                execution_context["task_context"] = task_context
+        except Exception:  # noqa: BLE001
+            pass
 
     background_manager = BackgroundToolManager(
         tool_manager=tool_manager,
@@ -1466,6 +1652,8 @@ def build_server_config(
     tool_specs_path: Path,
     allowed_paths: list[str] | None = None,
     agent_id: str = "unknown",
+    backend_type: str | None = None,
+    model: str | None = None,
     env: dict[str, str] | None = None,
     tool_timeout_sec: int = 300,
     wait_interrupt_file: Path | None = None,
@@ -1477,6 +1665,8 @@ def build_server_config(
         tool_specs_path: Path to the tool specs JSON file.
         allowed_paths: List of allowed filesystem paths.
         agent_id: Agent identifier.
+        backend_type: Canonical backend id for tool context injection.
+        model: Model name for tool context injection.
         tool_timeout_sec: Timeout in seconds for tool execution (default 300 for media generation).
 
     Returns:
@@ -1494,6 +1684,10 @@ def build_server_config(
         "--agent-id",
         agent_id,
     ]
+    if backend_type:
+        cmd_args.extend(["--backend-type", backend_type])
+    if model:
+        cmd_args.extend(["--model", model])
     if allowed_paths:
         cmd_args.extend(["--allowed-paths"] + allowed_paths)
     if wait_interrupt_file is not None:

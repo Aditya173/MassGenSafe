@@ -55,12 +55,25 @@ def test_codex_model_reasoning_effort_takes_precedence(tmp_path: Path):
 def test_codex_skips_reasoning_effort_when_not_provided(tmp_path: Path):
     backend = CodexBackend(
         cwd=str(tmp_path),
+        model="gpt-5.3-codex",
         reasoning={"summary": "auto"},
     )
     backend._write_workspace_config()
 
     config = _read_workspace_codex_config(tmp_path)
     assert "model_reasoning_effort" not in config
+
+
+def test_codex_defaults_gpt54_to_xhigh_when_not_provided(tmp_path: Path):
+    backend = CodexBackend(
+        cwd=str(tmp_path),
+        model="gpt-5.4",
+        reasoning={"summary": "auto"},
+    )
+    backend._write_workspace_config()
+
+    config = _read_workspace_codex_config(tmp_path)
+    assert config["model_reasoning_effort"] == "xhigh"
 
 
 def test_codex_disables_view_image_tool_in_workspace_config(tmp_path: Path):
@@ -148,6 +161,24 @@ def test_codex_writes_background_mcp_targets_into_custom_tool_specs(tmp_path: Pa
     assert "massgen_custom_tools" not in background_names
 
 
+def test_codex_passes_backend_context_to_massgen_custom_tools_server(tmp_path: Path):
+    """Codex should pass backend identity through the custom-tools server launch args."""
+    backend = CodexBackend(
+        cwd=str(tmp_path),
+        model="gpt-5.4",
+    )
+    backend._write_workspace_config()
+
+    config = _read_workspace_codex_config(tmp_path)
+    server = config["mcp_servers"]["massgen_custom_tools"]
+    args = server["args"]
+
+    assert "--backend-type" in args
+    assert args[args.index("--backend-type") + 1] == "codex"
+    assert "--model" in args
+    assert args[args.index("--model") + 1] == "gpt-5.4"
+
+
 def test_codex_writes_execution_trace_markdown(tmp_path: Path):
     backend = CodexBackend(
         cwd=str(tmp_path),
@@ -206,6 +237,53 @@ def test_codex_writes_execution_trace_markdown(tmp_path: Path):
     assert "I found the root cause and prepared a fix." in trace_text
     assert "### Tool Call: massgen_custom_tools/custom_tool__read_media" in trace_text
     assert "### Tool Result: massgen_custom_tools/custom_tool__read_media" in trace_text
+
+
+def test_codex_turn_completed_usage_preserves_cached_input_tokens(tmp_path: Path):
+    backend = CodexBackend(cwd=str(tmp_path))
+
+    chunks = backend._parse_codex_event(
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "total_tokens": 1200,
+                "cached_input_tokens": 800,
+            },
+        },
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].type == "done"
+    assert chunks[0].usage == {
+        "prompt_tokens": 1000,
+        "completion_tokens": 200,
+        "total_tokens": 1200,
+        "cached_input_tokens": 800,
+    }
+
+
+def test_codex_usage_chain_tracks_cached_input_tokens(tmp_path: Path):
+    backend = CodexBackend(cwd=str(tmp_path))
+
+    chunks = backend._parse_codex_event(
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "total_tokens": 1200,
+                "cached_input_tokens": 800,
+            },
+        },
+    )
+    done_chunk = chunks[0]
+    backend._update_token_usage_from_api_response(done_chunk.usage, backend.model)
+
+    assert backend.token_usage.input_tokens == 1000
+    assert backend.token_usage.output_tokens == 200
+    assert backend.token_usage.cached_input_tokens == 800
 
 
 @pytest.mark.asyncio

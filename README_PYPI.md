@@ -154,24 +154,23 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.59)
+## 🆕 Latest Features (v0.1.60)
 
-**🎉 Released: March 4, 2026**
+**🎉 Released: March 6, 2026**
 
-**What's New in v0.1.59:**
-- **📋 Planning Improvements** - Auto-add improvements to task plan and plan review enhancements for smarter quality rounds.
-- **✅ Checklist & Evaluation Enhancements** - Better eval gen config, checklist fixes, and Gemini tool name normalization for MCP compatibility.
-- **🤖 Subagent Improvements** - Adjusted subagent behavior, subagent manager enhancements, and Docker skill write access fixes.
-- **🎬 Media Generation Fixes** - Video gen skill adjustments (no fallback to animated on errors), video understanding criticality, and impact metric restoration.
+**What's New in v0.1.60:**
+- **🛠️ Multimodal Tool Improvements** - Rewritten `read_media` with clearer schema and `MediaCallLedgerHook` for tracking media calls.
+- **🤖 Subagent Enhancements** - `inherit_spawning_agent_backend` for automatic backend inheritance, `final_answer_strategy` for child orchestrator policy, per-agent `subagent_agents` override.
+- **🧠 GPT-5.4** - New default OpenAI flagship model across all coordination modes.
+- **🔄 Decomp + Checklist Cooperation** - Decomp mode works with checklist workflow for quality-gated subtask iteration.
 
-**Try v0.1.59 Features:**
+**Try v0.1.60 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Try checklist-driven refinement with quality rounds
-uv run massgen --config @examples/features/subagent_checklist.yaml \
-  "Create a website for an AI company selling a creative sci-fi style product. Ensure polished visuals and cool interactive elements"
+# Choose backend 'openai' with model 'gpt-5.4' in the setup wizard to start using GPT-5.4
+uv run massgen --quickstart
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1233,34 +1232,33 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.59)
+### Recent Achievements (v0.1.60)
 
-**🎉 Released: March 4, 2026**
+**🎉 Released: March 6, 2026**
 
-#### Planning Improvements
-- **Auto-Add Improvements to Task Plan** ([#969](https://github.com/massgen/MassGen/pull/969)): Improvements are now automatically incorporated into the task plan for better iteration tracking
-- **Plan Review Enhancements**: More thorough quality evaluation during plan review phases
+#### Multimodal Tools
+- **Rewritten `read_media` Tool** ([#978](https://github.com/massgen/MassGen/pull/978)): Clearer schema, better error handling, and improved naming
+- **`MediaCallLedgerHook`**: New hook for tracking `read_media` and `generate_media` tool calls
 
-#### Checklist & Evaluation Enhancements
-- **Better Eval Gen Config** ([#969](https://github.com/massgen/MassGen/pull/969)): More accurate quality assessments with improved evaluation generation configuration
-- **Checklist Fixes**: Consistent checklist behavior across rounds
-- **Gemini Tool Name Normalization**: MCP tool name normalization for Gemini backend compatibility
+#### Subagent Enhancements
+- **`inherit_spawning_agent_backend`** ([#978](https://github.com/massgen/MassGen/pull/978)): Subagents automatically inherit the spawning agent's backend configuration
+- **`final_answer_strategy`**: Configurable child orchestrator final-answer policy (winner_reuse, winner_present, synthesize)
+- **Per-Agent `subagent_agents`**: Per-agent override for subagent agent configs; orchestrator config file support with robust JSON parsing
 
-#### Subagent Improvements
-- **Adjusted Subagent Behavior** ([#969](https://github.com/massgen/MassGen/pull/969)): Subagent manager enhancements for better coordination
-- **Docker Skill Write Access**: Fixed write access for skills running in Docker containers
+#### Model & Coordination
+- **GPT-5.4 Support** ([#978](https://github.com/massgen/MassGen/pull/978)): New default OpenAI flagship model added to the model registry
+- **Decomp + Checklist Cooperation**: Decomposition mode works with the checklist workflow for quality-gated subtask iteration
+- **Improved Verification Round Time**: Better `verification_latest` prompts for faster verification rounds
 
-#### Media Generation Fixes
-- **Video Gen Skill Adjustments**: No fallback to animated on errors — fail cleanly instead
-- **Video Understanding Criticality**: Improved video understanding importance in evaluations
-- **Impact Metric Restoration**: Restored impact metrics for quality assessment
+#### Fixes
+- **Checklist & Proposal Injections**: More reliable checklist behavior with improved proposal injection
+- **Codex Prompt Caching**: Fixed prompt caching calculation for pricing accuracy
+- **Task Plan Refresh**: Fixed task plan refresh during quality rounds
+- **Skill Prefix Handling**: Fixed edge cases in skill prefix resolution
 
-#### Bug Fixes
-- Fixed answer anonymization during evaluation
-- Updated quickstart flow and test suite
-- Small fixes for plan mode and Docker execution
+### Previous Achievements (v0.0.3 - v0.1.59)
 
-### Previous Achievements (v0.0.3 - v0.1.58)
+✅ **Quality Round Improvements (v0.1.59)**: Auto-add improvements to task plan, plan review enhancements. Better eval gen config, checklist fixes, Gemini tool name normalization for MCP. Subagent behavior adjustments, Docker skill write access fixes. Video gen skill adjustments and impact metric restoration.
 
 ✅ **Comprehensive Multimodal Revamp (v0.1.58)**: ElevenLabs TTS/STT, Nano Banana 2 image generation, Grok multimedia generation, media generation skills, and multi-turn image editing. Nvidia NIM backend. Quality rethinking subagent. Smarter checklists with improve/preserve listings. CLI mode flags and logging architecture refactor.
 
