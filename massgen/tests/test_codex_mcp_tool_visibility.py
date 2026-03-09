@@ -3,6 +3,7 @@
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -96,6 +97,62 @@ def test_codex_custom_tools_mcp_env_sets_claude_config_dir_for_docker_mount(tmp_
     env = backend._build_custom_tools_mcp_env()
 
     assert env["CLAUDE_CONFIG_DIR"] == "/home/massgen/.claude"
+
+
+@pytest.mark.asyncio
+async def test_codex_background_mcp_client_uses_orchestrator_servers(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Codex should expose a host-side MCP client for orchestrator-managed subagent calls."""
+    from massgen.backend import codex as codex_mod
+
+    backend = CodexBackend(
+        cwd=str(tmp_path),
+        agent_id="agent_a",
+    )
+    backend.config["type"] = "codex"
+    backend.config["mcp_servers"] = {
+        "subagent_agent_a": {
+            "type": "stdio",
+            "command": "fastmcp",
+            "args": ["run", "dummy"],
+            "tool_timeout_sec": 2040,
+        },
+        "massgen_custom_tools": {
+            "type": "stdio",
+            "command": "fastmcp",
+            "args": ["run", "ignored"],
+        },
+    }
+
+    fake_client = object()
+    setup_calls: list[dict] = []
+
+    async def fake_setup_mcp_client(**kwargs):
+        setup_calls.append(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(
+        codex_mod,
+        "MCPResourceManager",
+        SimpleNamespace(setup_mcp_client=fake_setup_mcp_client),
+        raising=False,
+    )
+
+    client = await backend._get_background_mcp_client()
+
+    assert client is fake_client
+    assert len(setup_calls) == 1
+    assert [server["name"] for server in setup_calls[0]["servers"]] == ["subagent_agent_a"]
+    assert setup_calls[0]["timeout_seconds"] == 2100
+    assert setup_calls[0]["backend_name"] == "codex"
+    assert setup_calls[0]["agent_id"] == "agent_a"
+
+    cached_client = await backend._get_background_mcp_client()
+
+    assert cached_client is fake_client
+    assert len(setup_calls) == 1
 
 
 class TestCodexMcpEnvFileMultiLocation:

@@ -155,6 +155,76 @@ def _ensure_quickstart_skills_ready(
         return False
 
 
+def _pull_docker_image_headless() -> bool:
+    """Pull default Docker image without interactive prompts.
+
+    Returns:
+        True if image was pulled successfully, False otherwise.
+    """
+    import subprocess
+
+    image = "ghcr.io/massgen/mcp-runtime-sudo:latest"
+    try:
+        subprocess.run(
+            ["docker", "pull", image],
+            capture_output=True,
+            timeout=300,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _print_headless_quickstart_summary(result: dict) -> None:
+    """Print structured, machine-parseable summary of headless quickstart."""
+    print(f"\n{'=' * 50}")
+    print("MASSGEN HEADLESS QUICKSTART")
+    print(f"{'=' * 50}")
+
+    # API Keys
+    print("\nAPI Keys:")
+    for key_name, available in result.get("api_keys_summary", {}).items():
+        status = "available" if available else "not set"
+        print(f"  {key_name}: {status}")
+
+    # Selection
+    if result.get("backend") and result.get("model"):
+        print(f"\nSelected: {result['backend']} / {result['model']}")
+    else:
+        print("\nSelected: none (no API keys found)")
+
+    # Config
+    if result.get("config_path"):
+        print(f"Config: {result['config_path']}")
+    elif result.get("env_template_path"):
+        print(f"Env template: {result['env_template_path']}")
+
+    # Docker
+    docker_status = "available" if result.get("docker_available") else "not available"
+    if result.get("docker_pulled"):
+        docker_status += ", image pulled"
+    print(f"Docker: {docker_status}")
+
+    # Skills
+    skills_status = "installed" if result.get("skills_installed") else "not installed"
+    print(f"Skills: {skills_status}")
+
+    # Status
+    if result["success"]:
+        print("\nSTATUS: SUCCESS")
+        print("\nRun with:")
+        config = result["config_path"]
+        print(
+            f"  massgen --automation --config {config}" ' "Your question"',
+        )
+    else:
+        print("\nSTATUS: NEEDS_CONFIG")
+        for step in result.get("manual_steps", []):
+            print(f"  -> {step}")
+
+    print()
+
+
 def _quickstart_filename_from_config_arg(config_path_arg: str | None) -> str | None:
     """Extract quickstart filename override from --config when --quickstart is used."""
     if not config_path_arg:
@@ -9223,6 +9293,16 @@ async def main(args):
         # Apply CLI mode flags (--quick, --coordination-mode, --personas, --single-agent)
         apply_mode_flags_to_config(config, args)
 
+        # Handle --eval-criteria: load JSON file and inject into coordination config
+        if getattr(args, "eval_criteria", None):
+            criteria = _load_eval_criteria(args.eval_criteria)
+            _inject_eval_criteria_into_config(config, criteria)
+            logger.info(
+                "[CLI] Injected %d eval criteria from %s",
+                len(criteria),
+                args.eval_criteria,
+            )
+
         # Check for prompt in config if not provided via CLI
         if not args.question and "prompt" in config:
             args.question = config["prompt"]
@@ -9860,6 +9940,14 @@ async def main(args):
 
 def cli_main():
     """Synchronous wrapper for CLI entry point."""
+    # Handle 'viewer' subcommand — view a session in the TUI (read-only)
+    if len(sys.argv) >= 2 and sys.argv[1] == "viewer":
+        from .viewer import build_viewer_parser, viewer_command
+
+        viewer_parser = build_viewer_parser()
+        viewer_args = viewer_parser.parse_args(sys.argv[2:])
+        sys.exit(viewer_command(viewer_args))
+
     # Handle 'logs' subcommand specially before main argument parsing
     # This avoids conflict with the positional 'question' argument
     if len(sys.argv) >= 2 and sys.argv[1] == "logs":
@@ -10151,6 +10239,32 @@ def cli_main():
             shares_parser.print_help()
             sys.exit(1)
 
+    parser = main_parser()
+    args = parser.parse_args()
+
+    if args.plan_steps is not None and args.plan_steps <= 0:
+        print("❌ --plan-steps must be a positive integer")
+        sys.exit(2)
+    if args.plan_chunks is not None and args.plan_chunks <= 0:
+        print("❌ --plan-chunks must be a positive integer")
+        sys.exit(2)
+
+    # Validate mode flag combinations
+    mode_errors = validate_mode_flag_combinations(args)
+    if mode_errors:
+        for err in mode_errors:
+            print(f"❌ {err}")
+        sys.exit(2)
+
+    # Continue with the rest of cli_main() logic
+    _cli_main_continued(args)
+
+
+def main_parser() -> argparse.ArgumentParser:
+    """Build and return the main CLI argument parser.
+
+    Extracted so tests can parse arguments without running cli_main().
+    """
     parser = argparse.ArgumentParser(
         description="MassGen - Multi-Agent Coordination CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -10407,6 +10521,12 @@ Environment Variables:
         help="Treat @tokens in prompt text as plain text instead of extracting @path/@path:w context references.",
     )
     parser.add_argument(
+        "--eval-criteria",
+        type=str,
+        metavar="FILE",
+        help="Path to JSON file with evaluation criteria. " "Each entry: {text, category (must/should/could), verify_by?}. " "Injected as checklist_criteria_inline in coordination config.",
+    )
+    parser.add_argument(
         "--output-file",
         type=str,
         metavar="PATH",
@@ -10426,6 +10546,13 @@ Environment Variables:
         "--quickstart",
         action="store_true",
         help="Quick setup: specify number of agents/models, get a full-featured config with code tools and Docker, and optionally install skill packages",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Non-interactive mode for --quickstart: auto-detect API keys, "
+        "select best backend/model, generate config, pull Docker images, "
+        "and install skills. Designed for programmatic use by AI agents.",
     )
     parser.add_argument(
         "--generate-config",
@@ -10576,22 +10703,51 @@ Environment Variables:
     # Mode settings (mirror TUI mode bar toggles)
     add_mode_flags_to_parser(parser)
 
-    args = parser.parse_args()
+    return parser
 
-    if args.plan_steps is not None and args.plan_steps <= 0:
-        print("❌ --plan-steps must be a positive integer")
-        sys.exit(2)
-    if args.plan_chunks is not None and args.plan_chunks <= 0:
-        print("❌ --plan-chunks must be a positive integer")
-        sys.exit(2)
 
-    # Validate mode flag combinations
-    mode_errors = validate_mode_flag_combinations(args)
-    if mode_errors:
-        for err in mode_errors:
-            print(f"❌ {err}")
-        sys.exit(2)
+def _load_eval_criteria(file_path: str) -> list[dict]:
+    """Load and validate evaluation criteria from a JSON file.
 
+    Returns a list of criteria dicts. Calls sys.exit on error.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        print(f"{BRIGHT_RED}Error: --eval-criteria file not found: {file_path}{RESET}")
+        sys.exit(EXIT_CONFIG_ERROR)
+    try:
+        criteria_data = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        print(f"{BRIGHT_RED}Error: --eval-criteria file is not valid JSON: {e}{RESET}")
+        sys.exit(EXIT_CONFIG_ERROR)
+    if not isinstance(criteria_data, list):
+        print(f"{BRIGHT_RED}Error: --eval-criteria must be a JSON array{RESET}")
+        sys.exit(EXIT_CONFIG_ERROR)
+    return criteria_data
+
+
+def _inject_eval_criteria_into_config(
+    config: dict,
+    criteria: list[dict],
+) -> None:
+    """Inject evaluation criteria into config as checklist_criteria_inline.
+
+    Merges into config["orchestrator"]["coordination"]["checklist_criteria_inline"],
+    creating intermediate dicts as needed. CLI criteria override any YAML inline criteria.
+    """
+    if "orchestrator" not in config:
+        config["orchestrator"] = {}
+    if "coordination" not in config["orchestrator"]:
+        config["orchestrator"]["coordination"] = {}
+    config["orchestrator"]["coordination"]["checklist_criteria_inline"] = criteria
+
+
+def _cli_main_continued(args):
+    """Continuation of cli_main() after argument parsing.
+
+    This is split out because main_parser() was extracted between the parser
+    construction and the post-parse logic. This function is called from cli_main().
+    """
     # Handle --continue flag BEFORE setup_logging so we can reuse log directory
     if args.continue_session:
         from massgen.session import SessionRegistry
@@ -11074,6 +11230,33 @@ Environment Variables:
     # Launch quickstart if requested
     # Skip terminal quickstart if --web is also provided (web UI will show wizard directly)
     if args.quickstart and not args.web:
+        # Headless quickstart: auto-detect keys, generate config, no user interaction.
+        # Also triggers when stdin is not a TTY (e.g., piped from an AI agent).
+        if args.headless or not sys.stdin.isatty():
+            from massgen.config_builder import ConfigBuilder
+
+            builder = ConfigBuilder()
+            headless_result = builder.run_quickstart_headless(
+                output_dir=".massgen",
+                num_agents=args.config_agents or 3,
+                backend_override=args.config_backend,
+                model_override=args.config_model,
+                use_docker=args.config_docker if args.config_docker else None,
+                context_path=args.config_context_path,
+            )
+
+            # Docker pull if available and headless
+            if headless_result.get("docker_available") and headless_result.get("success"):
+                headless_result["docker_pulled"] = _pull_docker_image_headless()
+
+            _print_headless_quickstart_summary(headless_result)
+
+            # Install skills if config was generated
+            if headless_result.get("config_path"):
+                _ensure_quickstart_skills_ready(headless_result["config_path"], True)
+
+            return
+
         # Launch TUI Quickstart Wizard
         try:
             result = _run_quickstart_wizard_tui(quickstart_config_filename)

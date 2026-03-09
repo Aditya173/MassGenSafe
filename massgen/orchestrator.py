@@ -8487,10 +8487,56 @@ Your answer:"""
                     )
                     raw_result = None
                 else:
-                    raw_result = await client.call_tool(
-                        tool_name=full_tool_name,
-                        arguments=params,
-                    )
+                    raw_result = None
+                    background_error: Exception | None = None
+                    retry_error: Exception | None = None
+                    retry_attempted = False
+
+                    try:
+                        raw_result = await client.call_tool(
+                            tool_name=full_tool_name,
+                            arguments=params,
+                        )
+                    except Exception as exc:
+                        background_error = exc
+                        reconnect = getattr(client, "reconnect", None)
+                        should_retry = callable(reconnect) and self._is_reconnectable_background_mcp_error(exc)
+                        if should_retry:
+                            retry_attempted = True
+                            logger.info(
+                                "[Orchestrator] Retrying %s for %s after background MCP reconnect",
+                                full_tool_name,
+                                parent_agent_id,
+                            )
+                            try:
+                                reconnect_result = reconnect(max_retries=1)
+                                if inspect.isawaitable(reconnect_result):
+                                    reconnect_result = await reconnect_result
+                                if reconnect_result:
+                                    raw_result = await client.call_tool(
+                                        tool_name=full_tool_name,
+                                        arguments=params,
+                                    )
+                                    background_error = None
+                                else:
+                                    retry_error = RuntimeError(
+                                        "Background MCP reconnect returned False",
+                                    )
+                            except Exception as reconnect_exc:
+                                retry_error = reconnect_exc
+
+                    if background_error is not None and raw_result is None:
+                        logger.debug(
+                            "[Orchestrator] Background MCP client call failed for %s (%s): %s",
+                            full_tool_name,
+                            parent_agent_id,
+                            background_error,
+                        )
+                        error_messages.append(str(background_error))
+                        if retry_attempted and retry_error is not None:
+                            error_messages.append(
+                                f"Reconnect retry failed for {full_tool_name}: {retry_error}",
+                            )
                 normalized = self._normalize_subagent_mcp_result(raw_result)
                 if normalized is not None:
                     return normalized
@@ -8548,6 +8594,21 @@ Your answer:"""
             "operation": tool_name,
             "error": f"No programmatic MCP client available for {full_tool_name}",
         }
+
+    @staticmethod
+    def _is_reconnectable_background_mcp_error(error: Exception | str) -> bool:
+        """Return whether a background MCP failure is likely recoverable via reconnect."""
+        normalized = str(error or "").strip().lower()
+        if not normalized:
+            return False
+        reconnect_markers = (
+            "not connected",
+            "disconnected",
+            "connection closed",
+            "connection lost",
+            "broken pipe",
+        )
+        return any(marker in normalized for marker in reconnect_markers)
 
     def _call_subagent_mcp_tool(
         self,

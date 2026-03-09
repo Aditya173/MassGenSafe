@@ -84,6 +84,70 @@ async def test_call_subagent_mcp_tool_async_uses_background_client_structured_co
 
 
 @pytest.mark.asyncio
+async def test_call_subagent_mcp_tool_async_reconnects_stale_background_client_once(
+    mock_orchestrator,
+    monkeypatch,
+):
+    """A stale Claude Code background MCP client should reconnect and retry once."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    backend = orchestrator.agents[agent_id].backend
+
+    captured_calls: list[tuple[str, dict[str, object]]] = []
+
+    class _FlakyBackgroundClient:
+        def __init__(self):
+            self.call_count = 0
+            self.reconnect = AsyncMock(return_value=True)
+
+        async def call_tool(self, tool_name, arguments):
+            self.call_count += 1
+            captured_calls.append((tool_name, arguments))
+            if self.call_count == 1:
+                raise RuntimeError("Server 'subagent_agent_a' not connected")
+            return SimpleNamespace(
+                content=None,
+                structuredContent={
+                    "success": True,
+                    "operation": "spawn_subagents",
+                    "results": [{"subagent_id": "round_eval"}],
+                },
+            )
+
+    flaky_client = _FlakyBackgroundClient()
+    monkeypatch.setattr(
+        backend,
+        "_get_background_mcp_client",
+        AsyncMock(return_value=flaky_client),
+        raising=False,
+    )
+    monkeypatch.delattr(backend, "_execute_mcp_function_with_retry", raising=False)
+
+    result = await orchestrator._call_subagent_mcp_tool_async(
+        parent_agent_id=agent_id,
+        tool_name="spawn_subagents",
+        params={"tasks": [{"subagent_id": "round_eval", "task": "critique"}]},
+    )
+
+    assert result == {
+        "success": True,
+        "operation": "spawn_subagents",
+        "results": [{"subagent_id": "round_eval"}],
+    }
+    flaky_client.reconnect.assert_awaited_once_with(max_retries=1)
+    assert captured_calls == [
+        (
+            "mcp__subagent_agent_a__spawn_subagents",
+            {"tasks": [{"subagent_id": "round_eval", "task": "critique"}]},
+        ),
+        (
+            "mcp__subagent_agent_a__spawn_subagents",
+            {"tasks": [{"subagent_id": "round_eval", "task": "critique"}]},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_call_subagent_mcp_tool_async_returns_structured_failure_when_all_paths_fail(
     mock_orchestrator,
     monkeypatch,
@@ -118,6 +182,120 @@ async def test_call_subagent_mcp_tool_async_returns_structured_failure_when_all_
         "operation": "spawn_subagents",
         "error": "executor path failed; background client init failed",
     }
+
+
+@pytest.mark.asyncio
+async def test_round_evaluator_pre_round_uses_codex_background_mcp_client(
+    mock_orchestrator,
+    monkeypatch,
+    tmp_path,
+):
+    """Managed round evaluator should work with a Codex parent via host-side MCP access."""
+    from massgen.backend import codex as codex_mod
+    from massgen.backend.codex import CodexBackend
+    from massgen.subagent.models import SubagentResult
+
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+
+    orchestrator.config.coordination_config.round_evaluator_before_checklist = True
+    orchestrator.config.coordination_config.orchestrator_managed_round_evaluator = True
+    orchestrator.config.coordination_config.enable_subagents = True
+    orchestrator.config.coordination_config.subagent_types = ["round_evaluator"]
+
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    temp_root = workspace_root / "temp"
+    temp_root.mkdir()
+
+    monkeypatch.setattr(CodexBackend, "_find_codex_cli", lambda self: "/usr/bin/codex")
+    monkeypatch.setattr(CodexBackend, "_has_cached_credentials", lambda self: True)
+
+    backend = CodexBackend(
+        api_key="test-key",
+        cwd=str(workspace_root),
+        agent_id=agent_id,
+    )
+    backend.config["type"] = "codex"
+    backend.config["mcp_servers"] = {
+        f"subagent_{agent_id}": {
+            "type": "stdio",
+            "command": "fastmcp",
+            "args": ["run", "dummy"],
+            "tool_timeout_sec": 2040,
+        },
+    }
+    backend.filesystem_manager = SimpleNamespace(
+        get_workspace_root=lambda: str(workspace_root),
+        get_current_workspace=lambda: str(workspace_root),
+        agent_temporary_workspace=str(temp_root),
+        cwd=str(workspace_root),
+    )
+    orchestrator.agents[agent_id].backend = backend
+
+    orchestrator.agent_states[agent_id].answer = "draft answer v1"
+    orchestrator.coordination_tracker.add_agent_answer(
+        agent_id=agent_id,
+        answer="draft answer v1",
+    )
+
+    eval_workspace = tmp_path / "round-eval-workspace"
+    eval_workspace.mkdir()
+    (eval_workspace / "critique_packet.md").write_text(
+        "# Critique Packet\n\nCodex-backed evaluator packet.",
+        encoding="utf-8",
+    )
+    (eval_workspace / "verdict.json").write_text(
+        json.dumps({"schema_version": "1", "verdict": "converged", "scores": {"E1": 5}}, indent=2),
+        encoding="utf-8",
+    )
+
+    setup_calls: list[dict[str, object]] = []
+
+    class _FakeBackgroundClient:
+        async def call_tool(self, tool_name, arguments):
+            return SimpleNamespace(
+                content=None,
+                structuredContent={
+                    "success": True,
+                    "operation": "spawn_subagents",
+                    "results": [
+                        SubagentResult.create_success(
+                            subagent_id="round_eval_r2",
+                            answer="Short evaluator summary",
+                            workspace_path=str(eval_workspace),
+                            execution_time_seconds=12.0,
+                        ).to_dict(),
+                    ],
+                },
+            )
+
+    async def fake_setup_mcp_client(**kwargs):
+        setup_calls.append(kwargs)
+        return _FakeBackgroundClient()
+
+    monkeypatch.setattr(
+        codex_mod,
+        "MCPResourceManager",
+        SimpleNamespace(setup_mcp_client=fake_setup_mcp_client),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_copy_all_snapshots_to_temp_workspace",
+        AsyncMock(return_value=str(tmp_path / "temp-snapshots")),
+    )
+    monkeypatch.setattr(orchestrator, "_emit_round_evaluator_spawn_event", lambda **kw: None)
+    monkeypatch.setattr(orchestrator, "_queue_round_start_context_block", lambda *a, **kw: None)
+
+    result = await orchestrator._run_round_evaluator_pre_round_if_needed(
+        answers={agent_id: "draft answer v1"},
+    )
+
+    assert result is True
+    assert len(setup_calls) == 1
+    assert [server["name"] for server in setup_calls[0]["servers"]] == [f"subagent_{agent_id}"]
+    assert agent_id in orchestrator._round_evaluator_completed_labels
 
 
 @pytest.mark.asyncio
