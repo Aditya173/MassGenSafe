@@ -378,6 +378,8 @@ class LLMBackend(ABC):
             "fairness_enabled",
             "fairness_lead_cap_answers",
             "max_midstream_injections_per_round",
+            # WebSocket mode (transport control, not an API parameter)
+            "websocket_mode",
             "defer_peer_updates_until_restart",
             "allow_midstream_peer_updates_before_checklist_submit",
             "max_checklist_calls_per_round",

@@ -71,10 +71,10 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
         converted_messages = self.formatter.format_messages(messages)
 
         # Response API uses 'input' instead of 'messages'
-        api_params = {
-            "input": converted_messages,
-            "stream": True,
-        }
+        websocket_mode = all_params.get("websocket_mode", False)  # In WebSocket mode, stream/background are not used (transport handles streaming)
+        api_params = {"input": converted_messages}
+        if not websocket_mode:
+            api_params["stream"] = True
 
         # Set default reasoning configuration for reasoning models (GPT-5, o-series)
         # Per OpenAI docs, GPT-5.1 and GPT-5.2 default to reasoning=none, but GPT-5 defaults to medium

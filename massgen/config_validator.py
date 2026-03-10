@@ -558,6 +558,7 @@ class ConfigValidator:
             "enable_programmatic_flow",
             "enable_tool_search",
             "enable_strict_tool_use",
+            "websocket_mode",
         ]
         for field_name in boolean_fields:
             if field_name in backend_config:

@@ -73,6 +73,7 @@ dependencies = [
     "github-copilot-sdk>=0.1.0",
     "gitpython>=3.1.46",
     "pytest-textual-snapshot>=1.1.0",
+    "websockets>=14.0",
 ]
 
 [project.optional-dependencies]
