@@ -200,6 +200,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.62 (March 11, 2026)** - MassGen Skill & Viewer
+
+New general-purpose MassGen Skill with 4 modes (general, evaluate, plan, spec) for use from Claude Code and other AI agents. Session viewer for real-time observation of automation runs. Backend improvements for Claude Code, Codex, and Copilot. Headless and web quickstart modes for automated setup.
+
 **v0.1.61 (March 9, 2026)** - Round Evaluator Paradigm
 
 New round evaluator subagent type that delegates evaluation to specialized evaluator subagents for deeper quality assessment. Major orchestrator refactoring with improved evaluation prompts, task plan injection, and subagent fixes.
@@ -207,10 +211,6 @@ New round evaluator subagent type that delegates evaluation to specialized evalu
 **v0.1.60 (March 6, 2026)** - Multimodal Tools, Subagent Enhancements & GPT-5.4
 
 Rewritten read_media tool with clearer schema and new MediaCallLedgerHook for media call tracking. Subagent enhancements with inherit_spawning_agent_backend and final_answer_strategy options. GPT-5.4 as default OpenAI flagship. Decomp mode cooperates with checklist workflow. Codex prompt caching calculation fix for pricing accuracy.
-
-**v0.1.59 (March 4, 2026)** - Quality Round Improvements
-
-Planning improvements with auto-added improvements to task plan and plan review enhancements. Checklist and evaluation enhancements with better eval gen config and Gemini tool name normalization. Subagent behavior adjustments and Docker skill write access fixes. Media generation fixes for video gen skills and impact metric restoration.
 
 :doc:`Full changelog → <changelog>`
 

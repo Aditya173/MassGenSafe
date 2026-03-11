@@ -1,31 +1,10 @@
-# MassGen v0.1.62 Roadmap
+# MassGen v0.1.63 Roadmap
 
-**Target Release:** March 11, 2026
+**Target Release:** March 13, 2026
 
 ## Overview
 
-Version 0.1.62 focuses on improving skill use and exploration — local execution, hierarchical registry, and consolidation workflows — plus adding a Gemini CLI backend. Skill use was originally planned for v0.1.60 but rolled forward as subsequent releases delivered other improvements instead.
-
----
-
-## Feature: Improve Skill Use and Exploration
-
-**Issue:** [#873](https://github.com/massgen/MassGen/issues/873)
-**Owner:** @ncrispino
-
-### Goals
-
-- **Local Skill Execution**: Enable skills to run in local (non-Docker) mode via a local MCP tool for skill reading
-- **Skill Registry**: Hierarchical organization replacing flat skill inclusion in system prompts, reducing prompt bloat
-- **Skill Consolidation**: Cleanup submode in analyze mode for merging overlapping skills
-- **TUI Indicator**: Visual signal when skill cleaning threshold is reached
-
-### Success Criteria
-
-- [ ] Skills usable in local (non-Docker) mode
-- [ ] Skill registry created and used in system prompts
-- [ ] Skill consolidation workflow available in analyze mode
-- [ ] TUI indicator for skill cleaning threshold
+Version 0.1.63 focuses on adding a Gemini CLI backend (rolled from v0.1.62) and exploring image/video editing capabilities. The Gemini CLI backend was originally planned for v0.1.62 but rolled forward as that release delivered the MassGen Skill & Viewer instead.
 
 ---
 
@@ -44,8 +23,23 @@ Version 0.1.62 focuses on improving skill use and exploration — local executio
 
 ---
 
+## Feature: Image/Video Edit Capabilities
+
+**Issue:** [#959](https://github.com/massgen/MassGen/issues/959)
+**Owner:** @ncrispino
+
+### Goals
+
+- **Image/Video Editing**: Check and support image/video editing capabilities across providers
+
+### Success Criteria
+
+- [ ] Image editing capabilities verified and supported
+- [ ] Video editing capabilities verified and supported
+
+---
+
 ## Related Tracks
 
-- **v0.1.61**: Round Evaluator Paradigm — new round evaluator subagent type, orchestrator refactoring, evaluation improvements ([#986](https://github.com/massgen/MassGen/pull/986))
-- **v0.1.63**: Image/Video Edit Capabilities ([#959](https://github.com/massgen/MassGen/issues/959))
+- **v0.1.62**: MassGen Skill & Viewer — general-purpose multi-agent skill, session viewer, backend improvements ([#992](https://github.com/massgen/MassGen/pull/992))
 - **v0.1.64**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))

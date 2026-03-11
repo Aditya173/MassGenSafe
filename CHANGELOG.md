@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.62 (March 11, 2026)** - MassGen Skill & Viewer
+New general-purpose MassGen Skill with 4 modes (general, evaluate, plan, spec) for use from Claude Code and other AI agents. Session viewer for real-time observation. Backend improvements for Claude Code, Codex, and Copilot. Headless and web quickstart modes.
+
 **v0.1.61 (March 9, 2026)** - Round Evaluator Paradigm
 New round evaluator subagent type that delegates evaluation to specialized evaluator subagents for deeper quality assessment. Major orchestrator refactoring with improved evaluation prompts, task plan injection, and subagent fixes.
 
@@ -18,10 +21,32 @@ Rewritten read_media with clearer schema and MediaCallLedgerHook for media call 
 **v0.1.59 (March 4, 2026)** - Quality Round Improvements
 Planning improvements with auto-added improvements to task plan and plan review enhancements. Checklist and evaluation enhancements with better eval gen config and Gemini tool name normalization. Subagent behavior adjustments and media generation fixes.
 
-**v0.1.58 (March 2, 2026)** - Multimodal Revamp, Nvidia NIM Backend & Quality Rethinking
-Comprehensive multimodal revamp with ElevenLabs TTS/STT, Nano Banana 2 image generation, and Grok multimedia. Nvidia NIM backend for NVIDIA Inference Microservices. Quality rethinking subagent for per-element craft improvements. Smarter checklists with improve/preserve listings. Logging architecture refactor and CLI mode flags.
-
 ---
+
+## [0.1.62] - 2026-03-11
+
+### Added
+- **MassGen Skill** ([#992](https://github.com/massgen/MassGen/pull/992)): New general-purpose multi-agent skill with 4 modes (general, evaluate, plan, spec) for Claude Code and other AI agents
+- **Session Viewer** ([#992](https://github.com/massgen/MassGen/pull/992)): New `massgen viewer` command for real-time observation of automation sessions with interactive session picker and web mode
+- **Headless Quickstart** ([#992](https://github.com/massgen/MassGen/pull/992)): Non-interactive setup via `--quickstart --headless` for CI/CD integration
+- **Web Quickstart** ([#992](https://github.com/massgen/MassGen/pull/992)): Browser-based setup flow via `--web-quickstart`
+- **Skill Auto-Sync** ([#992](https://github.com/massgen/MassGen/pull/992)): GitHub Actions workflow to auto-sync MassGen Skill to separate repository for easy installation
+
+### Changed
+- **Claude Code Backend** ([#992](https://github.com/massgen/MassGen/pull/992)): Background task execution support and SDK MCP integration
+- **Codex Backend** ([#992](https://github.com/massgen/MassGen/pull/992)): Native filesystem access, JSONL event streaming, and MCP tool support
+- **Copilot Model Discovery** ([#992](https://github.com/massgen/MassGen/pull/992)): Runtime model fetching with metadata caching
+- **Planning & Evaluation** ([#992](https://github.com/massgen/MassGen/pull/992)): Better planning prompts with thoroughness support, removed should/could criteria to reduce output similarity
+- **CLI Enhancements** ([#992](https://github.com/massgen/MassGen/pull/992)): `--print-backends` table, viewer subcommand, multi-agent quickstart via `--quickstart-agent`
+
+### Fixed
+- **Skill Viewer** ([#992](https://github.com/massgen/MassGen/pull/992)): Fixed skill viewer display and added convenience shell script
+- **Correctness Prompts** ([#992](https://github.com/massgen/MassGen/pull/992)): Updated correctness prompts for improved accuracy
+
+### Technical Details
+- **Major Focus**: MassGen Skill & Viewer — general-purpose skill, session observation, backend improvements
+- **PRs Merged**: [#992](https://github.com/massgen/MassGen/pull/992) (evaluator-skill)
+- **Contributors**: @ncrispino (6 commits), @HenryQi (2 commits) and the MassGen team
 
 ## [0.1.61] - 2026-03-09
 

@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.61
+**Current Version:** v0.1.62
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** March 9, 2026
+**Last Updated:** March 11, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,12 +42,24 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.62** | 03/11/26 | Improve Skill Use and Exploration | @ncrispino | Local skill execution, skill registry, and lifecycle management ([#873](https://github.com/massgen/MassGen/issues/873)) |
-| **v0.1.62** | 03/11/26 | Gemini CLI Backend | @ncrispino | Gemini CLI backend support ([#952](https://github.com/massgen/MassGen/issues/952)) |
+| **v0.1.63** | 03/13/26 | Gemini CLI Backend | @ncrispino | Gemini CLI backend support ([#952](https://github.com/massgen/MassGen/issues/952)) |
 | **v0.1.63** | 03/13/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
 | **v0.1.64** | 03/16/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
 
 *All releases ship on MWF @ 9am PT when ready*
+
+---
+
+## ✅ v0.1.62 - MassGen Skill & Viewer (Completed)
+
+**Released:** March 11, 2026 | PR: [#992](https://github.com/massgen/MassGen/pull/992)
+
+### Features
+- **MassGen Skill**: New general-purpose multi-agent skill with 4 modes (general, evaluate, plan, spec) for Claude Code and other AI agents
+- **Session Viewer**: New `massgen viewer` command for real-time observation of automation sessions with interactive picker and web mode
+- **Backend Improvements**: Claude Code background task execution, Codex native filesystem and MCP support, Copilot runtime model discovery
+- **Quickstart Enhancements**: Headless quickstart (`--quickstart --headless`) for CI/CD, web quickstart (`--web-quickstart`) for browser-based setup
+- **Evaluation & Planning**: Better planning prompts with thoroughness support, removed should/could criteria
 
 ---
 
@@ -90,42 +102,23 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.62 - Skill Use & Exploration + Gemini CLI Backend
+## 📋 v0.1.63 - Gemini CLI Backend & Image/Video Edit Capabilities
 
 ### Features
 
-**1. Improve Skill Use and Exploration** (@ncrispino)
-- Issue: [#873](https://github.com/massgen/MassGen/issues/873)
-- Local skill execution without Docker mode (local MCP tool for skill reading)
-- Skill registry with hierarchical organization replacing flat skill inclusion in system prompts
-- Skill consolidation/cleanup submode in analyze mode
-- TUI indicator when skill cleaning threshold reached
-- **Use Case**: Better skill lifecycle management and reduced system prompt bloat
-
-**2. Gemini CLI Backend** (@ncrispino)
+**1. Gemini CLI Backend** (@ncrispino)
 - Issue: [#952](https://github.com/massgen/MassGen/issues/952)
 - Add Gemini CLI as a first-class backend
 - **Use Case**: Enable Gemini CLI as a native backend option alongside Claude Code and Codex
 
-### Success Criteria
-- ✅ Skills usable in local (non-Docker) mode
-- ✅ Skill registry created and used in system prompts
-- ✅ Skill consolidation workflow available in analyze mode
-- ✅ Gemini CLI backend functional and tested
-
----
-
-## 📋 v0.1.63 - Image/Video Edit Capabilities
-
-### Features
-
-**1. Check Image/Video Edit Capabilities** (@ncrispino)
+**2. Check Image/Video Edit Capabilities** (@ncrispino)
 - Issue: [#959](https://github.com/massgen/MassGen/issues/959)
 - Investigate and support image and video editing capabilities across providers
 - Multi-turn editing workflows with continuation IDs
 - **Use Case**: Enable iterative media editing within multi-agent workflows
 
 ### Success Criteria
+- ✅ Gemini CLI backend functional and tested
 - ✅ Image editing capabilities documented and tested
 - ✅ Video editing capabilities documented and tested
 
@@ -938,5 +931,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** March 9, 2026
+**Last Updated:** March 11, 2026
 **Maintained By:** MassGen Team

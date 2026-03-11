@@ -227,7 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.61 - Latest
+### v0.1.62 - Latest
+**New Features:** MassGen Skill & Viewer
+
+**Key Features:**
+- **MassGen Skill**: New general-purpose multi-agent skill with 4 modes (general, evaluate, plan, spec) for Claude Code and other AI agents
+- **Session Viewer**: New `massgen viewer` command for real-time observation of automation sessions with interactive picker and web mode
+- **Backend Improvements**: Claude Code background task execution, Codex native filesystem and MCP support, Copilot runtime model discovery
+- **Quickstart Enhancements**: Headless quickstart for CI/CD, web quickstart for browser-based setup
+- **Evaluation & Planning**: Better planning prompts with thoroughness support, removed should/could criteria
+
+**Try It:**
+```bash
+# Install the MassGen Skill for your AI agent
+npx skills add massgen/skills --all
+# Then in Claude Code, Cursor, Copilot, etc.:
+#   /massgen "Your complex task"
+
+# Try the Session Viewer
+uv run massgen viewer --pick
+```
+
+### v0.1.61
 **New Features:** Round Evaluator Paradigm
 
 **Key Features:**
@@ -235,16 +256,6 @@ Most configurations use environment variables for API keys:so
 - **Orchestrator Refactoring**: Major orchestrator refactoring (+1,189 lines) to support the round evaluation workflow
 - **Evaluation Improvements**: Improved evaluation prompts with task plan injection for context-aware assessment
 - **New Config**: `round_evaluator_example.yaml` for easy adoption
-- **Fixes**: Session resumption from already-resumed logs, SUBAGENT.md generality improvements
-
-**Try It:**
-```bash
-# Install or upgrade to v0.1.61
-pip install --upgrade massgen
-
-# Try the round evaluator paradigm
-uv run massgen --config @examples/features/round_evaluator_example.yaml "Create a website for an AI startup with polished visuals and interactive elements"
-```
 
 ### v0.1.60
 **New Features:** Multimodal Tools, Subagent Enhancements & GPT-5.4
