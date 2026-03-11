@@ -267,10 +267,16 @@ class TestGenerationPrompt:
         prompt = self._make_prompt(task="Build a snake game with mobile support")
         assert "snake game" in prompt
 
-    def test_prompt_changedoc_adds_traceability(self):
-        """When changedoc is enabled, prompt should mention traceability."""
+    def test_prompt_changedoc_does_not_add_criterion(self):
+        """Changedoc traceability is no longer injected as an eval criterion.
+
+        When changedoc was a criterion, agents burned iterations improving
+        the changedoc instead of the actual deliverable.  Traceability is
+        handled during final presentation instead.
+        """
         prompt = self._make_prompt(has_changedoc=True)
-        assert "changedoc" in prompt.lower() or "traceability" in prompt.lower()
+        # The changedoc instruction should be empty — no criterion injection
+        assert "changedoc traceability" not in prompt.lower()
 
     def test_prompt_specifies_criteria_range(self):
         """Generation prompt should specify the min-max range."""

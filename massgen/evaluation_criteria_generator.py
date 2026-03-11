@@ -260,22 +260,11 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "must",
         ),
         (
-            "Technology and tooling choices are explicit and justified."
-            " Frameworks, libraries, APIs, and tools are named — not left for"
-            " the executor to guess. For existing codebases, the plan respects"
-            " the established stack and conventions rather than introducing"
-            " gratuitous alternatives.",
-            "must",
-        ),
-        (
-            "Where tasks connect or produce artifacts consumed by other tasks,"
-            " interface contracts are specified: data shapes, file conventions,"
-            " API signatures, or shared types. Independent execution of tasks"
-            " should not require reverse-engineering unstated agreements.",
-            "must",
-        ),
-        (
-            "Assumptions, boundaries, and trade-offs are documented with" " rationale. Ambiguities are resolved with explicit defaults rather" " than left implicit.",
+            "Technology and tooling choices are explicit — frameworks,"
+            " libraries, APIs, and tools are named, not left for the executor"
+            " to guess. Where tasks connect or produce artifacts consumed by"
+            " other tasks, interface contracts are specified: data shapes,"
+            " file conventions, API signatures, or shared types.",
             "must",
         ),
         (
@@ -283,6 +272,17 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " chunking and prioritization reduce rework, high-risk or"
             " foundational tasks come first, and quality gates are placed"
             " where they most improve final output quality.",
+            "must",
+        ),
+        (
+            "The plan demonstrates strategic depth — major decisions"
+            " (architecture, creative direction, structure, approach) are"
+            " deliberate and justified with rationale tied to the actual"
+            " problem context, not just 'best practice' or 'modern trend.'"
+            " Assumptions, boundaries, and trade-offs are documented with"
+            " rationale rather than left implicit. If the project name could"
+            " be swapped out and the plan reused unchanged, it lacks the"
+            " specificity that produces excellent results.",
             "must",
         ),
         (
@@ -335,6 +335,15 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
         ),
         (
             "Requirements anticipate edge cases, error states, and boundary" " conditions relevant to the domain. The spec does not only" " describe the happy path.",
+            "must",
+        ),
+        (
+            "The spec demonstrates strategic depth — the chosen design"
+            " direction, system architecture, and interaction model are"
+            " deliberate and justified with rationale tied to the actual"
+            " problem context and users. If the project name could be"
+            " swapped out and the spec reused unchanged, it lacks the"
+            " specificity that produces excellent results.",
             "must",
         ),
         (

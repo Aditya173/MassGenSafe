@@ -57,6 +57,23 @@ them out. Keep digging for:
 Prefer a sharp, actionable critique over praise. Mention strengths only when
 they should be preserved in the next revision.
 
+### Question the choices
+
+Beyond evaluating execution quality, question the fundamental choices the work
+is built on. Early decisions become invisible assumptions that constrain
+everything after them. Ask: is this the right choice, or just the first
+choice? Would a different direction produce a higher quality ceiling even if it
+required rework? Has the work been optimizing within an unexamined constraint
+that a different choice would eliminate entirely?
+
+This is distinct from ceiling analysis. Ceiling analysis asks "can this
+approach go further?" Choice questioning asks "should this have been the
+approach at all?" A choice can be wrong even when the ceiling hasn't been
+reached.
+
+When you identify a questionable choice, surface it in `criterion_findings`
+and propose the alternative in `evolution_tasks`.
+
 ## Required output contract
 
 Return one structured packet with these top-level keys:
@@ -304,9 +321,27 @@ That JSON object must have this shape:
       }
     }
   ],
-  "evolution_tasks": [],
+  "evolution_tasks": [
+    {
+      "id": "elevate_content_architecture",
+      "task_category": "evolution",
+      "description": "Restructure the mid-page from generic filler into a narrative funnel that answers buyer questions in sequence",
+      "implementation_guidance": "...",
+      "priority": "medium",
+      "depends_on": ["reframe_navigation"],
+      "chunk": "c1",
+      "execution": {"mode": "inline"},
+      "verification": "A first-time visitor can explain what the product does and why after reading the page top-to-bottom",
+      "verification_method": "Read page content end-to-end and assess whether it tells a coherent product story vs displaying disconnected sections",
+      "metadata": {
+        "impact": "transformative",
+        "relates_to": ["E3", "E7"]
+      }
+    }
+  ],
   "tasks": [
-    {"id": "reframe_navigation", "task_category": "fix", "...": "same as fix_tasks[0]"}
+    {"id": "reframe_navigation", "task_category": "fix", "...": "same as fix_tasks[0]"},
+    {"id": "elevate_content_architecture", "task_category": "evolution", "...": "same as evolution_tasks[0]"}
   ]
 }
 ```
@@ -316,13 +351,18 @@ Rules for `next_tasks.json`:
 - `approach_assessment` must be present and consistent with the `approach_assessment`
   section in `critique_packet.md`
 - categorize each task as `fix` (defect within current approach) or `evolution`
-  (paradigm shift or structural reimagining)
-- populate both `fix_tasks` and `evolution_tasks` arrays as appropriate, AND
-  always populate the flat `tasks` array with the union of both (the orchestrator
-  reads only `tasks`)
-- when `ceiling_not_reached`: `fix_tasks` dominate, `evolution_tasks` are stretch
-  goals. When `ceiling_reached`: `evolution_tasks` dominate, `fix_tasks` are
-  optional polish
+  (structural elevation that takes the work to a genuinely higher level)
+- **`evolution_tasks` are always required** — at least 1-2 evolution tasks must
+  be present regardless of ceiling status. These are the "what would make this
+  genuinely impressive" tasks, always ready as fallback when fix iterations
+  produce diminishing returns. Evolution tasks should be substantial and
+  transformative — not incremental polish relabeled as evolution
+- populate both `fix_tasks` and `evolution_tasks` arrays, AND always populate
+  the flat `tasks` array with the union of both (the orchestrator reads only
+  `tasks`)
+- when `ceiling_not_reached`: `fix_tasks` are primary, `evolution_tasks` are
+  ready if fixes plateau. When `ceiling_approaching` or `ceiling_reached`:
+  `evolution_tasks` become primary, `fix_tasks` are optional correctness work
 - prefer execution-oriented tasks that can fix multiple weak criteria together
 - choose one thesis via `primary_strategy`; do not keep multiple incompatible directions open
 - explicitly name what should be removed or deprioritized in `deprioritize_or_remove`

@@ -2614,6 +2614,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "use_default_prompt",  # Handled in stream_with_tools - controls system prompt mode
             "max_thinking_tokens",  # Deprecated: handled below via reasoning config
             "reasoning",  # Unified reasoning config → SDK thinking + effort fields
+            "env",  # Handled separately: CLAUDECODE="" is always injected, then user overrides are merged
             # Note: use_mcpwrapped_for_tool_filtering and use_no_roots_wrapper are in base excluded params
             # Note: system_prompt is NOT excluded - it's needed for internal workflow prompt injection
             # Validation prevents it from being set in YAML backend config
@@ -2694,6 +2695,12 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "autoAllowBashIfSandboxed": True,
         }
 
+        # Clear CLAUDECODE env var so child Claude Code sessions are not blocked
+        # by nested session detection (CLAUDECODE=1 is inherited from the parent).
+        env_overrides = {"CLAUDECODE": ""}
+        if "env" in options_kwargs:
+            env_overrides.update(options_kwargs["env"])
+
         options = {
             "cwd": str(cwd_option),
             "resume": self.get_current_session_id(),
@@ -2702,6 +2709,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "add_dirs": add_dirs if add_dirs else [],
             "sandbox": sandbox_settings,
             "setting_sources": setting_sources,
+            "env": env_overrides,
             **{k: v for k, v in options_kwargs.items() if k not in excluded_params},
         }
 

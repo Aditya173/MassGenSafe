@@ -138,6 +138,15 @@ class EventType:
     FINAL_PRESENTATION_END = "final_presentation_end"
     ANSWER_LOCKED = "answer_locked"
 
+    # Pre-collaboration subagent lifecycle
+    PRE_COLLAB_STARTED = "pre_collab_started"
+    PRE_COLLAB_COMPLETED = "pre_collab_completed"
+
+    # Configuration events (personas, criteria, subtasks)
+    PERSONAS_SET = "personas_set"
+    EVALUATION_CRITERIA_SET = "evaluation_criteria_set"
+    SUBTASKS_SET = "subtasks_set"
+
     # Timeout events
     ORCHESTRATOR_TIMEOUT = "orchestrator_timeout"
 

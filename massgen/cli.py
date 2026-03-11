@@ -710,6 +710,7 @@ def get_task_planning_prompt_prefix(
     target_chunks: int | None = None,
     enable_subagents: bool = False,
     broadcast_mode: Literal["human", "agents"] | bool = False,
+    thoroughness: str = "standard",
 ) -> str:
     """Generate the user prompt prefix for task planning mode.
 
@@ -722,6 +723,7 @@ def get_task_planning_prompt_prefix(
         target_chunks: Optional explicit target number of chunks (None = default single-chunk planning).
         enable_subagents: Whether subagents are enabled for research tasks.
         broadcast_mode: One of "human", "agents", or False. Controls whether ask_others() is available.
+        thoroughness: One of "standard" or "thorough" controlling strategic reasoning depth.
 
     Returns:
         The prompt prefix string to prepend to the user's question.
@@ -743,6 +745,48 @@ def get_task_planning_prompt_prefix(
         task_target_line = f"- Target tasks: {cfg['target']}"
 
     chunk_target_line = _format_chunk_target_line(target_chunks)
+
+    # Thoroughness section (controls strategic reasoning depth)
+    thoroughness_section = ""
+    if thoroughness == "thorough":
+        thoroughness_section = """
+## Thoroughness: THOROUGH
+
+You are striving for excellence — in both the quality of your strategic \
+reasoning and the originality of your approach. Do not accept a plan that \
+is merely complete or structurally sound. A thorough plan is one where \
+every major decision reflects deep understanding of the problem, where \
+the chosen direction is genuinely the strongest option (not just the \
+first or safest), and where the resulting work would impress someone who \
+knows this domain well.
+
+**Quality bar:** Standard is not enough. Push past the obvious approach. \
+If your plan could have been written by someone who spent 5 minutes on \
+the problem, it's not thorough. Invest the time to understand what \
+separates excellent work from adequate work in this specific domain, and \
+let that understanding shape every task.
+
+**Required auxiliary depth:**
+- `research/` — analyze the problem domain, audience, competitive landscape, \
+and what distinguishes excellent results from adequate ones in this space
+- `framework/` — document your strategic choices: why this approach over \
+alternatives, what anti-patterns to avoid, what principles should guide \
+execution. Name specific failure modes and how to prevent them
+- `risks/` — identify what could go wrong, what assumptions are most fragile, \
+and what the pivot strategy is if key assumptions fail
+
+**Plan structure expectations:**
+- Separate strategic decisions from implementation details. Early tasks should \
+establish the strategic foundation (audience, narrative, design principles, \
+interaction strategy) before any section-level work begins
+- Creative and architectural direction should be exploratory tasks with \
+success criteria, not deterministic tasks with locked-in values
+- Evolution hooks should question the fundamental direction, not just tweak \
+parameters within it
+- The plan should tell a coherent story about WHY this approach will produce \
+excellent results — an evaluator should be able to read the auxiliary docs \
+and understand the reasoning behind every major decision
+"""
 
     # Subagent research section (only if enabled)
     subagent_section = ""
@@ -1034,6 +1078,17 @@ tracking your own internal work progress, not for creating the project plan deli
 
 **Focus on outcomes, not implementation details.** Describe WHAT the final product needs, not HOW to build it. Implementation choices happen during execution.
 
+**Show strategic depth, not just task structure.** A good plan demonstrates \
+that you deeply understood the problem before breaking it into tasks. \
+Before specifying tasks, reason about the problem space: who is this for, \
+what impression or experience matters most, what distinguishes an excellent \
+result from a competent one? Capture this reasoning in auxiliary files \
+(research/, framework/, decisions/) and let it drive task design. If your \
+plan reads like a generic template with project-specific nouns swapped in, \
+it lacks the specificity that produces excellent results. Each major \
+decision should have rationale tied to the actual problem context — not \
+just "best practice" or "modern trend."
+
 **Think about final product quality:**
 - If it's visual, it should LOOK good - include quality visuals, not just code
 - If it produces output, that output should be polished and professional
@@ -1049,8 +1104,18 @@ tasks — sharpen descriptions, add missing verification, fix dependency \
 ordering — over adding new tasks or prose. Adding tasks to fill genuine \
 gaps is fine; adding tasks that don't serve a clear purpose is not.
 
-**Tasks should be achievable with the available tools.** Executing agents will have access to the configured tools and will figure out how to use them.
+**Question your own direction.** Your first approach is a hypothesis, not \
+a commitment. When iterating, don't just polish the current direction — \
+challenge whether it's the right direction. Ask: is this the strongest \
+approach, or just the first one I reached for? Would a different \
+architecture, structure, or creative direction produce a fundamentally \
+better result? A sophisticated plan isn't one that executes a safe idea \
+thoroughly — it's one that identifies the most promising direction and \
+specifies it with enough depth and detail that the executor can build \
+something genuinely impressive.
 
+**Tasks should be achievable with the available tools.** Executing agents will have access to the configured tools and will figure out how to use them.
+{thoroughness_section}
 ## Task Type Classification
 
 Every task MUST be classified as `deterministic` or `exploratory`:
@@ -1291,11 +1356,29 @@ is always the source of truth.
 MCP planning tools (create_task_plan, update_task_status, etc.) to create \
 this deliverable.
 
+**Show strategic depth, not just requirements structure.** A good spec \
+demonstrates that you deeply understood the problem before writing \
+requirements. Reason about the problem space: who is this for, what \
+experience matters most, what distinguishes an excellent result from a \
+competent one? Capture this reasoning in auxiliary files (research/, \
+design/, decisions/) and let it drive requirement design. If your spec \
+reads like a generic template with project-specific nouns swapped in, it \
+lacks the specificity that produces excellent results.
+
 **Your JSON output IS the iteration surface.** Prefer tightening existing \
 requirements — sharpen EARS statements, add missing verification, \
 resolve ambiguities — over adding new requirements or prose. Adding \
 requirements to fill genuine gaps is fine; adding them without clear \
 purpose is not.
+
+**Question your own direction.** Your first approach is a hypothesis, not \
+a commitment. When iterating, don't just polish the current spec — \
+challenge whether the underlying design direction is the right one. Ask: \
+is this the strongest approach, or just the first one I reached for? \
+Would a different architecture, interaction model, or system design \
+produce a fundamentally better result? A strong spec identifies the most \
+promising direction and specifies it with enough depth that the executor \
+can build something genuinely excellent.
 
 ## EARS Notation
 
@@ -6958,6 +7041,7 @@ async def run_textual_interactive_mode(
                         target_chunks=mode_state.plan_config.target_chunks,
                         enable_subagents=enable_subagents,
                         broadcast_mode=mode_state.plan_config.broadcast,
+                        thoroughness=mode_state.plan_config.thoroughness,
                     )
 
                     planning_feedback = (mode_state.pending_planning_feedback or "").strip()
@@ -8876,6 +8960,7 @@ async def run_plan_and_execute(
     config: dict[str, Any],
     question: str,
     plan_depth: str = "dynamic",
+    plan_thoroughness: str = "standard",
     plan_target_steps: int | None = None,
     plan_target_chunks: int | None = None,
     broadcast_mode: str | bool = "false",
@@ -8892,6 +8977,7 @@ async def run_plan_and_execute(
         config: Full config dict
         question: User's task/question
         plan_depth: dynamic/shallow/medium/deep
+        plan_thoroughness: standard/thorough
         plan_target_steps: Optional explicit target number of tasks.
         plan_target_chunks: Optional explicit target number of chunks (defaults to 1).
         broadcast_mode: human/agents/false
@@ -8968,6 +9054,8 @@ async def run_plan_and_execute(
             "--plan",
             "--plan-depth",
             plan_depth,
+            "--plan-thoroughness",
+            plan_thoroughness,
             "--broadcast",
             effective_broadcast_mode,
             "--config",
@@ -9474,11 +9562,16 @@ async def main(args):
             else:
                 orchestrator_cfg_plan["coordination"].setdefault("broadcast", False)
 
-            # Set plan_depth
+            # Set plan_depth and plan_thoroughness
             orchestrator_cfg_plan["coordination"]["plan_depth"] = getattr(
                 args,
                 "plan_depth",
                 "dynamic",
+            )
+            orchestrator_cfg_plan["coordination"]["plan_thoroughness"] = getattr(
+                args,
+                "plan_thoroughness",
+                "standard",
             )
             orchestrator_cfg_plan["coordination"]["plan_target_steps"] = getattr(
                 args,
@@ -9522,6 +9615,14 @@ async def main(args):
                 "[CLI] Injected %d eval criteria from %s",
                 len(criteria),
                 args.eval_criteria,
+            )
+
+        # Handle --checklist-criteria-preset: inject preset into coordination config
+        if getattr(args, "checklist_criteria_preset", None):
+            _inject_checklist_criteria_preset_into_config(config, args.checklist_criteria_preset)
+            logger.info(
+                "[CLI] Set checklist_criteria_preset=%s",
+                args.checklist_criteria_preset,
             )
 
         # Check for prompt in config if not provided via CLI
@@ -9690,17 +9791,20 @@ async def main(args):
             else:
                 broadcast_mode = coordination_cfg.get("broadcast", False)
 
+            plan_thoroughness = getattr(args, "plan_thoroughness", "standard")
             planning_prefix = get_task_planning_prompt_prefix(
                 plan_depth,
                 target_steps=plan_target_steps,
                 target_chunks=plan_target_chunks,
                 enable_subagents=enable_subagents,
                 broadcast_mode=broadcast_mode,
+                thoroughness=plan_thoroughness,
             )
             args.question = planning_prefix + args.question
             logger.info(
-                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, target_steps={plan_target_steps}, "
-                f"target_chunks={plan_target_chunks}, subagents={enable_subagents}, broadcast={broadcast_mode})",
+                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, thoroughness={plan_thoroughness}, "
+                f"target_steps={plan_target_steps}, target_chunks={plan_target_chunks}, "
+                f"subagents={enable_subagents}, broadcast={broadcast_mode})",
             )
 
         # Prepend spec creation instructions if --spec mode is active
@@ -9855,6 +9959,7 @@ async def main(args):
                 config=config,
                 question=args.question,
                 plan_depth=getattr(args, "plan_depth", "dynamic") or "dynamic",
+                plan_thoroughness=getattr(args, "plan_thoroughness", "standard") or "standard",
                 plan_target_steps=getattr(args, "plan_steps", None),
                 plan_target_chunks=getattr(args, "plan_chunks", None),
                 broadcast_mode=broadcast,
@@ -10690,6 +10795,14 @@ Environment Variables:
         help="Plan granularity for --plan mode: dynamic (scope-adaptive), shallow (5-10 tasks), " "medium (20-50 tasks), deep (100-200+ tasks). Default: dynamic.",
     )
     parser.add_argument(
+        "--plan-thoroughness",
+        choices=["standard", "thorough"],
+        default="standard",
+        help="Strategic reasoning depth for --plan mode: standard (reasonable justification), "
+        "thorough (deep strategic reasoning, anti-patterns, risk analysis, design principles). "
+        "Orthogonal to --plan-depth which controls task count. Default: standard.",
+    )
+    parser.add_argument(
         "--plan-steps",
         type=int,
         default=None,
@@ -10751,6 +10864,12 @@ Environment Variables:
         type=str,
         metavar="FILE",
         help="Path to JSON file with evaluation criteria. " "Each entry: {text, category (must/should/could), verify_by?}. " "Injected as checklist_criteria_inline in coordination config.",
+    )
+    parser.add_argument(
+        "--checklist-criteria-preset",
+        type=str,
+        metavar="PRESET",
+        help="Use a built-in criteria preset (e.g., planning, evaluation, persona, " "decomposition, prompt, analysis, spec). Overrides YAML checklist_criteria_preset.",
     )
     parser.add_argument(
         "--output-file",
@@ -10977,6 +11096,22 @@ def _inject_eval_criteria_into_config(
     if "coordination" not in config["orchestrator"]:
         config["orchestrator"]["coordination"] = {}
     config["orchestrator"]["coordination"]["checklist_criteria_inline"] = criteria
+
+
+def _inject_checklist_criteria_preset_into_config(
+    config: dict,
+    preset: str,
+) -> None:
+    """Inject checklist criteria preset into config from CLI flag.
+
+    Sets config["orchestrator"]["coordination"]["checklist_criteria_preset"],
+    creating intermediate dicts as needed. CLI flag overrides any YAML preset.
+    """
+    if "orchestrator" not in config:
+        config["orchestrator"] = {}
+    if "coordination" not in config["orchestrator"]:
+        config["orchestrator"]["coordination"] = {}
+    config["orchestrator"]["coordination"]["checklist_criteria_preset"] = preset
 
 
 def _cli_main_continued(args):

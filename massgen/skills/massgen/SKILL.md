@@ -175,21 +175,17 @@ issues independently. That's the whole point of multi-agent evaluation.
 
 ### Step 2: Generate Criteria
 
-Each mode has a default criteria preset that is applied automatically when no
-`--eval-criteria` flag is provided:
+Each mode has a recommended criteria preset:
 
-| Mode | Preset | Criteria Count |
-|------|--------|---------------|
-| general | Auto-generated | Based on task content |
-| evaluate | `"evaluation"` | Generated per-task |
-| plan | `"planning"` | 5 must + 3 should |
-| spec | `"spec"` | 3 must + 1 should + 1 could |
-
-**To use the default preset**: omit the `--eval-criteria` flag entirely. MassGen
-will use the preset matching the prompt content.
+| Mode | Preset | How to Apply |
+|------|--------|-------------|
+| general | Auto-generated | Omit `--criteria-file` and `--criteria-preset` |
+| evaluate | Custom or `"evaluation"` | `--criteria-file` with JSON, or `--criteria-preset evaluation` |
+| plan | `"planning"` | `--criteria-preset planning` |
+| spec | `"spec"` | `--criteria-preset spec` |
 
 For general mode, criteria are auto-generated from the task content — omit
-`--eval-criteria` unless you have specific quality axes to enforce.
+both flags unless you have specific quality axes to enforce.
 
 **To use custom criteria**: read `references/criteria_guide.md` for the format
 and writing guide, then write criteria JSON to `$WORK_DIR/criteria.json`.
@@ -217,57 +213,49 @@ EOF
 4. Replace `{{CUSTOM_FOCUS}}` with the focus directive (or empty string if none)
 5. Write the final prompt to `$WORK_DIR/prompt.md`
 
-### Step 4: Run MassGen (in background) and Open Viewer
+### Step 4: Run MassGen
 
-Launch MassGen in the background and open the web viewer so the user
-can observe progress in their browser.
+Use the launcher script (`scripts/massgen_run.sh` relative to this skill)
+to run MassGen, launch the web viewer, and wait for completion in a single
+atomic command. This avoids the double-backgrounding issues that cause agents
+to lose track of running processes.
 
-**4a. Start MassGen in background, capturing the log directory:**
-
-Run this command in the background using your agent's native mechanism
-(e.g., `run_in_background` in Claude Code):
-
-```bash
-uv run massgen --automation \
-  --no-parse-at-references \
-  --cwd-context ro \
-  --eval-criteria $WORK_DIR/criteria.json \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" \
-  > $WORK_DIR/output.log 2>&1
-```
-
-If using default criteria (no custom criteria file), omit the `--eval-criteria` flag.
-
-**4b. Extract the log directory and launch the web viewer:**
-
-The automation output's first line is `LOG_DIR: <path>`. Once MassGen
-has started (usually within 2 seconds), extract the log directory from
-the output and launch the viewer:
+**Run in the background** using your agent's native mechanism (e.g.,
+`run_in_background` in Claude Code):
 
 ```bash
-LOG_DIR=$(grep -m1 '^LOG_DIR:' $WORK_DIR/output.log | cut -d' ' -f2)
+# SKILL_DIR is the directory containing this SKILL.md file
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-file "$WORK_DIR/criteria.json" \
+  --viewer
 ```
 
-Then launch the web viewer (also in the background):
+If using default criteria (no custom criteria file), omit `--criteria-file`.
+For planning/spec modes, use `--criteria-preset planning` or `--criteria-preset spec` instead.
+If you resolved a custom config in Step 2, add `--config <path>`.
+
+The script handles everything atomically:
+1. Launches MassGen in `--automation` mode
+2. Waits for the log directory to appear (with 30s timeout)
+3. Starts the web viewer at `http://localhost:8000`
+4. Waits for MassGen to complete
+5. Writes `$WORK_DIR/run_summary.json` with exit code, duration, log dir
+
+**After the background task completes**, read the summary:
 
 ```bash
-uv run massgen viewer "$LOG_DIR" --web
+cat $WORK_DIR/run_summary.json
 ```
 
-The viewer automatically opens `http://localhost:8000` in the user's
-browser, showing live agent rounds, voting, and convergence as they
-happen.
-
-**Flags explained:**
-- `--automation`: clean parseable output, no TUI
-- `--no-parse-at-references`: prevents MassGen from interpreting `@path` in the prompt text
-- `--cwd-context ro`: gives agents read-only access to the current working directory
-- `--eval-criteria`: passes your task-specific criteria JSON (overrides presets)
-- `--output-file`: writes the winning agent's answer to a parseable file
-
-If you resolved a custom config path in Step 2, include `--config <path>`.
-Otherwise rely on the default project/global config discovery.
+**Script options:**
+- `--viewer` — launch web viewer (opens `http://localhost:8000`)
+- `--viewer-port PORT` — use a different port
+- `--config FILE` — custom MassGen config YAML
+- `--output-file FILE` — override result path (default: `$WORK_DIR/result.md`)
+- `--no-cwd-context` — disable read-only CWD access
+- `--extra-args "..."` — pass additional massgen CLI flags
 
 **Timing:** expect 2-10 minutes for standard tasks, 10-30 minutes for complex ones.
 
@@ -526,10 +514,11 @@ CSV files to JSON. Single page with hero, features, and CTA sections.
 EOF
 
 # Build prompt from references/general/prompt_template.md, then run
-# No --eval-criteria — criteria auto-generated from task
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+# No --criteria-file — criteria auto-generated from task
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --viewer
 ```
 
 ### Evaluate: Pre-PR Review
@@ -567,10 +556,11 @@ cat > $WORK_DIR/criteria.json << 'EOF'
 EOF
 
 # Build prompt from template, then run
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --eval-criteria $WORK_DIR/criteria.json \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-file "$WORK_DIR/criteria.json" \
+  --viewer
 ```
 
 ### Plan: New Feature Planning
@@ -596,11 +586,12 @@ Express.js backend, React frontend, WebSocket already used for notifications.
 Two users can edit the same document with <500ms sync latency and no data loss.
 EOF
 
-# Uses default "planning" preset — no --eval-criteria needed
 # Build prompt from references/plan/prompt_template.md, then run
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-preset planning \
+  --viewer
 ```
 
 ### Spec: Feature Specification
@@ -623,11 +614,12 @@ Users cannot recover deleted items — deletion is permanent and irreversible.
 - Must not break existing API consumers
 EOF
 
-# Uses default "spec" preset — no --eval-criteria needed
 # Build prompt from references/spec/prompt_template.md, then run
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-preset spec \
+  --viewer
 ```
 
 ## Reference Files

@@ -878,6 +878,13 @@ class Orchestrator(ChatAgent):
             return
 
         try:
+            _emitter = get_event_emitter()
+            if _emitter:
+                _emitter.emit_raw(
+                    StructuredEventType.EVALUATION_CRITERIA_SET,
+                    criteria=payload["criteria"],
+                    source=payload["source"],
+                )
             display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
             if display and hasattr(display, "set_evaluation_criteria"):
                 display.set_evaluation_criteria(payload["criteria"], source=payload["source"])
@@ -3103,6 +3110,17 @@ class Orchestrator(ChatAgent):
                 status_callback: Any,
                 log_path: str | None,
             ) -> None:
+                _emitter = get_event_emitter()
+                if _emitter:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_STARTED,
+                        agent_id=persona_anchor_agent,
+                        subagent_id=subagent_id,
+                        task=subagent_task,
+                        timeout_seconds=timeout_seconds,
+                        call_id=persona_call_id,
+                        log_path=log_path,
+                    )
                 if display and persona_anchor_agent and hasattr(display, "notify_runtime_subagent_started"):
                     try:
                         display.notify_runtime_subagent_started(
@@ -3141,6 +3159,40 @@ class Orchestrator(ChatAgent):
             )
 
             source = getattr(generator, "last_generation_source", "unknown")
+
+            # Emit event for replay
+            _emitter = get_event_emitter()
+            if _emitter and persona_anchor_agent:
+                if source == "subagent":
+                    _preview_entries: list[str] = []
+                    for _aid, _persona in personas.items():
+                        _summary = _persona.attributes.get(
+                            "approach_summary",
+                            _persona.attributes.get("thinking_style", ""),
+                        )
+                        if _summary:
+                            _preview_entries.append(f"{_aid}: {_summary}")
+                        if len(_preview_entries) >= 2:
+                            break
+                    _preview = " | ".join(_preview_entries)[:400]
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=persona_anchor_agent,
+                        subagent_id="persona_generation",
+                        call_id=persona_call_id,
+                        status="completed",
+                        answer_preview=_preview or "Personas generated successfully.",
+                    )
+                else:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=persona_anchor_agent,
+                        subagent_id="persona_generation",
+                        call_id=persona_call_id,
+                        status="failed",
+                        error="Used fallback personas.",
+                    )
+
             if display and persona_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
                 try:
                     if source == "subagent":
@@ -3202,6 +3254,16 @@ class Orchestrator(ChatAgent):
             try:
                 display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
                 persona_anchor_agent = next(iter(self.agents.keys()), None)
+                _emitter = get_event_emitter()
+                if _emitter and persona_anchor_agent:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=persona_anchor_agent,
+                        subagent_id="persona_generation",
+                        call_id="persona_generation_persona_generation",
+                        status="failed",
+                        error=str(e),
+                    )
                 if display and persona_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
                     display.notify_runtime_subagent_completed(
                         agent_id=persona_anchor_agent,
@@ -3290,6 +3352,17 @@ class Orchestrator(ChatAgent):
                 status_callback: Any,
                 log_path: str | None,
             ) -> None:
+                _emitter = get_event_emitter()
+                if _emitter:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_STARTED,
+                        agent_id=criteria_anchor_agent,
+                        subagent_id=subagent_id,
+                        task=subagent_task,
+                        timeout_seconds=timeout_seconds,
+                        call_id=criteria_call_id,
+                        log_path=log_path,
+                    )
                 if display and criteria_anchor_agent and hasattr(display, "notify_runtime_subagent_started"):
                     try:
                         display.notify_runtime_subagent_started(
@@ -3344,6 +3417,29 @@ class Orchestrator(ChatAgent):
                 f"[Orchestrator] Generated {len(criteria)} evaluation criteria (source: {source})",
             )
 
+            # Emit event for replay
+            _emitter = get_event_emitter()
+            if _emitter and criteria_anchor_agent:
+                if source == "subagent":
+                    _crit_preview = " | ".join(f"{c.id}: {c.text[:60]}..." if len(c.text) > 60 else f"{c.id}: {c.text}" for c in criteria[:3])
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=criteria_anchor_agent,
+                        subagent_id="criteria_generation",
+                        call_id=criteria_call_id,
+                        status="completed",
+                        answer_preview=_crit_preview or f"{len(criteria)} criteria generated.",
+                    )
+                else:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=criteria_anchor_agent,
+                        subagent_id="criteria_generation",
+                        call_id=criteria_call_id,
+                        status="completed",
+                        answer_preview=f"Using {len(criteria)} fallback criteria.",
+                    )
+
             # Notify display of completion
             if display and criteria_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
                 try:
@@ -3375,6 +3471,16 @@ class Orchestrator(ChatAgent):
             try:
                 display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
                 criteria_anchor_agent = next(iter(self.agents.keys()), None)
+                _emitter = get_event_emitter()
+                if _emitter and criteria_anchor_agent:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=criteria_anchor_agent,
+                        subagent_id="criteria_generation",
+                        call_id="criteria_generation_criteria_generation",
+                        status="failed",
+                        error=str(e),
+                    )
                 if display and criteria_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
                     display.notify_runtime_subagent_completed(
                         agent_id=criteria_anchor_agent,
@@ -4964,14 +5070,20 @@ Your answer:"""
         ):
             try:
                 display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+                persona_map: dict[str, str] = {}
+                for aid, persona in self._generated_personas.items():
+                    summary = persona.attributes.get(
+                        "approach_summary",
+                        persona.attributes.get("thinking_style"),
+                    )
+                    persona_map[aid] = summary.strip() if isinstance(summary, str) and summary.strip() else persona.persona_text
+                _emitter = get_event_emitter()
+                if _emitter:
+                    _emitter.emit_raw(
+                        StructuredEventType.PERSONAS_SET,
+                        personas=persona_map,
+                    )
                 if display and hasattr(display, "set_agent_personas"):
-                    persona_map: dict[str, str] = {}
-                    for aid, persona in self._generated_personas.items():
-                        summary = persona.attributes.get(
-                            "approach_summary",
-                            persona.attributes.get("thinking_style"),
-                        )
-                        persona_map[aid] = summary.strip() if isinstance(summary, str) and summary.strip() else persona.persona_text
                     display.set_agent_personas(persona_map)
             except Exception:
                 pass  # TUI notification is non-critical
@@ -5024,6 +5136,17 @@ Your answer:"""
                 status_callback: Any,
                 log_path: str | None,
             ) -> None:
+                _emitter = get_event_emitter()
+                if _emitter:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_STARTED,
+                        agent_id=decomposition_anchor_agent,
+                        subagent_id=subagent_id,
+                        task=subagent_task,
+                        timeout_seconds=timeout_seconds,
+                        call_id=decomposition_call_id,
+                        log_path=log_path,
+                    )
                 if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_started"):
                     try:
                         display.notify_runtime_subagent_started(
@@ -5073,6 +5196,30 @@ Your answer:"""
                             self._agent_subtask_criteria[aid] = criteria_from_inline(criteria_inline)
 
                 source = getattr(decomposer, "last_generation_source", "unknown")
+
+                # Emit event for replay
+                _emitter = get_event_emitter()
+                if _emitter and decomposition_anchor_agent:
+                    if source == "subagent":
+                        _subtask_preview = " | ".join(f"{aid}: {subtask}" for aid, subtask in list(self._agent_subtasks.items())[:2])[:400]
+                        _emitter.emit_raw(
+                            StructuredEventType.PRE_COLLAB_COMPLETED,
+                            agent_id=decomposition_anchor_agent,
+                            subagent_id="task_decomposition",
+                            call_id=decomposition_call_id,
+                            status="completed",
+                            answer_preview=_subtask_preview or "Subtasks generated successfully.",
+                        )
+                    else:
+                        _emitter.emit_raw(
+                            StructuredEventType.PRE_COLLAB_COMPLETED,
+                            agent_id=decomposition_anchor_agent,
+                            subagent_id="task_decomposition",
+                            call_id=decomposition_call_id,
+                            status="failed",
+                            error="Used fallback decomposition subtasks.",
+                        )
+
                 if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
                     try:
                         if source == "subagent":
@@ -5115,6 +5262,16 @@ Your answer:"""
                 logger.warning(
                     f"[Orchestrator] Auto-decomposition failed: {e}, agents will work without explicit subtasks",
                 )
+                _emitter = get_event_emitter()
+                if _emitter and decomposition_anchor_agent:
+                    _emitter.emit_raw(
+                        StructuredEventType.PRE_COLLAB_COMPLETED,
+                        agent_id=decomposition_anchor_agent,
+                        subagent_id="task_decomposition",
+                        call_id=decomposition_call_id,
+                        status="failed",
+                        error=str(e),
+                    )
                 if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
                     try:
                         display.notify_runtime_subagent_completed(
@@ -5129,12 +5286,17 @@ Your answer:"""
 
         # Notify TUI of subtask assignments (from config or auto-decomposition)
         if self._agent_subtasks and any(self._agent_subtasks.values()):
+            _subtask_map = {k: v for k, v in self._agent_subtasks.items() if v}
             try:
+                _emitter = get_event_emitter()
+                if _emitter:
+                    _emitter.emit_raw(
+                        StructuredEventType.SUBTASKS_SET,
+                        subtasks=_subtask_map,
+                    )
                 display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
                 if display and hasattr(display, "set_agent_subtasks"):
-                    display.set_agent_subtasks(
-                        {k: v for k, v in self._agent_subtasks.items() if v},
-                    )
+                    display.set_agent_subtasks(_subtask_map)
             except Exception:
                 pass  # TUI notification is non-critical
 
@@ -12111,16 +12273,23 @@ Your answer:"""
             if should_refresh_criteria_display and _active_items:
                 try:
                     _ui_display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+                    _crit_dicts = [
+                        {
+                            "id": f"E{_i + 1}",
+                            "text": _t,
+                            "category": (_active_categories or {}).get(f"E{_i + 1}", "should"),
+                            "verify_by": (_active_verify_by or {}).get(f"E{_i + 1}"),
+                        }
+                        for _i, _t in enumerate(_active_items)
+                    ]
+                    _emitter = get_event_emitter()
+                    if _emitter:
+                        _emitter.emit_raw(
+                            StructuredEventType.EVALUATION_CRITERIA_SET,
+                            criteria=_crit_dicts,
+                            source=_criteria_source,
+                        )
                     if _ui_display and hasattr(_ui_display, "set_evaluation_criteria"):
-                        _crit_dicts = [
-                            {
-                                "id": f"E{_i + 1}",
-                                "text": _t,
-                                "category": (_active_categories or {}).get(f"E{_i + 1}", "should"),
-                                "verify_by": (_active_verify_by or {}).get(f"E{_i + 1}"),
-                            }
-                            for _i, _t in enumerate(_active_items)
-                        ]
                         _ui_display.set_evaluation_criteria(_crit_dicts, source=_criteria_source)
                         self._criteria_display_payload = {
                             "criteria": _crit_dicts,

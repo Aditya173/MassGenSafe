@@ -194,6 +194,22 @@ class TestResolveLogDir:
 
         assert resolved == session_root / "turn_1" / "attempt_2"
 
+    def test_relative_path_resolves_to_attempt(self, log_dir: Path, monkeypatch):
+        """Relative paths like '.massgen/massgen_logs/log_XYZ' should resolve correctly."""
+        from massgen.viewer import resolve_log_dir
+
+        # log_dir is the attempt dir; session root is two levels up
+        session_root = log_dir.parent.parent
+
+        # chdir to the parent of the session root so we can use a relative path
+        monkeypatch.chdir(session_root.parent)
+
+        relative_path = session_root.name  # e.g. "log_20260309_120000"
+        resolved = resolve_log_dir(relative_path)
+
+        assert resolved == log_dir
+        assert (resolved / "events.jsonl").exists()
+
     def test_nonexistent_path_raises(self):
         from massgen.viewer import resolve_log_dir
 

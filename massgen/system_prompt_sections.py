@@ -905,10 +905,14 @@ def _build_checklist_gated_decision(
             "output. Spawn\n"
             "  the blocking task first, then re-run the dependent builder once it "
             "completes.\n"
-            "- **Multiple builders rewrote the same file**: You arbitrate — pick "
-            "the better\n"
-            "  version or merge manually inline. Do not silently discard either "
-            "output.\n"
+            "- **Multiple builders rewrote the same file** (expected when you "
+            "split aggressively):\n"
+            "  Merge their outputs — each builder touched a different logical "
+            "section. Read both\n"
+            "  versions, take each builder's section, and combine. This is the "
+            "normal cost of\n"
+            "  parallel execution and almost always worth it. Do not silently "
+            "discard either output.\n"
             "\n"
             "If no specialized subagents are available, execute tasks inline in "
             "dependency\n"
@@ -1612,6 +1616,14 @@ tool calls in parallel to read all 3 files into context at the same time. Maximi
 tool calls where possible to increase speed and efficiency. However, if some tool calls depend on
 previous calls to inform dependent values like the parameters, do NOT call these tools in parallel
 and instead call them sequentially. Never use placeholders or guess missing parameters in tool calls.
+
+**Question the Choices:**
+When refining work across iterations, don't just improve execution — question the fundamental
+choices the work is built on. Early decisions (architecture, creative direction, algorithm,
+structure, framing) become invisible assumptions that constrain everything after them. Ask: is this
+the right choice, or just the first choice? Would a different direction produce a higher quality
+ceiling even if it required rework? If the work has been optimizing within an unexamined constraint,
+a different choice may eliminate the constraint entirely.
 
 **Task Persistence:**
 Your context window will be automatically compacted as it approaches its limit, allowing you to
@@ -3310,6 +3322,12 @@ class TaskPlanningSection(SystemPromptSection):
             "**Spawn all independent delegated tasks in a single call** — they run in parallel. "
             "While they run, execute your inline tasks.\n"
             "\n"
+            "**Split aggressively for maximum parallelism** when improvements are substantial. "
+            "The unit of delegation is one coherent improvement, not one file. If two substantial "
+            "improvements touch the same file but are logically independent, spawn separate "
+            "builders — you merge the results after. But keep trivial fixes (one-liners, small "
+            "tweaks) inline — the spawn + merge overhead isn't worth it for small work.\n"
+            "\n"
             "When tasks come from `propose_improvements`, structural and transformative criteria "
             'are pre-filled with `execution: {"mode": "delegate", "subagent_type": "builder"}` as an advisory signal. '
             "Scope each builder to exactly one task. Never bundle multiple criteria into one "
@@ -4629,14 +4647,22 @@ class SubagentSection(SystemPromptSection):
                     )
             if t.name.lower() == "builder":
                 lines.append(
-                    "**FOR `BUILDER` TASKS — one task per deliverable, run independent ones in parallel:**\n\n"
-                    "**The key rule: one builder task per independent deliverable.** Do NOT write one "
-                    "large spec that covers multiple improvements. Split them into separate tasks and "
-                    "spawn them in a single `spawn_subagents` call — they run simultaneously.\n\n"
+                    "**FOR `BUILDER` TASKS — maximize parallelism, split aggressively:**\n\n"
+                    "**The key rule: one builder task per coherent improvement.** The unit of "
+                    "work is one focused change, NOT one file. Split improvements into "
+                    "separate tasks and spawn them in a single `spawn_subagents` call — "
+                    "they run simultaneously.\n\n"
+                    "**Same-file work is fine to split across builders** when each piece is "
+                    "substantial (e.g., rewrite the hero section vs redesign the footer in "
+                    "the same HTML). You merge the results afterward. Do NOT split trivial "
+                    "changes (one-liner fixes, small CSS tweaks) into separate builders — "
+                    "the spawn + merge overhead isn't worth it for small work. Rule of thumb: "
+                    "if a builder would spend most of its time reading context and little time "
+                    "writing, do it inline instead.\n\n"
                     "Bad (monolithic — DO NOT DO THIS):\n"
                     '`tasks=[{"task": "Rewrite member portraits, redesign album section, fix timeline, '
                     'update CSS, rewrite narrative, fix scroll-reveal", "subagent_type": "builder", ...}]`\n\n'
-                    "Good (parallel — each improvement is its own task):\n"
+                    "Good (parallel — each improvement is its own task, even if same file):\n"
                     "`tasks=[\n"
                     '  {"task": "Rewrite member portraits section...", "subagent_type": "builder"},\n'
                     '  {"task": "Redesign album section with artwork...", "subagent_type": "builder"},\n'

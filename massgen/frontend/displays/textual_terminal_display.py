@@ -4649,6 +4649,19 @@ if TEXTUAL_AVAILABLE:
             self.coordination_display._event_listener_registered = True
             tui_log("[_register_event_listener] SUCCESS: listener registered")
 
+        # Event types that bypass the agent_id-in-widgets guard because they
+        # fire before agent widgets exist or carry no agent_id.
+        _AGENT_GUARD_BYPASS_EVENTS = frozenset(
+            {
+                "pre_collab_started",
+                "pre_collab_completed",
+                "personas_set",
+                "evaluation_criteria_set",
+                "subtasks_set",
+                "orchestrator_timeout",
+            },
+        )
+
         def _handle_event_from_emitter(self, event) -> None:
             """Handle an event from the global EventEmitter.
 
@@ -4664,9 +4677,12 @@ if TEXTUAL_AVAILABLE:
             # context_received) are now rendered through the event pipeline
             # instead of direct display callbacks.
 
+            # Pre-collab and config events may fire before agent widgets
+            # exist or have no agent_id. Let them through unconditionally.
             agent_id = event.agent_id
-            if not agent_id or agent_id not in self.agent_widgets:
-                return
+            if event.event_type not in self._AGENT_GUARD_BYPASS_EVENTS:
+                if not agent_id or agent_id not in self.agent_widgets:
+                    return
 
             with self._event_batch_lock:
                 self._event_batch.append(event)
@@ -4714,6 +4730,11 @@ if TEXTUAL_AVAILABLE:
                             adapter = TimelineEventAdapter(panel, agent_id=aid)
                             self._event_adapters[aid] = adapter
                         adapter.handle_event(event)
+                    continue
+
+                # Pre-collab and config events are handled entirely by
+                # side effects above — skip adapter routing for them.
+                if event.event_type in self._AGENT_GUARD_BYPASS_EVENTS:
                     continue
 
                 if not agent_id or agent_id not in self.agent_widgets:
@@ -4921,6 +4942,55 @@ if TEXTUAL_AVAILABLE:
                         self.update_agent_context(agent_id, context_labels)
                     except Exception as e:
                         tui_log(f"[TextualDisplay] {e}")
+
+            elif event.event_type == "pre_collab_started":
+                try:
+                    self.show_runtime_subagent_card(
+                        agent_id=event.data.get("agent_id") or event.agent_id or "",
+                        subagent_id=event.data.get("subagent_id", ""),
+                        task=event.data.get("task", ""),
+                        timeout_seconds=event.data.get("timeout_seconds", 300),
+                        call_id=event.data.get("call_id", event.data.get("subagent_id", "")),
+                        status_callback=None,
+                        log_path=event.data.get("log_path"),
+                    )
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] pre_collab_started: {e}")
+
+            elif event.event_type == "pre_collab_completed":
+                try:
+                    self.update_runtime_subagent_card(
+                        agent_id=event.data.get("agent_id") or event.agent_id or "",
+                        subagent_id=event.data.get("subagent_id", ""),
+                        call_id=event.data.get("call_id", event.data.get("subagent_id", "")),
+                        status=event.data.get("status", "completed"),
+                        answer_preview=event.data.get("answer_preview"),
+                        error=event.data.get("error"),
+                    )
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] pre_collab_completed: {e}")
+
+            elif event.event_type == "personas_set":
+                try:
+                    personas = event.data.get("personas", {})
+                    self.set_agent_personas(personas)
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] personas_set: {e}")
+
+            elif event.event_type == "evaluation_criteria_set":
+                try:
+                    criteria = event.data.get("criteria", [])
+                    source = event.data.get("source", "default")
+                    self.set_evaluation_criteria(criteria, source=source)
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] evaluation_criteria_set: {e}")
+
+            elif event.event_type == "subtasks_set":
+                try:
+                    subtasks = event.data.get("subtasks", {})
+                    self.set_agent_subtasks(subtasks)
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] subtasks_set: {e}")
 
         def _is_execution_in_progress(self) -> bool:
             """Check if agents are currently executing.

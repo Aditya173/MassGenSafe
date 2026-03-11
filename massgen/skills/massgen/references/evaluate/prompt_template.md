@@ -47,6 +47,9 @@ Beyond finding weaknesses, also assess:
   not just preserved
 - whether the work would benefit more from fixing what's wrong or from
   pursuing a fundamentally different approach
+- whether the fundamental choices the work is built on are the right ones,
+  not just well-executed ones — early decisions become invisible assumptions
+  that constrain everything after them
 
 ## Context
 
@@ -306,10 +309,15 @@ Rules:
 - Every task must include `id`, `task_category`, `description`,
   `implementation_guidance`, `priority`, `depends_on`, `verification`, and
   `verification_method`
-- When `ceiling_reached`: evolution_tasks should dominate — fixing a
-  ceiling-limited approach wastes effort
-- When `ceiling_not_reached`: fix_tasks should dominate — the approach is sound,
-  just needs execution improvements
+- **`evolution_tasks` are always required** — at least 1-2 evolution tasks must
+  be present regardless of ceiling status. These are the "what would make this
+  genuinely impressive" tasks, always available as fallback when fix iterations
+  produce diminishing returns. Evolution tasks must be substantial and
+  transformative, not incremental polish relabeled as evolution
+- When `ceiling_not_reached`: fix_tasks are primary, evolution_tasks are ready
+  if fixes plateau
+- When `ceiling_approaching` or `ceiling_reached`: evolution_tasks become
+  primary, fix_tasks are optional correctness work
 - Always populate the flat `tasks` array as a union of both categories
 
 ## Your Answer
