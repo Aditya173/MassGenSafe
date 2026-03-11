@@ -239,11 +239,11 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade to v0.1.62
-pip install --upgrade massgen
+# Install the MassGen Skill for your AI agent
+npx skills add massgen/skills --all
+# Then in Claude Code, Cursor, Copilot, etc.:
+#   /massgen "Your complex task"
 
-# Try the MassGen Skill
-uv run massgen --skill massgen "Your complex task"
 # Try the Session Viewer
 uv run massgen viewer --pick
 ```

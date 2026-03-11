@@ -45,6 +45,10 @@ MassGen is a cutting-edge multi-agent framework that coordinates AI agents to so
 This project started with the "threads of thought" and "iterative refinement" ideas presented in [The Myth of Reasoning](https://docs.ag2.ai/latest/docs/blog/2025/04/16/Reasoning/), and extends the classic "multi-agent conversation" idea in [AG2](https://github.com/ag2ai/ag2). Here is a [video recording](https://www.youtube.com/watch?v=xM2Uguw1UsQ) of the background context introduction presented at the Berkeley Agentic AI Summit 2025.
 
 <p align="center">
+  <b>🧩 Use MassGen as a Skill:</b> <code>npx skills add massgen/skills --all</code> — then type <code>/massgen</code> in Claude Code, Cursor, Copilot, or 40+ other agents. <a href="https://github.com/massgen/skills">Learn more →</a>
+</p>
+
+<p align="center">
   <b>🤖 For LLM Agents:</b> <a href="AI_USAGE.md">AI_USAGE.md</a> - Complete automation guide to run MassGen inside an LLM
 </p>
 
@@ -166,11 +170,11 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 **Try v0.1.62 Features:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
+# Install the MassGen Skill for your AI agent
+npx skills add massgen/skills --all
+# Then in Claude Code, Cursor, Copilot, etc.:
+#   /massgen "Your complex task"
 
-# Try the MassGen Skill
-uv run massgen --skill massgen "Your complex task"
 # Try the Session Viewer
 uv run massgen viewer --pick
 ```

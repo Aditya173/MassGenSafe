@@ -54,9 +54,13 @@ We're excited to release MassGen v0.1.62 — MassGen Skill & Viewer! 🚀 New ge
 **Getting Started:**
 
 ```bash
+# Install the MassGen Skill for your AI agent
+npx skills add massgen/skills --all
+# Then in Claude Code, Cursor, Copilot, etc.:
+#   /massgen "Your complex task"
+
+# Or install MassGen directly
 pip install massgen==0.1.62
-# Try the MassGen Skill
-uv run massgen --skill massgen "Your complex task"
 # Try the Session Viewer
 uv run massgen viewer --pick
 ```
