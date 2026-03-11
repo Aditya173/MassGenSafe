@@ -292,6 +292,24 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " dependencies should improve in precision across rounds.",
             "must",
         ),
+        (
+            "Tasks are classified as deterministic or exploratory with"
+            " appropriate specification depth. Deterministic tasks (single"
+            " correct path, binary verification) have exact steps and"
+            " interface contracts. Exploratory tasks (multiple valid"
+            " approaches, qualitative verification) have success criteria"
+            " and constraints instead of implementation steps, giving the"
+            " executor freedom to iterate.",
+            "should",
+        ),
+        (
+            "The plan includes evaluation checkpoints after high-risk or"
+            " exploratory chunks, and evolution hooks that flag assumptions"
+            " which should trigger plan revision if invalidated during"
+            " execution. The plan treats itself as a hypothesis, not a"
+            " contract.",
+            "should",
+        ),
     ],
     "spec": [
         (
@@ -643,12 +661,11 @@ class EvaluationCriteriaGenerator:
         Returns:
             The formatted prompt string
         """
+        # Changedoc traceability is handled during final presentation,
+        # not as an evaluation criterion.  When it was a criterion, agents
+        # burned iterations just improving the changedoc instead of the
+        # actual deliverable.
         changedoc_instruction = ""
-        if has_changedoc:
-            changedoc_instruction = """
-- **One criterion MUST assess changedoc traceability**: whether decisions are
-  documented with genuine rationale and implementation references are accurate.
-"""
 
         planning_context_section = ""
         if has_planning_spec_context:

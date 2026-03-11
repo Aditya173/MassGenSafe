@@ -5,8 +5,10 @@
  */
 
 import { motion } from 'framer-motion';
-import { Key, Check, AlertTriangle, RefreshCw, ExternalLink } from 'lucide-react';
+import { Key, Check, AlertTriangle, RefreshCw, ExternalLink, Bot } from 'lucide-react';
 import { useWizardStore } from '../../stores/wizardStore';
+
+const AGENT_FRAMEWORK_PROVIDER_IDS = new Set(['claude_code', 'codex', 'copilot']);
 
 export function ApiKeyStep() {
   const providers = useWizardStore((s) => s.providers);
@@ -15,6 +17,9 @@ export function ApiKeyStep() {
 
   const availableProviders = providers.filter((p) => p.has_api_key);
   const unavailableProviders = providers.filter((p) => !p.has_api_key);
+
+  const isAgentFrameworkProvider = (providerId: string, isAgentFramework?: boolean) =>
+    Boolean(isAgentFramework) || AGENT_FRAMEWORK_PROVIDER_IDS.has(providerId);
 
   const handleRefresh = () => {
     fetchProviders();
@@ -49,9 +54,17 @@ export function ApiKeyStep() {
                 className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg"
               >
                 <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
-                <span className="text-gray-800 dark:text-gray-200 font-medium">
-                  {provider.name}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-800 dark:text-gray-200 font-medium">
+                    {provider.name}
+                  </span>
+                  {isAgentFrameworkProvider(provider.id, provider.is_agent_framework) && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                      <Bot className="h-3 w-3" />
+                      Agent
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-green-600 dark:text-green-400">
                   API key configured
                 </span>
@@ -74,9 +87,17 @@ export function ApiKeyStep() {
                 className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
               >
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <span className="text-gray-600 dark:text-gray-400">
-                  {provider.name}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600 dark:text-gray-400">
+                    {provider.name}
+                  </span>
+                  {isAgentFrameworkProvider(provider.id, provider.is_agent_framework) && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                      <Bot className="h-3 w-3" />
+                      Agent
+                    </span>
+                  )}
+                </div>
                 {provider.env_var && (
                   <code className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">
                     {provider.env_var}

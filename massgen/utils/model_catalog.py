@@ -9,6 +9,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -22,9 +23,9 @@ def ensure_cache_dir():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def get_cache_path(provider: str) -> Path:
-    """Get cache file path for a provider."""
-    return CACHE_DIR / f"{provider}_models.json"
+def get_cache_path(provider: str, cache_kind: str = "models") -> Path:
+    """Get cache file path for a provider and cache kind."""
+    return CACHE_DIR / f"{provider}_{cache_kind}.json"
 
 
 def is_cache_valid(cache_path: Path) -> bool:
@@ -41,20 +42,23 @@ def is_cache_valid(cache_path: Path) -> bool:
         return False
 
 
-def read_cache(cache_path: Path) -> list[str] | None:
-    """Read model list from cache."""
+def read_cache(cache_path: Path, key: str = "models") -> list[Any] | None:
+    """Read a cached list payload."""
     try:
         with open(cache_path) as f:
             data = json.load(f)
-            return data.get("models", [])
+            cached_value = data.get(key, [])
+            if isinstance(cached_value, list):
+                return cached_value
+            return None
     except (json.JSONDecodeError, FileNotFoundError):
         return None
 
 
-def write_cache(cache_path: Path, models: list[str]):
-    """Write model list to cache."""
+def write_cache(cache_path: Path, values: list[Any], key: str = "models"):
+    """Write a cached list payload."""
     ensure_cache_dir()
-    data = {"models": models, "cached_at": datetime.now().isoformat()}
+    data = {key: values, "cached_at": datetime.now().isoformat()}
     with open(cache_path, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -295,6 +299,146 @@ async def fetch_openai_compatible_models(
         return []
 
 
+def _extract_model_id(model: Any) -> str | None:
+    """Extract a normalized model id from SDK or dict model payloads."""
+    if model is None:
+        return None
+
+    model_id = getattr(model, "id", None)
+    if model_id is None and isinstance(model, dict):
+        model_id = model.get("id")
+
+    if model_id is None:
+        return None
+
+    normalized = str(model_id).strip()
+    return normalized or None
+
+
+def _extract_model_field(model: Any, field_name: str) -> Any:
+    """Extract a field from SDK or dict model payloads."""
+    value = getattr(model, field_name, None)
+    if value is None and isinstance(model, dict):
+        value = model.get(field_name)
+    return value
+
+
+def _normalize_reasoning_efforts(value: Any) -> list[str]:
+    """Normalize reasoning-effort metadata from SDK payloads."""
+    if not value:
+        return []
+
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        effort = str(item).strip()
+        if not effort or effort in seen:
+            continue
+        seen.add(effort)
+        normalized.append(effort)
+    return normalized
+
+
+def _prioritize_default_model(
+    items: list[Any],
+    default_model: str | None,
+    key_fn,
+) -> list[Any]:
+    """Move the default model to the front when present."""
+    if not default_model:
+        return items
+
+    default_index = next(
+        (index for index, item in enumerate(items) if key_fn(item) == default_model),
+        None,
+    )
+    if default_index is None:
+        return items
+
+    prioritized = list(items)
+    default_item = prioritized.pop(default_index)
+    prioritized.insert(0, default_item)
+    return prioritized
+
+
+def _normalize_copilot_model_metadata(
+    models_data: list[Any],
+    *,
+    default_model: str | None,
+) -> list[dict[str, Any]]:
+    """Normalize Copilot SDK model payloads into stable metadata dicts."""
+    metadata: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for model in models_data:
+        model_id = _extract_model_id(model)
+        if not model_id or model_id in seen:
+            continue
+
+        seen.add(model_id)
+        name = _extract_model_field(model, "name")
+        default_reasoning_effort = _extract_model_field(model, "default_reasoning_effort")
+        supported_reasoning_efforts = _normalize_reasoning_efforts(
+            _extract_model_field(model, "supported_reasoning_efforts"),
+        )
+
+        metadata.append(
+            {
+                "id": model_id,
+                "name": str(name).strip() if name else model_id,
+                "supported_reasoning_efforts": supported_reasoning_efforts,
+                "default_reasoning_effort": (str(default_reasoning_effort).strip() if default_reasoning_effort else None),
+            },
+        )
+
+    return _prioritize_default_model(metadata, default_model, lambda item: item["id"])
+
+
+async def fetch_copilot_model_metadata(
+    default_model: str | None = "gpt-5-mini",
+) -> list[dict[str, Any]]:
+    """Fetch runtime-available Copilot model metadata from the SDK."""
+    try:
+        from copilot import CopilotClient
+    except ImportError:
+        return []
+
+    client = CopilotClient()
+    try:
+        await client.start()
+        models_data = await client.list_models()
+        return _normalize_copilot_model_metadata(
+            list(models_data or []),
+            default_model=default_model,
+        )
+    except Exception:
+        return []
+    finally:
+        try:
+            await client.stop()
+        except Exception:
+            pass
+
+
+async def fetch_copilot_models(default_model: str | None = "gpt-5-mini") -> list[str]:
+    """Fetch runtime-available models from the GitHub Copilot SDK.
+
+    The SDK resolves availability using the local Copilot runtime, so results can
+    vary by installed CLI/runtime version, authentication state, plan, and org
+    restrictions. Failures return an empty list so callers can fall back to the
+    static capabilities registry.
+    """
+    metadata = await fetch_copilot_model_metadata(default_model=default_model)
+    return [model["id"] for model in metadata]
+
+
 async def get_models_for_provider(provider: str, use_cache: bool = True) -> list[str]:
     """Get model list for a provider, using cache if available.
 
@@ -367,12 +511,62 @@ async def get_models_for_provider(provider: str, use_cache: bool = True) -> list
             filter_chat_models=True,
             provider="openai",
         )
+    elif provider == "copilot":
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        caps = BACKEND_CAPABILITIES.get("copilot")
+        models = await fetch_copilot_models(
+            default_model=caps.default_model if caps else "gpt-5-mini",
+        )
 
     # Cache the results
     if models:
         write_cache(cache_path, models)
 
     return models
+
+
+async def get_model_metadata_for_provider(
+    provider: str,
+    use_cache: bool = True,
+) -> list[dict[str, Any]]:
+    """Get model metadata for a provider, using cache if available."""
+    cache_path = get_cache_path(provider, "model_metadata")
+
+    if use_cache and is_cache_valid(cache_path):
+        cached_metadata = read_cache(cache_path, key="metadata")
+        if cached_metadata:
+            return cached_metadata
+
+    metadata: list[dict[str, Any]] = []
+    if provider == "copilot":
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        caps = BACKEND_CAPABILITIES.get("copilot")
+        metadata = await fetch_copilot_model_metadata(
+            default_model=caps.default_model if caps else "gpt-5-mini",
+        )
+
+    if metadata:
+        write_cache(cache_path, metadata, key="metadata")
+
+    return metadata
+
+
+def get_model_metadata_for_provider_sync(
+    provider: str,
+    use_cache: bool = True,
+) -> list[dict[str, Any]]:
+    """Synchronous wrapper for get_model_metadata_for_provider."""
+    from massgen.utils.async_helpers import run_async_safely
+
+    try:
+        return run_async_safely(
+            get_model_metadata_for_provider(provider, use_cache),
+            timeout=15,
+        )
+    except Exception:
+        return []
 
 
 def get_models_for_provider_sync(provider: str, use_cache: bool = True) -> list[str]:

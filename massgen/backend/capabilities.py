@@ -671,6 +671,14 @@ BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
     ),
 }
 
+AGENT_FRAMEWORK_BACKENDS = frozenset(
+    {
+        "claude_code",
+        "codex",
+        "copilot",
+    },
+)
+
 
 _DISPLAY_NAME_TO_BACKEND_TYPE: dict[str, str] = {
     "openai": "openai",
@@ -733,6 +741,12 @@ def get_capabilities(backend_type: str | None) -> BackendCapabilities | None:
     """
     normalized_backend_type = normalize_backend_type(backend_type)
     return BACKEND_CAPABILITIES.get(normalized_backend_type) if normalized_backend_type else None
+
+
+def is_agent_framework_backend(backend_type: str | None) -> bool:
+    """Return True when the backend is an agent framework/CLI integration."""
+    normalized_backend_type = normalize_backend_type(backend_type)
+    return normalized_backend_type in AGENT_FRAMEWORK_BACKENDS if normalized_backend_type else False
 
 
 def has_capability(backend_type: str | None, capability: str) -> bool:

@@ -1075,7 +1075,10 @@ def create_app(
         """Get available providers with their models and API key status."""
         import os
 
-        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+        from massgen.backend.capabilities import (
+            BACKEND_CAPABILITIES,
+            is_agent_framework_backend,
+        )
         from massgen.config_builder import sort_quickstart_provider_ids
 
         providers = []
@@ -1124,13 +1127,14 @@ def create_app(
                     "default_model": caps.default_model,
                     "env_var": caps.env_var,
                     "has_api_key": has_api_key,
+                    "is_agent_framework": is_agent_framework_backend(backend_type),
                     "capabilities": list(caps.supported_capabilities),
                     "notes": caps.notes,
                 },
             )
 
         # Sort by has_api_key (available first), then quickstart priority.
-        # Priority order defaults to: claude_code, codex, gemini.
+        # Priority order defaults to: claude_code, codex, copilot, gemini.
         ordered_ids = sort_quickstart_provider_ids([provider["id"] for provider in providers])
         provider_rank = {provider_id: index for index, provider_id in enumerate(ordered_ids)}
         providers.sort(
@@ -1168,6 +1172,7 @@ def create_app(
             "qwen",
             "poe",
             "openai",
+            "copilot",
         ]
 
         if provider_id in dynamic_providers:
@@ -1188,6 +1193,36 @@ def create_app(
         return {
             "provider_id": provider_id,
             "models": static_models,
+            "source": "static",
+        }
+
+    @app.get("/api/providers/{provider_id}/models/metadata")
+    async def get_provider_model_metadata(provider_id: str):
+        """Get model metadata for a provider when runtime discovery supports it."""
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+        from massgen.utils.model_catalog import get_model_metadata_for_provider
+
+        caps = BACKEND_CAPABILITIES.get(provider_id)
+        static_models = caps.models if caps else []
+
+        if provider_id == "copilot":
+            try:
+                metadata = await get_model_metadata_for_provider(
+                    provider_id,
+                    use_cache=True,
+                )
+                if metadata:
+                    return {
+                        "provider_id": provider_id,
+                        "models": metadata,
+                        "source": "dynamic",
+                    }
+            except Exception:
+                pass
+
+        return {
+            "provider_id": provider_id,
+            "models": [{"id": model_id, "name": model_id} for model_id in static_models],
             "source": "static",
         }
 

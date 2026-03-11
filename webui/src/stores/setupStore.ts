@@ -42,6 +42,7 @@ export interface ProviderInfo {
   name: string;
   env_var: string | null;
   has_api_key: boolean;
+  is_agent_framework: boolean;
 }
 
 // Skill info from API

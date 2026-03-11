@@ -28,6 +28,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from massgen.backend.capabilities import is_agent_framework_backend
 from massgen.config_builder import (
     DEFAULT_QUICKSTART_CONFIG_FILENAME,
     build_quickstart_config_path,
@@ -50,6 +51,30 @@ def _quickstart_log(msg: str) -> None:
     from massgen.frontend.displays.shared.tui_debug import tui_log
 
     tui_log(f"[QUICKSTART] {msg}")
+
+
+def _resolve_quickstart_provider_models(provider_id: str, static_models: list[str]) -> list[str]:
+    """Resolve runtime-aware model choices for quickstart provider selectors."""
+    if provider_id != "copilot":
+        return list(static_models)
+
+    try:
+        from massgen.utils.model_catalog import get_models_for_provider_sync
+
+        runtime_models = get_models_for_provider_sync(provider_id, use_cache=True)
+        if runtime_models:
+            return runtime_models
+    except Exception as exc:
+        _quickstart_log(f"_resolve_quickstart_provider_models fallback for {provider_id}: {exc}")
+
+    return list(static_models)
+
+
+def _format_quickstart_provider_label(provider_id: str, provider_name: str) -> str:
+    """Format quickstart provider labels with framework markers when relevant."""
+    if is_agent_framework_backend(provider_id):
+        return f"{provider_name} (agent)"
+    return provider_name
 
 
 class QuickstartWelcomeStep(WelcomeStep):
@@ -236,7 +261,10 @@ class ProviderModelStep(StepComponent):
             for provider_id in ordered_provider_ids:
                 provider_info = builder.PROVIDERS.get(provider_id, {})
                 name = provider_info.get("name", provider_id)
-                models = provider_info.get("models", [])
+                models = _resolve_quickstart_provider_models(
+                    provider_id,
+                    provider_info.get("models", []),
+                )
                 has_key = api_keys.get(provider_id, False)
                 env_var = provider_info.get("env_var", "")
 
@@ -260,10 +288,11 @@ class ProviderModelStep(StepComponent):
         """Build provider select options, marking unconfigured ones."""
         options = []
         for pid, name in self._providers:
+            display_name = _format_quickstart_provider_label(pid, name)
             if self._provider_has_key.get(pid):
-                options.append((name, pid))
+                options.append((display_name, pid))
             else:
-                options.append((f"{name} (no API key)", pid))
+                options.append((f"{display_name} (no API key)", pid))
         return options
 
     def _update_key_input(self) -> None:
@@ -521,7 +550,10 @@ class TabbedProviderModelStep(StepComponent):
             for provider_id in ordered_provider_ids:
                 provider_info = builder.PROVIDERS.get(provider_id, {})
                 name = provider_info.get("name", provider_id)
-                models = provider_info.get("models", [])
+                models = _resolve_quickstart_provider_models(
+                    provider_id,
+                    provider_info.get("models", []),
+                )
                 has_key = api_keys.get(provider_id, False)
                 env_var = provider_info.get("env_var", "")
 
@@ -536,10 +568,11 @@ class TabbedProviderModelStep(StepComponent):
     def _provider_options(self) -> list:
         options = []
         for pid, name in self._providers:
+            display_name = _format_quickstart_provider_label(pid, name)
             if self._provider_has_key.get(pid):
-                options.append((name, pid))
+                options.append((display_name, pid))
             else:
-                options.append((f"{name} (no API key)", pid))
+                options.append((f"{display_name} (no API key)", pid))
         return options
 
     def _update_key_input(self, agent_key: str, provider_id: str) -> None:

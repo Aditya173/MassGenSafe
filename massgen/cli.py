@@ -963,6 +963,7 @@ You are in task planning mode. Your goal is to **interactively** create a compre
 1. `project_plan.json` - the task list for future execution (REQUIRED)
 2. Supporting docs - requirements, design decisions, technical approach
 3. Scratch/research files - scripts to parse data, analyze structure, gather info FOR PLANNING
+4. `prototypes/` - rough proof-of-concept artifacts for exploratory tasks (see Mini-Prototyping below)
 
 **NOT allowed:**
 - The actual deliverable the user requested (SVG, website, app, final code, etc.)
@@ -970,6 +971,22 @@ You are in task planning mode. Your goal is to **interactively** create a compre
 
 If you find yourself building what the user asked for - STOP. You're only planning it.
 A different agent will execute this plan later.
+
+### Mini-Prototyping for Exploratory Tasks
+
+For tasks classified as `exploratory` (see Task Type Classification below), \
+you MAY create rough proof-of-concept artifacts to validate assumptions:
+- **Visual tasks**: a rough SVG sketch, wireframe, or color palette test
+- **Code tasks**: a minimal spike proving the algorithm or approach works
+- **Writing tasks**: a paragraph sample testing voice or tone
+
+Store prototypes in `prototypes/` alongside the plan. They validate \
+assumptions — they are NOT deliverables. Reference which assumptions each \
+prototype validated or invalidated in the plan's auxiliary files.
+
+**When to prototype**: when the plan's success depends on an assumption you \
+can't verify by reasoning alone (e.g., "will this visual approach render \
+well in SVG?" or "does this algorithm scale?"). When in doubt, prototype.
 
 ## Planning Process
 
@@ -1006,6 +1023,7 @@ Only after scope confirmation and sufficient research:
    - `framework/` — architecture decisions, technology choices with rationale, design patterns selected
    - `risks/` — risk register, mitigation strategies, dependency analysis
    - `requirements/` — user stories, acceptance criteria, requirements docs
+   - `prototypes/` — quick proof-of-concept artifacts for exploratory tasks (see Mini-Prototyping)
    Auxiliary files support the plan but are NOT the plan — `project_plan.json` is always the source of truth.
 
 **IMPORTANT**: Write `project_plan.json` directly as a file. Do NOT use MCP planning tools
@@ -1033,6 +1051,48 @@ gaps is fine; adding tasks that don't serve a clear purpose is not.
 
 **Tasks should be achievable with the available tools.** Executing agents will have access to the configured tools and will figure out how to use them.
 
+## Task Type Classification
+
+Every task MUST be classified as `deterministic` or `exploratory`:
+
+**Deterministic tasks**:
+- Have a single correct implementation path
+- Can be fully specified upfront (data schemas, API contracts, configs, build setup)
+- Verification is binary: it works or it doesn't
+- The plan specifies WHAT + HOW in detail
+
+**Exploratory tasks**:
+- Have multiple valid approaches where the best one emerges through iteration
+- Cannot be fully specified upfront because quality is subjective or context-dependent
+- Verification requires qualitative assessment (render it, read it, experience it)
+- The plan specifies **success criteria + constraints**, NOT implementation steps
+- The executor has explicit permission to exceed or diverge from the plan when \
+they discover something better
+- MUST include `success_criteria`: 2-4 concrete criteria for what "good" looks \
+like (not how to get there)
+- SHOULD include `evolution_hooks` in metadata: what discoveries during \
+implementation should trigger a plan revision
+
+**Classification test**: "If two competent engineers followed this task \
+independently, would they produce essentially the same output?" \
+Yes -> deterministic. No -> exploratory.
+
+## Plan Evolution Protocol
+
+Plans are hypotheses, not contracts. Include explicit mechanisms for evolution:
+
+**Discovery annotations**: for each chunk, note:
+- What assumptions could this chunk invalidate?
+- What would you learn during execution that you can't know now?
+- If this chunk reveals the approach is wrong, what's the pivot?
+
+**Evaluation integration points**: mark tasks where evaluation should be \
+invoked mid-execution by adding `"eval_checkpoint": true` to the task's \
+metadata. Place these at:
+- After the first exploratory chunk completes (early signal on approach viability)
+- After any chunk whose `evolution_hooks` flag high-risk assumptions
+- Before the final polish chunk (ensure the foundation is worth polishing)
+
 ## Task List Format
 Write `project_plan.json` with this structure:
 ```json
@@ -1041,14 +1101,18 @@ Write `project_plan.json` with this structure:
     {{
       "id": "F001",
       "chunk": "C01_foundation",
+      "task_type": "deterministic|exploratory",
       "description": "Feature Name - What this feature accomplishes and the expected outcome",
       "status": "pending",
       "depends_on": ["F000"],
       "priority": "high|medium|low",
+      "success_criteria": ["Only for exploratory tasks: what good looks like, not how to get there"],
       "metadata": {{
         "verification": "How to verify this task is complete",
         "verification_method": "Output-first verification approach",
-        "verification_group": "optional_group_name"
+        "verification_group": "optional_group_name",
+        "evolution_hooks": ["Discoveries during this task that should trigger plan revision"],
+        "eval_checkpoint": false
       }}
     }}
   ]

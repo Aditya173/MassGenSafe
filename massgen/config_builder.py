@@ -29,6 +29,7 @@ from massgen.backend.capabilities import (
     get_capabilities,
     has_capability,
 )
+from massgen.utils.model_catalog import get_model_metadata_for_provider_sync
 from massgen.utils.model_matcher import get_all_models_for_provider
 
 
@@ -54,6 +55,7 @@ DEFAULT_QUICKSTART_CONFIG_FILENAME = "config.yaml"
 QUICKSTART_PROVIDER_PRIORITY = (
     "claude_code",
     "codex",
+    "copilot",
     "gemini",
 )
 
@@ -74,7 +76,8 @@ def sort_quickstart_provider_ids(provider_ids: list[str]) -> list[str]:
     Priority order is:
     1. claude_code
     2. codex
-    3. gemini
+    3. copilot
+    4. gemini
 
     Any remaining providers keep their original relative order.
     """
@@ -186,7 +189,106 @@ class ConfigBuilder:
     """Interactive configuration builder for MassGen."""
 
     @staticmethod
+    def _mark_quickstart_recommended_reasoning_label(
+        label: str,
+        effort: str,
+        default_effort: str,
+    ) -> str:
+        """Annotate the recommended reasoning effort label."""
+        if effort != default_effort:
+            return label
+        if "(" in label and label.endswith(")"):
+            return f"{label[:-1]}, recommended)"
+        return f"{label} (recommended)"
+
+    @staticmethod
+    def _format_quickstart_reasoning_label(effort: str) -> str:
+        """Format a reasoning effort into a user-facing quickstart label."""
+        normalized_effort = effort.strip().lower()
+        labels = {
+            "low": "Low (faster)",
+            "medium": "Medium",
+            "high": "High (deeper reasoning)",
+            "xhigh": "XHigh (maximum depth)",
+            "max": "Max (deepest reasoning)",
+        }
+        if normalized_effort in labels:
+            return labels[normalized_effort]
+
+        pretty = normalized_effort.replace("_", " ").replace("-", " ").strip()
+        return pretty.title() if pretty else effort
+
+    @classmethod
+    def _build_quickstart_reasoning_profile(
+        cls,
+        *,
+        supported_efforts: list[str],
+        default_effort: str | None,
+        description: str,
+    ) -> dict[str, Any] | None:
+        """Build a quickstart reasoning profile from supported efforts."""
+        normalized_efforts: list[str] = []
+        seen: set[str] = set()
+        for effort in supported_efforts:
+            normalized = str(effort).strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            normalized_efforts.append(normalized)
+
+        if not normalized_efforts:
+            return None
+
+        normalized_default = (default_effort or "").strip().lower()
+        if normalized_default not in seen:
+            normalized_default = "medium" if "medium" in seen else normalized_efforts[0]
+
+        choices = [
+            (
+                cls._mark_quickstart_recommended_reasoning_label(
+                    cls._format_quickstart_reasoning_label(effort),
+                    effort,
+                    normalized_default,
+                ),
+                effort,
+            )
+            for effort in normalized_efforts
+        ]
+
+        return {
+            "choices": choices,
+            "default_effort": normalized_default,
+            "description": description,
+        }
+
+    @classmethod
+    def _get_runtime_quickstart_reasoning_profile(
+        cls,
+        backend_type: str,
+        model: str,
+    ) -> dict[str, Any] | None:
+        """Return runtime-derived quickstart reasoning settings when available."""
+        if backend_type != "copilot":
+            return None
+
+        model_metadata = get_model_metadata_for_provider_sync("copilot", use_cache=True)
+        normalized_model = model.strip().lower()
+        selected_model = next(
+            (metadata for metadata in model_metadata if str(metadata.get("id", "")).strip().lower() == normalized_model),
+            None,
+        )
+        if not selected_model:
+            return None
+
+        return cls._build_quickstart_reasoning_profile(
+            supported_efforts=list(selected_model.get("supported_reasoning_efforts") or []),
+            default_effort=selected_model.get("default_reasoning_effort"),
+            description="This GitHub Copilot model supports configurable reasoning effort.",
+        )
+
+    @classmethod
     def get_quickstart_reasoning_profile(
+        cls,
         backend_type: str | None,
         model: str | None,
     ) -> dict[str, Any] | None:
@@ -197,20 +299,16 @@ class ConfigBuilder:
         normalized_backend = (backend_type or "").strip().lower()
         normalized_model = (model or "").strip().lower()
 
-        def mark_recommended(label: str, effort: str, default_effort: str) -> str:
-            if effort != default_effort:
-                return label
-            if "(" in label and label.endswith(")"):
-                return f"{label[:-1]}, recommended)"
-            return f"{label} (recommended)"
-
-        def with_recommended(
-            base_choices: list[tuple[str, str]],
-            default_effort: str,
-        ) -> list[tuple[str, str]]:
-            return [(mark_recommended(label, effort, default_effort), effort) for label, effort in base_choices]
-
         if not normalized_model:
+            return None
+
+        runtime_profile = cls._get_runtime_quickstart_reasoning_profile(
+            normalized_backend,
+            normalized_model,
+        )
+        if runtime_profile is not None:
+            return runtime_profile
+        if normalized_backend == "copilot":
             return None
 
         # Claude Code supports effort controls for Opus/Sonnet 4.6.
@@ -229,7 +327,17 @@ class ConfigBuilder:
             ]
             if supports_max:
                 choices.append(("Max (deepest reasoning)", "max"))
-            choices = with_recommended(choices, default_effort)
+            choices = [
+                (
+                    cls._mark_quickstart_recommended_reasoning_label(
+                        label,
+                        effort,
+                        default_effort,
+                    ),
+                    effort,
+                )
+                for label, effort in choices
+            ]
 
             return {
                 "choices": choices,
@@ -249,34 +357,16 @@ class ConfigBuilder:
         if supports_xhigh and (normalized_model == "gpt-5.4" or normalized_model.startswith("gpt-5.4-") or "gpt-5.3" in normalized_model):
             default_effort = "xhigh"
         if supports_xhigh:
-            choices = with_recommended(
-                [
-                    ("Low (faster)", "low"),
-                    ("Medium", "medium"),
-                    ("High (deeper reasoning)", "high"),
-                    ("XHigh (maximum depth)", "xhigh"),
-                ],
-                default_effort,
+            return cls._build_quickstart_reasoning_profile(
+                supported_efforts=["low", "medium", "high", "xhigh"],
+                default_effort=default_effort,
+                description="This GPT-5 Codex model supports extended reasoning.",
             )
-            return {
-                "choices": choices,
-                "default_effort": default_effort,
-                "description": "This GPT-5 Codex model supports extended reasoning.",
-            }
-
-        choices = with_recommended(
-            [
-                ("Low (faster)", "low"),
-                ("Medium", "medium"),
-                ("High (deeper reasoning)", "high"),
-            ],
-            default_effort,
+        return cls._build_quickstart_reasoning_profile(
+            supported_efforts=["low", "medium", "high"],
+            default_effort=default_effort,
+            description="This GPT-5 model supports extended reasoning.",
         )
-        return {
-            "choices": choices,
-            "default_effort": default_effort,
-            "description": "This GPT-5 model supports extended reasoning.",
-        }
 
     @property
     def PROVIDERS(self) -> dict[str, dict]:
@@ -495,8 +585,8 @@ class ConfigBuilder:
             # If API fails, fall back to models from capabilities
             fuzzy_match_models = models
 
-        # All chatcompletion providers should use autocomplete search
-        chatcompletion_providers = [
+        # Providers with large or runtime-discovered catalogs should use autocomplete search.
+        autocomplete_providers = [
             "openrouter",
             "poe",
             "groq",
@@ -507,13 +597,14 @@ class ConfigBuilder:
             "moonshot",
             "nvidia_nim",
             "qwen",
+            "copilot",
         ]
 
         # Providers that should use text input/autocomplete instead of select
         use_text_input = (
             "custom" in models  # Provider with custom models
             or len(models) > 20  # Too many models for select UI
-            or backend_type in chatcompletion_providers  # All chatcompletion providers use autocomplete
+            or backend_type in autocomplete_providers  # Runtime/discovered providers use autocomplete
             or len(fuzzy_match_models) > 20  # API returned many models
         )
 

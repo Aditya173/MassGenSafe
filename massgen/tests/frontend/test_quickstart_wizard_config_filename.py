@@ -120,6 +120,31 @@ def test_provider_model_reasoning_defaults_to_opus_high_even_if_stale_medium():
     assert step._current_reasoning_effort == "high"
 
 
+def test_provider_model_reasoning_defaults_from_copilot_metadata(monkeypatch):
+    """Copilot quickstart reasoning should use runtime metadata defaults in the TUI step."""
+    monkeypatch.setattr(
+        "massgen.config_builder.get_model_metadata_for_provider_sync",
+        lambda provider, use_cache=True: [
+            {
+                "id": "gpt-5.4",
+                "name": "GPT-5.4",
+                "supported_reasoning_efforts": ["low", "medium", "high", "xhigh"],
+                "default_reasoning_effort": "xhigh",
+            },
+        ],
+    )
+
+    step = ProviderModelStep(WizardState())
+    step._reasoning_select = object()
+    step._current_provider = "copilot"
+    step._current_model = "gpt-5.4"
+    step._current_reasoning_effort = "medium"
+
+    step._update_reasoning_input()
+
+    assert step._current_reasoning_effort == "xhigh"
+
+
 def test_tabbed_reasoning_defaults_to_codex_xhigh_even_if_stale_medium():
     """Codex GPT-5.4 should force xhigh default in tabbed quickstart step."""
     step = TabbedProviderModelStep(WizardState(), agent_count=1)
@@ -133,3 +158,104 @@ def test_tabbed_reasoning_defaults_to_codex_xhigh_even_if_stale_medium():
     step._update_reasoning_input("a", "codex", "gpt-5.4")
 
     assert step._tab_selections["a"]["reasoning_effort"] == "xhigh"
+
+
+def test_provider_model_step_loads_runtime_copilot_models(monkeypatch):
+    """Textual quickstart should replace static Copilot models with runtime discovery."""
+    import massgen.config_builder as config_builder_module
+
+    class FakeBuilder:
+        PROVIDERS = {
+            "copilot": {
+                "name": "GitHub Copilot",
+                "type": "copilot",
+                "env_var": None,
+                "models": ["gpt-4.1", "gpt-5-mini"],
+                "default_model": "gpt-5-mini",
+                "supports": ["mcp", "web_search"],
+            },
+        }
+
+        def detect_api_keys(self):
+            return {"copilot": True}
+
+    monkeypatch.setattr(config_builder_module, "ConfigBuilder", FakeBuilder)
+    monkeypatch.setattr(
+        "massgen.frontend.displays.textual_widgets.quickstart_wizard._resolve_quickstart_provider_models",
+        lambda provider_id, static_models: ["gpt-5-mini", "claude-opus-4.6"],
+    )
+
+    step = ProviderModelStep(WizardState())
+    step._load_providers()
+
+    assert step._models_by_provider["copilot"] == ["gpt-5-mini", "claude-opus-4.6"]
+    assert step._current_model == "gpt-5-mini"
+
+
+def test_provider_model_step_marks_agent_frameworks_in_labels(monkeypatch):
+    """Textual quickstart should visually distinguish agent-framework backends."""
+    import massgen.config_builder as config_builder_module
+
+    class FakeBuilder:
+        PROVIDERS = {
+            "claude_code": {
+                "name": "Claude Code",
+                "type": "claude_code",
+                "env_var": "ANTHROPIC_API_KEY",
+                "models": ["claude-opus-4-6"],
+                "default_model": "claude-opus-4-6",
+                "supports": ["filesystem", "mcp"],
+            },
+            "openai": {
+                "name": "OpenAI",
+                "type": "openai",
+                "env_var": "OPENAI_API_KEY",
+                "models": ["gpt-5.4"],
+                "default_model": "gpt-5.4",
+                "supports": ["mcp"],
+            },
+        }
+
+        def detect_api_keys(self):
+            return {"claude_code": True, "openai": True}
+
+    monkeypatch.setattr(config_builder_module, "ConfigBuilder", FakeBuilder)
+
+    step = ProviderModelStep(WizardState())
+    step._load_providers()
+
+    assert step._provider_options() == [
+        ("Claude Code (agent)", "claude_code"),
+        ("OpenAI", "openai"),
+    ]
+
+
+def test_tabbed_provider_model_step_loads_runtime_copilot_models(monkeypatch):
+    """Tabbed Textual quickstart should use the same runtime Copilot model source."""
+    import massgen.config_builder as config_builder_module
+
+    class FakeBuilder:
+        PROVIDERS = {
+            "copilot": {
+                "name": "GitHub Copilot",
+                "type": "copilot",
+                "env_var": None,
+                "models": ["gpt-4.1", "gpt-5-mini"],
+                "default_model": "gpt-5-mini",
+                "supports": ["mcp", "web_search"],
+            },
+        }
+
+        def detect_api_keys(self):
+            return {"copilot": True}
+
+    monkeypatch.setattr(config_builder_module, "ConfigBuilder", FakeBuilder)
+    monkeypatch.setattr(
+        "massgen.frontend.displays.textual_widgets.quickstart_wizard._resolve_quickstart_provider_models",
+        lambda provider_id, static_models: ["gpt-5-mini", "claude-opus-4.6"],
+    )
+
+    step = TabbedProviderModelStep(WizardState(), agent_count=1)
+    step._load_providers()
+
+    assert step._models_by_provider["copilot"] == ["gpt-5-mini", "claude-opus-4.6"]

@@ -22,7 +22,15 @@ interface ProviderCardProps {
   disabled?: boolean;
 }
 
+const AGENT_FRAMEWORK_PROVIDER_IDS = new Set(['claude_code', 'codex', 'copilot']);
+
+function isAgentFrameworkProvider(provider: ProviderInfo): boolean {
+  return provider.is_agent_framework || AGENT_FRAMEWORK_PROVIDER_IDS.has(provider.id);
+}
+
 function ProviderCard({ provider, isSelected, onSelect, disabled }: ProviderCardProps) {
+  const isAgentFramework = isAgentFrameworkProvider(provider);
+
   return (
     <button
       onClick={onSelect}
@@ -36,8 +44,16 @@ function ProviderCard({ provider, isSelected, onSelect, disabled }: ProviderCard
       }`}
     >
       <div className="flex items-start justify-between">
-        <div className="font-semibold text-gray-800 dark:text-gray-200">
-          {provider.name}
+        <div className="flex items-center gap-2">
+          <div className="font-semibold text-gray-800 dark:text-gray-200">
+            {provider.name}
+          </div>
+          {isAgentFramework && (
+            <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+              <Bot className="h-3 w-3" />
+              Agent
+            </div>
+          )}
         </div>
         {isSelected && (
           <div className="flex-shrink-0 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">

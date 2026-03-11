@@ -553,6 +553,32 @@ class TestQuickstartReasoningSettings:
         assert profile is not None
         assert profile["default_effort"] == "xhigh"
 
+    def test_reasoning_profile_for_copilot_uses_runtime_metadata(self, monkeypatch):
+        monkeypatch.setattr(
+            "massgen.config_builder.get_model_metadata_for_provider_sync",
+            lambda provider, use_cache=True: [
+                {
+                    "id": "gpt-5.4",
+                    "name": "GPT-5.4",
+                    "supported_reasoning_efforts": ["low", "medium", "high", "xhigh"],
+                    "default_reasoning_effort": "xhigh",
+                },
+            ],
+        )
+
+        profile = ConfigBuilder.get_quickstart_reasoning_profile("copilot", "gpt-5.4")
+
+        assert profile is not None
+        assert profile["default_effort"] == "xhigh"
+        assert [value for _, value in profile["choices"]] == [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+        ]
+        labels = {value: label for label, value in profile["choices"]}
+        assert "recommended" in labels["xhigh"].lower()
+
     def test_reasoning_profile_for_claude_code_includes_max(self):
         profile = ConfigBuilder.get_quickstart_reasoning_profile("claude_code", "claude-opus-4-6")
         assert profile is not None
@@ -628,6 +654,7 @@ class TestQuickstartProviderOrdering:
             "gemini",
             "anthropic",
             "codex",
+            "copilot",
             "claude_code",
             "grok",
         ]
@@ -637,6 +664,7 @@ class TestQuickstartProviderOrdering:
         assert ordered == [
             "claude_code",
             "codex",
+            "copilot",
             "gemini",
             "openai",
             "anthropic",

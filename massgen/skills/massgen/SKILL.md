@@ -34,8 +34,8 @@ Invoke MassGen for multi-agent iteration on any task — general-purpose work, e
 | Mode | Purpose | Input | Output | Default Criteria Preset |
 |------|---------|-------|--------|------------------------|
 | general | Any task | Task description + context | Winner's deliverables in `result.md` + workspace files | Auto-generated |
-| evaluate | Critique existing work | Artifacts to evaluate | `critique_packet.md`, `verdict.json`, `next_tasks.json` | `"evaluation"` |
-| plan | Create or refine a plan | Goal + constraints (+ existing plan) | `project_plan.json` (tasks, chunks, deps, verification) | `"planning"` |
+| evaluate | Critique existing work | Artifacts to evaluate | `critique_packet.md` (with `approach_assessment`), `verdict.json`, `next_tasks.json` (with `fix_tasks`, `evolution_tasks`) | `"evaluation"` |
+| plan | Create or refine a plan | Goal + constraints (+ existing plan) | `project_plan.json` (typed tasks, chunks, deps, prototypes) | `"planning"` |
 | spec | Create or refine a spec | Problem + needs (+ existing spec) | `project_spec.json` (EARS requirements, chunks, rationale) | `"spec"` |
 
 ## Scope
@@ -340,12 +340,18 @@ trace that keeps you honest about what's done and what remains.
 **General**: read `result.md` for the winning answer. Copy deliverable
 files from the winner's workspace if applicable.
 
-**Evaluate**: read `verdict.json` — if `"iterate"`, work through the
-tasks you just grounded from `next_tasks.json`. If `"converged"`,
-proceed to delivery.
+**Evaluate**: read `verdict.json` — if `"iterate"`, check
+`approach_assessment.ceiling_status` in `next_tasks.json` first:
+- `ceiling_not_reached` → execute `fix_tasks`, then `evolution_tasks` as stretch
+- `ceiling_approaching` → execute `fix_tasks`, then `evolution_tasks`
+- `ceiling_reached` → consider re-invoking plan mode with evaluation findings
+  (see Plan-Evaluate Loop below)
+If `"converged"`, proceed to delivery.
 
 **Plan / Spec**: store the result as a living document (see below),
-then execute the grounded tasks chunk by chunk.
+then execute the grounded tasks chunk by chunk. At tasks marked with
+`eval_checkpoint`, invoke evaluate mode to assess approach viability
+before continuing (see Plan-Evaluate Loop below).
 
 ## Living Document Protocol (Plan & Spec Modes)
 
@@ -446,6 +452,55 @@ eliminates ambiguities, fills gaps, and strengthens edge case coverage.
 
 See `references/spec/workflow.md` for the full context template,
 output format, and lifecycle.
+
+## Plan-Evaluate Loop
+
+For complex or creative projects, plan and evaluate modes work together
+in a feedback loop:
+
+```
+Plan → Execute → Evaluate → (fix OR re-plan) → Execute → Evaluate → ...
+```
+
+### When to Use the Loop
+
+- The task has exploratory components (visual design, creative writing, UX)
+- The project is complex enough that the initial plan is partly speculative
+- Quality expectations are high and "correct but adequate" isn't enough
+- Prior iterations show diminishing returns
+
+### Loop Protocol
+
+1. **Plan**: invoke plan mode. Agents classify tasks as `deterministic` or
+   `exploratory` and create prototypes to validate assumptions
+2. **Execute**: implement the plan chunk by chunk
+3. **Evaluate**: at `eval_checkpoint` tasks (or after any exploratory chunk),
+   invoke evaluate mode
+4. **Decide**: read `approach_assessment` in the evaluation output:
+   - `ceiling_not_reached` → execute fix_tasks, continue
+   - `ceiling_approaching` → execute fix_tasks + evolution_tasks, continue
+   - `ceiling_reached` → re-invoke plan mode with evaluation discoveries
+5. **Evolve**: if re-planning, pass `approach_assessment` and `breakthroughs`
+   as context. The new plan amplifies what worked and avoids approaches that
+   hit their ceiling
+6. **Repeat** until evaluation returns "converged"
+
+### What Makes This Different from Just Re-Running Eval
+
+- Eval assesses whether the APPROACH has room to grow, not just whether
+  the OUTPUT has defects
+- When the approach is limited, the loop goes back to PLANNING, not just
+  more implementation
+- Breakthroughs discovered during execution feed FORWARD into new plans,
+  not just into preserve lists
+- The plan evolves based on evidence from execution, not speculation
+
+### Loop Termination
+
+- Max 3 plan mutations per chunk — if still not converging, escalate to user
+- If evaluation returns "converged" with `ceiling_not_reached`, the loop
+  is complete
+- If the user provides explicit direction, follow it regardless of ceiling status
 
 ## Condensed Examples
 

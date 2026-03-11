@@ -36,6 +36,26 @@ def test_setup_status_prefers_project_config(monkeypatch, tmp_path) -> None:
     assert payload["config_path"] == str(project_config)
 
 
+def test_providers_endpoint_prioritizes_agent_frameworks_and_marks_them() -> None:
+    """Quickstart providers API should surface framework backends first with framework metadata."""
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/api/providers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    provider_ids = [provider["id"] for provider in payload["providers"]]
+
+    assert provider_ids[:3] == ["claude_code", "codex", "copilot"]
+
+    providers_by_id = {provider["id"]: provider for provider in payload["providers"]}
+    assert providers_by_id["claude_code"]["is_agent_framework"] is True
+    assert providers_by_id["codex"]["is_agent_framework"] is True
+    assert providers_by_id["copilot"]["is_agent_framework"] is True
+    assert providers_by_id["openai"]["is_agent_framework"] is False
+
+
 def test_setup_status_falls_back_to_global_config(monkeypatch, tmp_path) -> None:
     """Global config should be used when project config is absent."""
     monkeypatch.chdir(tmp_path)
@@ -170,6 +190,39 @@ def test_quickstart_reasoning_profile_endpoint_supports_codex_xhigh() -> None:
     response = client.get(
         "/api/quickstart/reasoning-profile",
         params={"provider_id": "codex", "model": "gpt-5.4"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["profile"]["default_effort"] == "xhigh"
+    assert [value for _, value in payload["profile"]["choices"]] == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+
+
+def test_quickstart_reasoning_profile_endpoint_uses_copilot_metadata(monkeypatch) -> None:
+    """Web quickstart should surface Copilot runtime reasoning metadata through the shared endpoint."""
+    monkeypatch.setattr(
+        "massgen.config_builder.get_model_metadata_for_provider_sync",
+        lambda provider, use_cache=True: [
+            {
+                "id": "gpt-5.4",
+                "name": "GPT-5.4",
+                "supported_reasoning_efforts": ["low", "medium", "high", "xhigh"],
+                "default_reasoning_effort": "xhigh",
+            },
+        ],
+    )
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/quickstart/reasoning-profile",
+        params={"provider_id": "copilot", "model": "gpt-5.4"},
     )
 
     assert response.status_code == 200

@@ -42,10 +42,11 @@ class TestGetCriteriaForPreset:
         assert ids == expected
 
     @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
-    def test_categories_are_all_must(self, preset_name: str):
+    def test_categories_are_must_or_should(self, preset_name: str):
         criteria = get_criteria_for_preset(preset_name)
         for c in criteria:
-            assert c.category == "must", f"Preset {preset_name}, {c.id}: expected 'must', got '{c.category}'"
+            assert c.category in ("must", "should"), f"Preset {preset_name}, {c.id}: expected 'must' or 'should', got '{c.category}'"
+        assert any(c.category == "must" for c in criteria), f"Preset {preset_name}: must have at least one 'must' criterion"
 
     @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
     def test_texts_are_non_empty(self, preset_name: str):
@@ -54,11 +55,11 @@ class TestGetCriteriaForPreset:
             assert c.text.strip(), f"Preset {preset_name}, {c.id}: empty text"
 
     @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
-    def test_all_criteria_are_must(self, preset_name: str):
-        """Each preset should have all criteria as 'must'."""
+    def test_all_criteria_are_must_or_should(self, preset_name: str):
+        """Each preset should have only 'must' or 'should' criteria."""
         criteria = get_criteria_for_preset(preset_name)
         for c in criteria:
-            assert c.category == "must", f"Preset {preset_name}, {c.id}: expected 'must', got '{c.category}'"
+            assert c.category in ("must", "should"), f"Preset {preset_name}, {c.id}: expected 'must' or 'should', got '{c.category}'"
 
     def test_unknown_preset_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown criteria preset"):
@@ -231,8 +232,11 @@ class TestPresetContentSanity:
 
     def test_planning_preset_exists(self):
         criteria = get_criteria_for_preset("planning")
-        assert len(criteria) == 9
-        assert all(c.category == "must" for c in criteria)
+        assert len(criteria) == 11
+        must_count = sum(1 for c in criteria if c.category == "must")
+        should_count = sum(1 for c in criteria if c.category == "should")
+        assert must_count == 9
+        assert should_count == 2
 
     def test_spec_preset_exists(self):
         criteria = get_criteria_for_preset("spec")

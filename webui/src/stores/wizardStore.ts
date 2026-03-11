@@ -22,6 +22,7 @@ export interface ProviderInfo {
   default_model: string;
   env_var: string | null;
   has_api_key: boolean;
+  is_agent_framework: boolean;
   capabilities: string[];
   notes: string;
 }

@@ -575,11 +575,13 @@ MassGen agents self-improve iteratively within each round, then submit their bes
 
 ### The plateau problem
 
-Agents get stuck in two distinct ways:
+Agents get stuck in three distinct ways:
 
 1. **Blind spots**: The agent cannot identify remaining problems. It believes its answer is strong, but hidden requirement misses, verification gaps, or ambition ceilings persist. The agent's self-evaluation converges prematurely.
 
 2. **Implementation ceiling**: The agent can identify problems (via checklist, self-critique, or prior evaluator feedback) but fails to fix them. It sees the gap, attempts a fix, and the fix either doesn't land or creates new problems. The agent loops without progress.
+
+3. **Approach ceiling**: The agent's strategy is fundamentally limited. Fixes produce diminishing returns because the approach itself has a low quality ceiling — the output is "correct but not good." Multiple structurally different attempts all plateau at a similar quality level. No amount of refinement within this approach will push quality significantly higher.
 
 ### Evaluator as rescue, not just critic
 
@@ -588,6 +590,8 @@ The round evaluator addresses both failure modes:
 - **For blind spots**: Fresh-eyes critique with cross-answer synthesis reveals weaknesses the agent cannot see in its own work. Multiple evaluator agents with different strengths (code analysis, visual inspection, domain expertise) catch different blind spots.
 
 - **For implementation ceilings**: This is where the evaluator's `implementation_guidance` field in `next_tasks.json` is critical. High-level task descriptions ("fix the animation") are not enough when the agent already tried and failed. The evaluator must provide concrete HOW-to specs: specific techniques, code patterns, step-by-step approaches, and — crucially — a diagnosis of why the agent's previous approach likely failed.
+
+- **For approach ceilings**: The evaluator's `approach_assessment` with `ceiling_status` (`ceiling_not_reached` / `ceiling_approaching` / `ceiling_reached`) diagnoses whether the approach itself needs to change, not just the implementation. When `ceiling_reached`, `evolution_tasks` in `next_tasks.json` propose a fundamentally different strategy rather than more fixes. The `paradigm_shift` field names the current limitation, an alternative approach, and which elements from the current work should carry over.
 
 ### The escalation pattern
 
@@ -600,23 +604,49 @@ Agent self-improves (checklist, self-critique, tool use)
                                               │
                                               ▼
                                     Round evaluator runs
-                                    (fresh critique + implementation specs)
+                                    (fresh critique + approach assessment)
                                               │
-                                              ▼
-                                    Agent receives:
-                                    - What's still wrong (blind spot rescue)
-                                    - HOW to fix it (implementation rescue)
+                                    ┌─────────┼─────────┐
+                                    ▼         ▼         ▼
+                              ceiling_not   ceiling    ceiling
+                              _reached    _approaching _reached
+                                    │         │         │
+                                    ▼         ▼         ▼
+                              fix_tasks   fix_tasks  evolution_tasks
+                              dominate    + stretch   dominate
+                                    │    evolution    │
+                                    │    tasks        │
+                                    ▼         │       ▼
+                              Agent fixes     ▼     Agent pivots to
+                              defects     Agent     fundamentally
+                              within      fixes     different strategy
+                              approach    then      (paradigm shift)
+                                    │    evolves     │
+                                    └────────┼───────┘
+                                              │
+                                    Agent also receives:
+                                    - Breakthroughs to amplify (not just preserve)
                                     - What NOT to break (preserve list)
-                                              │
-                                              ▼
-                                    Agent tries fundamentally different approach
+                                    - HOW to fix/evolve (implementation guidance)
                                               │
                                     Repeat until quality bar met or plateau acknowledged
 ```
 
+### Breakthrough amplification
+
+When the evaluator identifies a breakthrough — one component that is dramatically better than the rest — the next iteration should restructure around it rather than just preserving it. The evaluator's `approach_assessment.breakthroughs` array names each breakthrough element, explains WHY it works, and recommends how its technique or principle can be applied to lift weaker components.
+
+This is distinct from the `preserve` list. Preserved elements survive unchanged; breakthroughs are actively spread. For example, if a data visualization section uses progressive disclosure that other sections lack, the evaluator recommends applying progressive disclosure to the timeline and comparison sections too — not just keeping the good visualization intact.
+
 ### When to accept a plateau
 
-Not every criterion can be driven to 10/10. If evaluator scores remain flat across 3+ rounds despite genuinely different `implementation_guidance` each time, the criterion may be at the limit of what the current agent configuration can achieve. The evaluator should acknowledge this explicitly in its critique rather than prescribing yet another approach — this signal lets the orchestrator make informed convergence decisions rather than burning rounds on diminishing returns.
+Not every criterion can be driven to 10/10. Distinguish between two cases:
+
+1. **Implementation plateau** (scores flat despite different `implementation_guidance`): the criterion may be at the limit of what the current agent configuration can achieve. The evaluator should acknowledge this explicitly rather than prescribing yet another approach.
+
+2. **Approach ceiling** (evaluator signals `ceiling_reached`): the approach itself is fundamentally limited. This is NOT the same as implementation difficulty — it means no amount of refinement within this approach will produce excellent output. The correct response is to pivot via `evolution_tasks`, not to accept mediocrity.
+
+The evaluator's `ceiling_status` signal lets the orchestrator make informed convergence decisions rather than burning rounds on diminishing returns.
 
 ## Related Docs
 
