@@ -70,6 +70,16 @@ MassGen is a cutting-edge multi-agent framework that coordinates AI agents throu
 
 See visual comparisons between MassGen and single-agent solutions, highlighting how MassGen unifies different agentic approaches for better outcomes.
 
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="user_guide/skills.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #1a1a2e; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(67, 233, 123, 0.4); transition: transform 0.2s, box-shadow 0.2s;">
+       &#129520; Install the MassGen Skill for Your AI Agent &rarr;
+     </a>
+   </div>
+
+Use MassGen from Claude Code, Codex, Copilot, Cursor, and other AI coding agents.
+
 
 How Does MassGen Compare?
 -------------------------
@@ -190,17 +200,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.62 (March 11, 2026)** - MassGen Skill & Viewer
+
+New general-purpose MassGen Skill with 4 modes (general, evaluate, plan, spec) for use from Claude Code and other AI agents. Session viewer for real-time observation of automation runs. Backend improvements for Claude Code, Codex, and Copilot. Headless and web quickstart modes for automated setup.
+
+**v0.1.61 (March 9, 2026)** - Round Evaluator Paradigm
+
+New round evaluator subagent type that delegates evaluation to specialized evaluator subagents for deeper quality assessment. Major orchestrator refactoring with improved evaluation prompts, task plan injection, and subagent fixes.
+
 **v0.1.60 (March 6, 2026)** - Multimodal Tools, Subagent Enhancements & GPT-5.4
 
 Rewritten read_media tool with clearer schema and new MediaCallLedgerHook for media call tracking. Subagent enhancements with inherit_spawning_agent_backend and final_answer_strategy options. GPT-5.4 as default OpenAI flagship. Decomp mode cooperates with checklist workflow. Codex prompt caching calculation fix for pricing accuracy.
-
-**v0.1.59 (March 4, 2026)** - Quality Round Improvements
-
-Planning improvements with auto-added improvements to task plan and plan review enhancements. Checklist and evaluation enhancements with better eval gen config and Gemini tool name normalization. Subagent behavior adjustments and Docker skill write access fixes. Media generation fixes for video gen skills and impact metric restoration.
-
-**v0.1.58 (March 2, 2026)** - Multimodal Revamp, Nvidia NIM Backend & Quality Rethinking
-
-Comprehensive multimodal revamp with ElevenLabs TTS/STT, Nano Banana 2 image generation, and Grok multimedia. Nvidia NIM backend for NVIDIA Inference Microservices. Quality rethinking subagent for per-element craft improvements. Smarter checklists with improve/preserve listings and evaluation criteria defaults.
 
 :doc:`Full changelog → <changelog>`
 
@@ -224,6 +234,7 @@ Documentation
    .. grid-item-card:: 📖 User Guide
 
       * :doc:`user_guide/concepts`
+      * :doc:`user_guide/skills`
       * :doc:`user_guide/webui`
       * :doc:`user_guide/tools/index`
       * :doc:`user_guide/integration/index`
@@ -250,6 +261,7 @@ Documentation
    :caption: User Guide
 
    user_guide/concepts
+   user_guide/skills
    user_guide/task_planning
    user_guide/backends
    user_guide/webui

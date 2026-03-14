@@ -214,6 +214,7 @@ def get_all_models_for_provider(provider_type: str, use_api: bool = True) -> lis
         "nvidia_nim",
         "qwen",
         "openai",
+        "copilot",
     ]
 
     # Try API first for chatcompletion providers

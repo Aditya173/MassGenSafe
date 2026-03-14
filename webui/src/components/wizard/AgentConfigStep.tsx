@@ -5,10 +5,15 @@
  * Full-page scrollable layout with large, visible cards for easy selection.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Bot, AlertCircle, Check, Search, Sparkles, X, Globe, Code, MessageSquare } from 'lucide-react';
-import { useWizardStore, ProviderInfo, ProviderCapabilities } from '../../stores/wizardStore';
+import { useWizardStore, ProviderInfo, ProviderCapabilities, ReasoningEffort } from '../../stores/wizardStore';
+import {
+  buildQuickstartReasoningProfileKey,
+  resolveQuickstartReasoningSync,
+  type QuickstartReasoningProfile,
+} from './quickstartReasoningSync';
 
 interface ProviderCardProps {
   provider: ProviderInfo;
@@ -17,7 +22,15 @@ interface ProviderCardProps {
   disabled?: boolean;
 }
 
+const AGENT_FRAMEWORK_PROVIDER_IDS = new Set(['claude_code', 'codex', 'copilot']);
+
+function isAgentFrameworkProvider(provider: ProviderInfo): boolean {
+  return provider.is_agent_framework || AGENT_FRAMEWORK_PROVIDER_IDS.has(provider.id);
+}
+
 function ProviderCard({ provider, isSelected, onSelect, disabled }: ProviderCardProps) {
+  const isAgentFramework = isAgentFrameworkProvider(provider);
+
   return (
     <button
       onClick={onSelect}
@@ -31,8 +44,16 @@ function ProviderCard({ provider, isSelected, onSelect, disabled }: ProviderCard
       }`}
     >
       <div className="flex items-start justify-between">
-        <div className="font-semibold text-gray-800 dark:text-gray-200">
-          {provider.name}
+        <div className="flex items-center gap-2">
+          <div className="font-semibold text-gray-800 dark:text-gray-200">
+            {provider.name}
+          </div>
+          {isAgentFramework && (
+            <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+              <Bot className="h-3 w-3" />
+              Agent
+            </div>
+          )}
         </div>
         {isSelected && (
           <div className="flex-shrink-0 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
@@ -131,6 +152,8 @@ export function AgentConfigStep() {
   const useDocker = useWizardStore((s) => s.useDocker);
   const setAgentConfig = useWizardStore((s) => s.setAgentConfig);
   const setAllAgentsConfig = useWizardStore((s) => s.setAllAgentsConfig);
+  const setAgentReasoningEffort = useWizardStore((s) => s.setAgentReasoningEffort);
+  const setAllAgentsReasoningEffort = useWizardStore((s) => s.setAllAgentsReasoningEffort);
   const setAgentWebSearch = useWizardStore((s) => s.setAgentWebSearch);
   const setAgentCodeExecution = useWizardStore((s) => s.setAgentCodeExecution);
   const setAgentSystemMessage = useWizardStore((s) => s.setAgentSystemMessage);
@@ -144,6 +167,10 @@ export function AgentConfigStep() {
   // Search/filter state
   const [providerSearch, setProviderSearch] = useState('');
   const [modelSearch, setModelSearch] = useState('');
+  const [reasoningProfile, setReasoningProfile] = useState<QuickstartReasoningProfile | null>(null);
+  const [resolvedReasoningProfileKey, setResolvedReasoningProfileKey] = useState<string | null>(null);
+  const [loadingReasoningProfile, setLoadingReasoningProfile] = useState(false);
+  const lastAppliedReasoningProfileKeysRef = useRef<Record<string, string | null | undefined>>({});
 
   // System message mode for "same" setup mode: 'skip' | 'same' | 'different'
   const [systemMessageMode, setSystemMessageMode] = useState<'skip' | 'same' | 'different'>('skip');
@@ -173,6 +200,94 @@ export function AgentConfigStep() {
       fetchProviderCapabilities(currentAgent.provider);
     }
   }, [currentAgent?.provider, providerCapabilities, fetchProviderCapabilities]);
+
+  // Fetch quickstart reasoning profile when provider/model changes.
+  useEffect(() => {
+    const providerId = currentAgent?.provider;
+    const model = currentAgent?.model;
+    const requestProfileKey = buildQuickstartReasoningProfileKey(providerId, model);
+
+    if (!providerId || !model) {
+      setReasoningProfile(null);
+      setResolvedReasoningProfileKey(null);
+      setLoadingReasoningProfile(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingReasoningProfile(true);
+
+    void fetch(
+      `/api/quickstart/reasoning-profile?provider_id=${encodeURIComponent(providerId)}&model=${encodeURIComponent(model)}`,
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Failed to fetch reasoning profile');
+        }
+        return response.json();
+      })
+      .then((data: { profile: QuickstartReasoningProfile | null }) => {
+        if (!cancelled) {
+          setReasoningProfile(data.profile);
+          setResolvedReasoningProfileKey(requestProfileKey);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setReasoningProfile(null);
+          setResolvedReasoningProfileKey(requestProfileKey);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingReasoningProfile(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAgent?.provider, currentAgent?.model]);
+
+  // Keep reasoning selection aligned with the shared quickstart profile.
+  useEffect(() => {
+    if (!currentAgent) {
+      return;
+    }
+
+    const applyReasoningEffort = (value?: ReasoningEffort) => {
+      if (setupMode === 'same') {
+        setAllAgentsReasoningEffort(value);
+      } else {
+        setAgentReasoningEffort(activeAgentIndex, value);
+      }
+    };
+
+    const reasoningTargetKey = setupMode === 'same' ? 'all' : String(activeAgentIndex);
+    const profileKey = buildQuickstartReasoningProfileKey(currentAgent.provider, currentAgent.model);
+    if (profileKey && resolvedReasoningProfileKey !== profileKey) {
+      return;
+    }
+    const decision = resolveQuickstartReasoningSync({
+      profile: reasoningProfile,
+      profileKey,
+      lastAppliedProfileKey: lastAppliedReasoningProfileKeysRef.current[reasoningTargetKey],
+      currentEffort: currentAgent.reasoning_effort,
+    });
+
+    lastAppliedReasoningProfileKeysRef.current[reasoningTargetKey] = decision.nextProfileKey;
+    if (decision.shouldApply) {
+      applyReasoningEffort(decision.nextEffort ?? undefined);
+    }
+  }, [
+    activeAgentIndex,
+    currentAgent,
+    resolvedReasoningProfileKey,
+    reasoningProfile,
+    setAgentReasoningEffort,
+    setAllAgentsReasoningEffort,
+    setupMode,
+  ]);
 
   // Get current provider's capabilities
   const currentCapabilities: ProviderCapabilities | null = currentAgent?.provider
@@ -241,6 +356,15 @@ export function AgentConfigStep() {
       });
     } else {
       setAgentCodeExecution(activeAgentIndex, enabled);
+    }
+  };
+
+  const handleReasoningEffortChange = (value: string) => {
+    const normalized = value === '' ? undefined : value as ReasoningEffort;
+    if (setupMode === 'same') {
+      setAllAgentsReasoningEffort(normalized);
+    } else {
+      setAgentReasoningEffort(activeAgentIndex, normalized);
     }
   };
 
@@ -397,6 +521,12 @@ export function AgentConfigStep() {
                 <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-full">
                   <MessageSquare className="w-3 h-3" />
                   Custom Instructions
+                </span>
+              )}
+              {currentAgent.reasoning_effort && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-full">
+                  <Sparkles className="w-3 h-3" />
+                  Reasoning {currentAgent.reasoning_effort}
                 </span>
               )}
             </div>
@@ -583,6 +713,42 @@ export function AgentConfigStep() {
                     </div>
                   ) : (
                     <div className="space-y-3">
+                      {loadingReasoningProfile && currentAgent.model && (
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                          <div className="flex items-center gap-2 text-gray-400 text-sm">
+                            <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                            <span>Loading reasoning options...</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {reasoningProfile && (
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Sparkles className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              Reasoning Effort
+                            </span>
+                          </div>
+                          <select
+                            value={currentAgent.reasoning_effort ?? reasoningProfile.default_effort}
+                            onChange={(e) => handleReasoningEffortChange(e.target.value)}
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
+                                     rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            {reasoningProfile.choices.map(([label, value]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                            {reasoningProfile.description}
+                          </p>
+                        </div>
+                      )}
+
                       {/* Tool toggles - code execution only shown when Docker is NOT enabled */}
                       {(currentCapabilities?.supports_web_search || (!useDocker && currentCapabilities?.supports_code_execution)) && (
                         <div className="space-y-2">

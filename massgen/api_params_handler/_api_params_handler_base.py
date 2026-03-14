@@ -104,6 +104,7 @@ class APIParamsHandlerBase(ABC):
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
             "plan_depth",
+            "plan_thoroughness",
             "plan_target_steps",
             "plan_target_chunks",
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
@@ -112,6 +113,8 @@ class APIParamsHandlerBase(ABC):
             "subagent_types",  # Which subagent types to expose (handled by orchestrator)
             "round_evaluator_before_checklist",  # Coordination-only evaluator-first loop control
             "orchestrator_managed_round_evaluator",  # Gate for orchestrator-owned round_evaluator launch
+            "round_evaluator_skip_synthesis",  # Skip synthesis; pass raw critiques to parent directly
+            "round_evaluator_refine",  # Allow evaluator agents to iterate (multi-round with voting)
             "enable_quality_rethink_on_iteration",  # Coordination-only quality task injection toggle
             "enable_novelty_on_iteration",  # Coordination-only novelty task injection toggle
             "novelty_injection",  # Novelty pressure level (none/gentle/moderate/aggressive)

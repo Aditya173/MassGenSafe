@@ -16,7 +16,9 @@ export function PreviewStep() {
   const error = useWizardStore((s) => s.error);
   const setupStatus = useWizardStore((s) => s.setupStatus);
   const configFilename = useWizardStore((s) => s.configFilename);
+  const configSaveLocation = useWizardStore((s) => s.configSaveLocation);
   const setConfigFilename = useWizardStore((s) => s.setConfigFilename);
+  const setConfigSaveLocation = useWizardStore((s) => s.setConfigSaveLocation);
   const setGeneratedYaml = useWizardStore((s) => s.setGeneratedYaml);
 
   // Toggle between view and edit mode
@@ -71,8 +73,10 @@ export function PreviewStep() {
     );
   }
 
-  // Get the config directory from setupStatus
-  const configDir = setupStatus?.config_path?.replace(/\/[^/]+$/, '') || '~/.config/massgen';
+  const projectConfigDir = setupStatus?.config_path?.includes('/.massgen/')
+    ? setupStatus.config_path.replace(/\/[^/]+$/, '')
+    : '.massgen';
+  const configDir = configSaveLocation === 'project' ? projectConfigDir : '~/.config/massgen';
 
   return (
     <motion.div
@@ -92,6 +96,37 @@ export function PreviewStep() {
 
       {/* Config Filename Input */}
       <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Save Location
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setConfigSaveLocation('project')}
+              className={`p-3 rounded-lg border text-left transition-colors ${
+                configSaveLocation === 'project'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                  : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              <div className="font-medium text-sm">Project</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Save to <code>.massgen/</code> in this workspace</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfigSaveLocation('global')}
+              className={`p-3 rounded-lg border text-left transition-colors ${
+                configSaveLocation === 'global'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                  : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              <div className="font-medium text-sm">Global</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Save to <code>~/.config/massgen/</code></div>
+            </button>
+          </div>
+        </div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           <Pencil className="w-4 h-4 inline mr-1" />
           Config Name

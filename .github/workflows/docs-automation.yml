@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'docs/**'
-      - 'scripts/check_duplication.py'
       - 'scripts/validate_links.py'
   push:
     branches:
@@ -33,14 +32,6 @@ jobs:
           # Install any dependencies needed by scripts
           # pip install requests  # Uncomment if external link checking is enabled
 
-      - name: Check for duplicated content
-        id: check-duplication
-        run: |
-          echo "::group::Checking for duplicated content"
-          python scripts/check_duplication.py --threshold 0.8 --min-words 50
-          echo "::endgroup::"
-        continue-on-error: false
-
       - name: Validate cross-references and links
         id: check-links
         run: |
@@ -48,14 +39,6 @@ jobs:
           python scripts/validate_links.py
           echo "::endgroup::"
         continue-on-error: false
-
-      - name: Upload duplication report
-        if: failure() && steps.check-duplication.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: duplication-report
-          path: docs/DUPLICATION_REPORT.md
-          if-no-files-found: ignore
 
       - name: Upload link validation report
         if: failure() && steps.check-links.outcome == 'failure'
@@ -74,15 +57,7 @@ jobs:
 
             let comment = '## ⚠️ Documentation Validation Failed\n\n';
 
-            // Check which validation failed
-            const dupCheck = '${{ steps.check-duplication.outcome }}';
             const linkCheck = '${{ steps.check-links.outcome }}';
-
-            if (dupCheck === 'failure') {
-              comment += '### ❌ Duplication Detected\n\n';
-              comment += 'Duplicated content was found in the documentation. Please consolidate to maintain single source of truth.\n\n';
-              comment += 'See the [duplication report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n\n';
-            }
 
             if (linkCheck === 'failure') {
               comment += '### ❌ Broken Links Found\n\n';

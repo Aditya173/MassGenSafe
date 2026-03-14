@@ -37,6 +37,9 @@ MassGen supports these backend types (configured via ``type`` field in YAML):
    * - ``claude_code``
      - Anthropic (SDK)
      - Claude Sonnet 4, Claude Opus 4 (with dev tools)
+   * - ``codex``
+     - OpenAI (CLI)
+     - GPT-5.4, GPT-5.3-Codex, GPT-5.2-Codex, GPT-5.1-Codex
    * - ``gemini``
      - Google
      - Gemini 2.5 Flash, Gemini 2.5 Pro

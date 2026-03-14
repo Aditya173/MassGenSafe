@@ -76,7 +76,7 @@ class TaskDecomposer:
     ) -> str:
         """Build the decomposition prompt passed to the subagent."""
         n_agents = len(agent_ids)
-        schema_entry = '{"subtask": "owned scope + integration touchpoints + quality bar", ' '"criteria": [{"text": "criterion text", "category": "must|should|could"}]}'
+        schema_entry = '{"subtask": "owned scope + integration touchpoints + quality bar", ' '"criteria": [{"text": "criterion text", "category": "must"}]}'
         schema = ", ".join(f'"{aid}": {schema_entry}' for aid in agent_ids)
         planning_context_requirements = ""
         if has_planning_spec_context:

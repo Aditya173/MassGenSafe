@@ -518,7 +518,10 @@ class TestBuildExecCommand:
         assert "--approval-mode" in cmd
         assert "default" in cmd
 
-    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only: WindowsPath not instantiable on other platforms")
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="WindowsPath cannot be instantiated on non-Windows",
+    )
     def test_windows_cmd_wrapper_rewrites_to_direct_node_launch(self, backend, tmp_path):
         """Windows .cmd launch should be rewritten to node + JS entrypoint when available."""
         npm_dir = tmp_path / "npm"
@@ -612,7 +615,10 @@ class TestBuildSubprocessEnv:
         assert env["NO_COLOR"] == "1"
         assert env["PATH"] == "/usr/bin"
 
-    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only: WindowsPath not instantiable on other platforms")
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="WindowsPath cannot be instantiated on non-Windows",
+    )
     def test_windows_env_adds_node_path_when_missing(self, backend, tmp_path):
         """On Windows, prepend ProgramFiles\nodejs when node is not on PATH."""
         backend.api_key = None
@@ -635,7 +641,6 @@ class TestBuildSubprocessEnv:
         assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
         assert env["COMSPEC"].lower().endswith("\\system32\\cmd.exe")
 
-    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only: WindowsPath not instantiable on other platforms")
     def test_windows_env_keeps_path_when_node_already_resolved(self, backend):
         """Do not prepend node path when node is already resolvable."""
         backend.api_key = None

@@ -490,6 +490,51 @@ Share a session via GitHub Gist for easy collaboration.
 
 The URL opens the MassGen Viewer with the session's coordination timeline, answers, votes, and tool usage.
 
+Session Viewer (``massgen viewer``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+View any MassGen session in the full Textual TUI (read-only). Useful for observing ``--automation`` runs, replaying completed sessions, and monitoring cloud/CI runs.
+
+.. code-block:: bash
+
+   # View the most recent session
+   massgen viewer
+
+   # View a specific log directory
+   massgen viewer /path/to/log_dir
+
+   # Interactive session picker
+   massgen viewer --pick
+
+   # Replay at real-time speed (default: instant)
+   massgen viewer /path/to/log_dir --replay-speed 1
+
+   # View in browser via textual-serve
+   massgen viewer /path/to/log_dir --web --port 9000
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Option
+     - Description
+   * - ``log_dir``
+     - Path to log directory (positional, optional). Default: most recent session
+   * - ``--turn N``
+     - View a specific turn (default: latest)
+   * - ``--attempt N``
+     - View a specific attempt (default: latest)
+   * - ``--replay-speed FLOAT``
+     - Playback speed for completed sessions. ``0`` = instant (default), ``1`` = real-time, ``2`` = 2x speed
+   * - ``--pick``
+     - Interactively pick from recent sessions
+   * - ``--web``
+     - Serve the viewer TUI in a browser via ``textual-serve``
+   * - ``--port PORT``
+     - Port for ``--web`` mode (default: 8000)
+
+The viewer shows the exact same TUI as a normal interactive run — agent panels, tool calls, votes, and final presentation — but in read-only mode with the input area hidden.
+
 Manage Shared Sessions (``massgen shares``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

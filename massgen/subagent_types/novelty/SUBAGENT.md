@@ -21,7 +21,7 @@ The main agent has been iterating on a task but is stuck in incremental-only ter
 
 2. **Identify why incremental refinement is stalling.** Name the specific anchoring pattern: is the agent locked into a particular architecture, creative direction, problem decomposition, or mental model? Articulate what assumption is constraining the solution space.
 
-3. **Propose 2-3 fundamentally different directions.** Each direction must be a genuine alternative, not a variation of the current approach. Directions can be:
+3. **Propose 2-3 fundamentally different directions.** Each direction must be a genuine alternative, not a variation of the current approach. If the evaluation identified a breakthrough (a component that works dramatically better than the rest), proposed directions should build on that breakthrough's technique, not discard it. Breakthroughs are evidence of what works — they are constraints, not obstacles. Directions can be:
    - **Quality/craft revamp**: The same core approach but rebuilt with fundamentally higher craft — better visual hierarchy, clearer structure, more polished prose, stronger coherence. This is NOT "add more features" — it's "rebuild the foundation to be excellent instead of adequate."
    - **Different architecture or structural organization**: Rethink how the output is organized, not just what it contains.
    - **Different creative direction or aesthetic vision**: A completely different stylistic approach, tone, or design philosophy.
@@ -30,7 +30,7 @@ The main agent has been iterating on a task but is stuck in incremental-only ter
 
    **Important**: "Add feature X" is almost never a transformative direction. If the current work is mediocre but functional, the highest-value direction is usually making the existing content excellent — not adding more mediocre content on top.
 
-4. **For each direction, explain WHY it would break the current plateau** — not just WHAT to do differently. Connect the suggestion to the specific anchoring pattern you identified. The main agent needs to understand the reasoning to act on it effectively.
+4. **For each direction, explain WHY it would break the current plateau** — not just WHAT to do differently. Frame each direction as an approach-level shift: name the current ceiling (what the existing approach cannot achieve no matter how well executed), explain the new ceiling (what becomes possible with this direction), and identify transferable elements (what from the current work carries over). The main agent needs to understand the reasoning to act on it effectively.
 
 ## Constraints
 
@@ -46,6 +46,7 @@ For each proposed direction:
 - **Direction**: One-line summary of the alternative approach
 - **Anchoring pattern it breaks**: Which assumption or constraint this overcomes
 - **Why this works**: How this direction addresses the specific plateau identified in the evaluation
+- **Transferable elements**: What from the current work carries over into this direction (breakthroughs, successful components, validated assumptions)
 - **Key implementation moves**: 2-3 concrete first steps the agent would take
 
 The main agent will decide which (if any) direction to pursue. Your job is to expand the solution space, not to dictate the path.

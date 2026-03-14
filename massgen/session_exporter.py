@@ -271,7 +271,12 @@ def resolve_log_dir(log_dir_arg: str | None) -> Path:
 
     path = Path(log_dir_arg)
 
-    # If it's an absolute path, use it directly
+    # Resolve relative paths that exist on disk so they get the same
+    # turn/attempt descent logic as absolute paths.
+    if not path.is_absolute() and path.exists():
+        path = path.resolve()
+
+    # If it's an absolute path (or a resolved relative path), use it directly
     if path.is_absolute():
         if path.exists():
             # Check if this is already an attempt directory

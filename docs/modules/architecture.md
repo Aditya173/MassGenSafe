@@ -12,7 +12,7 @@ cli.py -> orchestrator.py -> chat_agent.py -> backend/*.py
 
 ## Key Components
 
-**Orchestrator** (`orchestrator.py`): Central coordinator managing parallel agent execution, voting, and consensus detection. Handles coordination phases: initial_answer -> enforcement (voting) -> presentation.
+**Orchestrator** (`orchestrator.py`): Central coordinator managing parallel agent execution, voting, and consensus detection. Handles coordination phases: initial_answer -> enforcement (voting) -> presentation. When an orchestrator timeout fires after agents have already produced answers, it salvages the best available existing answer directly instead of starting a new presenter pass.
 
 **Backends** (`backend/`): Provider-specific implementations. All inherit from `base.py`. Add new backends by:
 1. Create `backend/new_provider.py` inheriting from base
@@ -23,7 +23,7 @@ cli.py -> orchestrator.py -> chat_agent.py -> backend/*.py
 
 See also: [Backend Registration Checklist in CLAUDE.md Memory](../../CLAUDE.md)
 
-**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations. Some tools have dual paths: SDK (in-process, for ClaudeCode) and stdio (config.toml-based, for Codex). **Stdio MCP servers run inside Docker where `massgen` is NOT installed** — never import from `massgen` in stdio servers. Pre-compute any needed values in the orchestrator and pass via JSON specs files. Also note Codex sometimes sends tool args as JSON strings instead of dicts — always add a `json.loads()` fallback.
+**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations. Some tools have dual paths: SDK (in-process, for ClaudeCode) and stdio (config.toml-based, for Codex). For Codex, the model-facing MCP connections live inside the Codex CLI session, while orchestrator-managed operations (for example managed round-evaluator spawns) use a separate host-side MCP client built from the same stdio server configs. **Stdio MCP servers run inside Docker where `massgen` is NOT installed** — never import from `massgen` in stdio servers. Pre-compute any needed values in the orchestrator and pass via JSON specs files. Also note Codex sometimes sends tool args as JSON strings instead of dicts — always add a `json.loads()` fallback.
 
 **Streaming Buffer** (`backend/_streaming_buffer_mixin.py`): Tracks partial responses during streaming for compression recovery.
 
@@ -32,12 +32,13 @@ See also: [Backend Registration Checklist in CLAUDE.md Memory](../../CLAUDE.md)
 ```text
 base.py (abstract interface)
     +-- base_with_custom_tool_and_mcp.py (tool + MCP support)
-            |-- response.py (OpenAI Response API)
-            |-- chat_completions.py (generic OpenAI-compatible)
-            |-- claude.py (Anthropic)
-            |-- claude_code.py (Claude Code SDK)
-            |-- gemini.py (Google)
-            +-- grok.py (xAI)
+    |       |-- response.py (OpenAI Response API)
+    |       |-- chat_completions.py (generic OpenAI-compatible)
+    |       |-- claude.py (Anthropic)
+    |       |-- gemini.py (Google)
+    |       +-- grok.py (xAI)
+    +-- claude_code.py (Claude Code SDK; native tools + SDK MCP path)
+    +-- codex.py (OpenAI Codex CLI; native tools + workspace .codex MCP path)
 ```
 
 ## Coordination as Evolutionary Search

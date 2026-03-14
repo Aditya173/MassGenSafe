@@ -7,7 +7,8 @@
 import { create } from 'zustand';
 
 // Types for wizard state
-export type WizardStep = 'context' | 'docker' | 'apiKeys' | 'agentCount' | 'setupMode' | 'agentConfig' | 'coordination' | 'preview';
+export type WizardStep = 'docker' | 'apiKeys' | 'agentCount' | 'setupMode' | 'agentConfig' | 'coordination' | 'preview';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface ContextPath {
   path: string;
@@ -21,6 +22,7 @@ export interface ProviderInfo {
   default_model: string;
   env_var: string | null;
   has_api_key: boolean;
+  is_agent_framework: boolean;
   capabilities: string[];
   notes: string;
 }
@@ -40,6 +42,7 @@ export interface AgentConfig {
   id: string;
   provider: string;
   model: string;
+  reasoning_effort?: ReasoningEffort;
   // Per-agent tool settings
   enable_web_search?: boolean;
   enable_code_execution?: boolean;
@@ -47,33 +50,12 @@ export interface AgentConfig {
   system_message?: string;
 }
 
-// Subagent orchestrator configuration
-export interface SubagentOrchestratorConfig {
-  enabled: boolean;
-  agents: Array<{
-    backend: {
-      type: string;
-      model: string;
-      base_url?: string;
-    };
-  }>;
-}
-
-// Persona generator configuration
-export interface PersonaGeneratorConfig {
-  enabled: boolean;
-  diversity_mode?: 'perspective' | 'implementation';
-}
-
 // Coordination settings (shared across all agents)
 export interface CoordinationSettings {
-  voting_sensitivity: 'lenient' | 'balanced' | 'strict';
-  answer_novelty_requirement: 'lenient' | 'balanced' | 'strict';
+  coordination_mode?: 'voting' | 'decomposition';
+  presenter_agent?: string;
   max_new_answers_per_agent?: number;
-  enable_subagents?: boolean;
-  subagent_model_choice?: 'inherit' | 'custom';
-  subagent_orchestrator?: SubagentOrchestratorConfig;
-  persona_generator?: PersonaGeneratorConfig;
+  max_new_answers_global?: number;
 }
 
 export interface SetupStatus {
@@ -120,6 +102,7 @@ interface WizardState {
 
   // Config filename for custom naming
   configFilename: string;
+  configSaveLocation: 'project' | 'global';
 
   // Saved config path for auto-selection
   savedConfigPath: string | null;
@@ -138,11 +121,14 @@ interface WizardState {
   setSetupMode: (mode: 'same' | 'different') => void;
   setAgentConfig: (index: number, provider: string, model: string, enableWebSearch?: boolean) => void;
   setAllAgentsConfig: (provider: string, model: string, enableWebSearch?: boolean) => void;
+  setAgentReasoningEffort: (index: number, reasoningEffort?: ReasoningEffort) => void;
+  setAllAgentsReasoningEffort: (reasoningEffort?: ReasoningEffort) => void;
   setAgentWebSearch: (index: number, enableWebSearch: boolean) => void;
   setAgentCodeExecution: (index: number, enableCodeExecution: boolean) => void;
   setAgentSystemMessage: (index: number, systemMessage: string) => void;
   setCoordinationSettings: (settings: Partial<CoordinationSettings>) => void;
   setConfigFilename: (filename: string) => void;
+  setConfigSaveLocation: (location: 'project' | 'global') => void;
   setGeneratedYaml: (yaml: string) => void;
 
   // API actions
@@ -155,12 +141,9 @@ interface WizardState {
   reset: () => void;
 }
 
-const stepOrder: WizardStep[] = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'coordination', 'context', 'preview'];
+const stepOrder: WizardStep[] = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'coordination', 'preview'];
 
-const defaultCoordinationSettings: CoordinationSettings = {
-  voting_sensitivity: 'lenient',
-  answer_novelty_requirement: 'lenient',
-};
+const defaultCoordinationSettings: CoordinationSettings = {};
 
 const initialState = {
   isOpen: false,
@@ -182,6 +165,7 @@ const initialState = {
   generatedConfig: null,
   generatedYaml: null,
   configFilename: 'config',
+  configSaveLocation: 'project' as const,
   savedConfigPath: null,
 };
 
@@ -259,9 +243,16 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
       set({ agents: newAgents });
     }
 
+    // Skip coordination step for single-agent quickstart to match the terminal wizard.
+    if (currentStep === 'agentConfig' && agentCount === 1) {
+      void get().generateConfig();
+      set({ currentStep: 'preview' });
+      return;
+    }
+
     // When moving to preview, generate the config
-    if (currentStep === 'context') {
-      get().generateConfig();
+    if (currentStep === 'coordination') {
+      void get().generateConfig();
     }
 
     if (currentIndex < stepOrder.length - 1) {
@@ -285,6 +276,12 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     // Skip setupMode step when going back if only 1 agent
     if (currentStep === 'agentConfig' && agentCount === 1) {
       set({ currentStep: 'agentCount' });
+      return;
+    }
+
+    // Skip coordination when returning from preview in single-agent quickstart.
+    if (currentStep === 'preview' && agentCount === 1) {
+      set({ currentStep: 'agentConfig' });
       return;
     }
 
@@ -330,6 +327,24 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     set({ agents: newAgents });
   },
 
+  setAgentReasoningEffort: (index: number, reasoningEffort?: ReasoningEffort) => {
+    const { agents } = get();
+    const newAgents = [...agents];
+    if (newAgents[index]) {
+      newAgents[index] = { ...newAgents[index], reasoning_effort: reasoningEffort };
+      set({ agents: newAgents });
+    }
+  },
+
+  setAllAgentsReasoningEffort: (reasoningEffort?: ReasoningEffort) => {
+    const { agents } = get();
+    const newAgents = agents.map((agent) => ({
+      ...agent,
+      reasoning_effort: reasoningEffort,
+    }));
+    set({ agents: newAgents });
+  },
+
   setAgentWebSearch: (index: number, enableWebSearch: boolean) => {
     const { agents } = get();
     const newAgents = [...agents];
@@ -366,6 +381,10 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     // Allow the raw input - we'll sanitize on save if needed
     // This allows users to type freely while seeing the preview
     set({ configFilename: filename });
+  },
+
+  setConfigSaveLocation: (location: 'project' | 'global') => {
+    set({ configSaveLocation: location });
   },
 
   setGeneratedYaml: (yaml: string) => {
@@ -474,7 +493,7 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
   },
 
   generateConfig: async () => {
-    const { agents, useDocker, coordinationSettings, contextPaths } = get();
+    const { agents, useDocker, coordinationSettings } = get();
     set({ isLoading: true, error: null });
 
     try {
@@ -485,7 +504,6 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
           agents,
           use_docker: useDocker,
           coordination: coordinationSettings,
-          context_paths: contextPaths,
         }),
       });
 
@@ -507,7 +525,7 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
   },
 
   saveConfig: async () => {
-    const { generatedConfig, generatedYaml, configFilename } = get();
+    const { generatedConfig, generatedYaml, configFilename, configSaveLocation } = get();
     if (!generatedConfig && !generatedYaml) {
       set({ error: 'No config to save' });
       return false;
@@ -520,7 +538,10 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
       const filename = `${configFilename || 'config'}.yaml`;
 
       // Send yaml_content if we have edited YAML, otherwise send the config object
-      const body: Record<string, unknown> = { filename };
+      const body: Record<string, unknown> = {
+        filename,
+        save_location: configSaveLocation,
+      };
       if (generatedYaml) {
         body.yaml_content = generatedYaml;
       }
@@ -570,6 +591,7 @@ export const selectSavedConfigPath = (state: WizardState) => state.savedConfigPa
 export const selectDynamicModels = (state: WizardState) => state.dynamicModels;
 export const selectLoadingModels = (state: WizardState) => state.loadingModels;
 export const selectConfigFilename = (state: WizardState) => state.configFilename;
+export const selectConfigSaveLocation = (state: WizardState) => state.configSaveLocation;
 export const selectProviderCapabilities = (state: WizardState) => state.providerCapabilities;
 export const selectLoadingCapabilities = (state: WizardState) => state.loadingCapabilities;
 export const selectCoordinationSettings = (state: WizardState) => state.coordinationSettings;

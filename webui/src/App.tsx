@@ -54,6 +54,7 @@ const initialPrompt = initialUrlParams.get('prompt');
 const initialConfig = initialUrlParams.get('config');
 const initialSession = initialUrlParams.get('session');
 const initialWizardOpen = initialUrlParams.get('wizard') === 'open';
+const initialTemporaryQuickstart = initialUrlParams.get('temporary') === '1';
 
 export function App() {
   // Session management - use URL param if provided, otherwise generate random UUID
@@ -700,7 +701,10 @@ export function App() {
       />
 
       {/* Quickstart Wizard Modal */}
-      <QuickstartWizard onConfigSaved={handleConfigChange} />
+      <QuickstartWizard
+        onConfigSaved={handleConfigChange}
+        temporaryMode={initialTemporaryQuickstart}
+      />
 
       {/* Config Editor Modal */}
       <ConfigEditorModal

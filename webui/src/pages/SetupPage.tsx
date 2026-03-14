@@ -22,6 +22,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  Bot,
 } from 'lucide-react';
 import { useState } from 'react';
 import {
@@ -49,6 +50,8 @@ const steps: { id: SetupStep; title: string; icon: typeof Key }[] = [
   { id: 'skills', title: 'Skills', icon: Puzzle },
 ];
 
+const AGENT_FRAMEWORK_PROVIDER_IDS = new Set(['claude_code', 'codex', 'copilot']);
+
 // API Keys Section Component
 function ApiKeysSection() {
   const providers = useSetupStore(selectProviders);
@@ -70,6 +73,9 @@ function ApiKeysSection() {
   const toggleShowPassword = (envVar: string) => {
     setShowPasswords((prev) => ({ ...prev, [envVar]: !prev[envVar] }));
   };
+
+  const isAgentFrameworkProvider = (providerId: string, isAgentFramework?: boolean) =>
+    Boolean(isAgentFramework) || AGENT_FRAMEWORK_PROVIDER_IDS.has(providerId);
 
   // Sort providers: popular ones first, then alphabetically
   const popularProviderIds = ['openai', 'claude', 'gemini', 'grok'];
@@ -135,7 +141,15 @@ function ApiKeysSection() {
                   className="bg-white dark:bg-gray-800 border border-green-200 dark:border-green-800 rounded-lg p-3"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-800 dark:text-gray-200">{provider.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{provider.name}</span>
+                      {isAgentFrameworkProvider(provider.id, provider.is_agent_framework) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          <Bot className="h-3 w-3" />
+                          Agent
+                        </span>
+                      )}
+                    </div>
                     <span className="text-sm text-gray-500 dark:text-gray-400 font-mono">••••••••</span>
                   </div>
                 </div>
@@ -151,6 +165,10 @@ function ApiKeysSection() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-800 dark:text-gray-200">Claude Code</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                <Bot className="h-3 w-3" />
+                Agent framework
+              </span>
               <span className="text-xs text-gray-500 dark:text-gray-400">
                 (available if logged in via <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">claude</code> CLI)
               </span>
@@ -184,6 +202,10 @@ function ApiKeysSection() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-800 dark:text-gray-200">GitHub Copilot</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                <Bot className="h-3 w-3" />
+                Agent framework
+              </span>
               <span className="text-xs text-gray-500 dark:text-gray-400">
                 (available if logged in via <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">copilot</code> CLI <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">/login</code> and <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">github-copilot-sdk</code> installed)
               </span>
@@ -206,7 +228,15 @@ function ApiKeysSection() {
                 className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <label className="font-medium text-gray-800 dark:text-gray-200">{provider.name}</label>
+                  <div className="flex items-center gap-2">
+                    <label className="font-medium text-gray-800 dark:text-gray-200">{provider.name}</label>
+                    {isAgentFrameworkProvider(provider.id, provider.is_agent_framework) && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                        <Bot className="h-3 w-3" />
+                        Agent
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="relative">
                   <input
@@ -891,6 +921,9 @@ export function SetupPage() {
   const saveApiKeys = useSetupStore((s) => s.saveApiKeys);
   const apiKeyInputs = useSetupStore(selectApiKeyInputs);
   const savingApiKeys = useSetupStore(selectSavingApiKeys);
+  const temporaryMode = new URLSearchParams(window.location.search).get('temporary') === '1';
+  const [temporaryCancelPending, setTemporaryCancelPending] = useState(false);
+  const [temporaryCancelMessage, setTemporaryCancelMessage] = useState<string | null>(null);
 
   // Theme
   const getEffectiveTheme = useThemeStore((s) => s.getEffectiveTheme);
@@ -923,7 +956,29 @@ export function SetupPage() {
 
   const handleFinish = () => {
     // Navigate to main app and auto-open quickstart wizard
-    window.location.href = '/?wizard=open';
+    window.location.href = temporaryMode ? '/?wizard=open&temporary=1' : '/?wizard=open';
+  };
+
+  const handleTemporaryCancel = async () => {
+    setTemporaryCancelPending(true);
+    setTemporaryCancelMessage(null);
+
+    try {
+      const response = await fetch('/api/quickstart/cancel', { method: 'POST' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to cancel temporary quickstart session');
+      }
+
+      setTemporaryCancelMessage('Setup cancelled. You can close this tab.');
+      window.close();
+    } catch (err) {
+      setTemporaryCancelMessage(
+        err instanceof Error ? err.message : 'Temporary quickstart cancellation failed',
+      );
+    } finally {
+      setTemporaryCancelPending(false);
+    }
   };
 
   return (
@@ -936,14 +991,33 @@ export function SetupPage() {
               MassGen Setup
             </h1>
           </div>
-          <a
-            href="/"
-            className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 text-sm"
-          >
-            Skip to App <ExternalLink className="w-3 h-3" />
-          </a>
+          {temporaryMode ? (
+            <button
+              type="button"
+              onClick={handleTemporaryCancel}
+              disabled={temporaryCancelPending}
+              className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {temporaryCancelPending ? 'Cancelling...' : 'Cancel Setup'}
+            </button>
+          ) : (
+            <a
+              href="/"
+              className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 text-sm"
+            >
+              Skip to App <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
         </div>
       </header>
+
+      {temporaryCancelMessage && (
+        <div className="px-6 pt-4">
+          <div className="max-w-4xl mx-auto rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+            {temporaryCancelMessage}
+          </div>
+        </div>
+      )}
 
       {/* Progress Steps */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">

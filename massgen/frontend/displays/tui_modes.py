@@ -22,11 +22,15 @@ class PlanConfig:
     """Configuration for plan mode behavior.
 
     Attributes:
-        depth: Plan granularity level
+        depth: Plan granularity level (task count)
             - "dynamic": planner chooses based on scope (default)
             - "shallow": 5-10 high-level tasks
             - "medium": 20-50 tasks
             - "deep": 100-200+ granular tasks
+        thoroughness: Strategic reasoning depth (orthogonal to task count)
+            - "standard": produce the plan with reasonable justification (default)
+            - "thorough": deep strategic reasoning, explicit anti-patterns,
+              design system principles, risk analysis, experience blueprints
         target_steps: Optional explicit target number of tasks (None = dynamic)
         target_chunks: Optional explicit target number of chunks (default = 1, None = dynamic)
         execute_auto_continue_chunks: If True, auto-continue to next chunk after completion.
@@ -42,6 +46,7 @@ class PlanConfig:
     """
 
     depth: PlanDepth = "dynamic"
+    thoroughness: Literal["standard", "thorough"] = "standard"
     target_steps: int | None = None
     target_chunks: int | None = 1
     execute_auto_continue_chunks: bool = True

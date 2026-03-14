@@ -21,10 +21,11 @@ Think of it this way: if the agent built a website with a bland timeline, you do
 
 1. **Examine the actual output files.** Read/view/inspect every deliverable — not just the answer summary. Look at what was actually produced, not what was described.
 
-2. **Identify the 3-5 elements with the most quality headroom.** Use the Evaluation Input packet verbatim to target the exact criteria that are stuck. These are components that are functional but clearly mediocre — a user would look at them and think "this is fine, I guess" rather than "this is impressive." Prioritize elements that:
+2. **Identify the 3-5 elements with the most quality headroom.** Use the Evaluation Input packet verbatim to target the exact criteria that are stuck. These are components that are functional but clearly mediocre — a user would look at them and think "this is fine, I guess" rather than "this is impressive." If one element is dramatically better than the rest (a breakthrough), study WHY it works — its technique, structure, or craft approach — and apply that same principle to lift the weaker elements. Prioritize elements that:
    - Directly affect failing evaluation criteria
    - Are highly visible to the end user
    - Could be significantly improved without changing the overall structure
+   - Could benefit from a technique already proven in a stronger component
 
 3. **For each element, describe the gap between current and excellent.** Be specific about what makes it mediocre and what excellence looks like. "The text is too dense" is a start; "Slide 3 has 120 words in 10pt font — a presentation slide should have 30 words max in 24pt+ font with a single key visual" is what you should produce.
 
@@ -43,6 +44,7 @@ Quality rethinking IS:
 - **Harmonizing**: Unify a patchwork of styles into a consistent design language
 - **Reimagining a component**: Replace a generic bullet list with an engaging visual that communicates the same information
 - **Raising craft**: Apply the level of care a professional designer/writer/developer would bring to each specific element
+- **Amplifying breakthroughs**: One component cracked the quality code — identify its technique and spread it to lift weaker components to the same standard
 
 The test is: would someone looking at the before and after of a specific element say "that's a completely different level of quality" — even though the overall structure hasn't changed?
 

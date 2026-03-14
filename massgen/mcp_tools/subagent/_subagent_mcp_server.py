@@ -56,6 +56,15 @@ _subagent_types_loaded: bool = False  # set to True after first lazy scan
 _next_subagent_index: int = 0  # auto-increment counter for default subagent IDs
 
 
+def _normalize_context_paths_arg(value: Any) -> list[str] | Any:
+    """Accept a single string path as shorthand for a one-item context_paths list."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return value
+
+
 def _find_temp_workspace_mcp_fallback(file_name: str) -> Path | None:
     """Find a subagent MCP config file copied into agent temp workspace snapshots.
 
@@ -132,12 +141,13 @@ def _ensure_specialized_types_loaded() -> None:
     global _specialized_subagents, _subagent_types_loaded
     if _subagent_types_loaded:
         return
-    _subagent_types_loaded = True
     if _workspace_path is None:
         return
     types_dir = _workspace_path / ".massgen" / "subagent_types"
     if not types_dir.is_dir():
         logger.warning(f"[SubagentMCP] subagent_types dir not found: {types_dir}")
+        # Do NOT set _subagent_types_loaded — the orchestrator may write
+        # the directory between rounds and we need to rescan on the next call.
         return
     try:
         import re
@@ -177,6 +187,8 @@ def _ensure_specialized_types_loaded() -> None:
                 loaded += 1
             except Exception as e:
                 logger.warning(f"[SubagentMCP] Failed to parse {md_file}: {e}")
+        if loaded > 0:
+            _subagent_types_loaded = True
         logger.info(f"[SubagentMCP] Lazily loaded {loaded} specialized subagent types")
     except Exception as e:
         logger.warning(f"[SubagentMCP] Failed to scan subagent types: {e}")
@@ -241,6 +253,29 @@ def _save_subagents_to_filesystem() -> None:
         registry_file.write_text(json.dumps(registry, indent=2))
     except OSError as e:
         logger.error(f"[SubagentMCP] Failed to save registry: {e}")
+
+
+def _resolve_effective_timeout_seconds(manager: Any, timeout_seconds: int | None = None) -> int:
+    """Resolve the timeout the manager will actually enforce."""
+    clamp_timeout = getattr(manager, "_clamp_timeout", None)
+    if callable(clamp_timeout):
+        try:
+            return int(clamp_timeout(timeout_seconds))
+        except Exception:
+            pass
+
+    if timeout_seconds is not None:
+        return int(timeout_seconds)
+    return int(_default_timeout)
+
+
+def _attach_timeout_seconds(payload: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
+    """Ensure TUI-facing spawn payloads include timeout metadata."""
+    if payload.get("timeout_seconds") is not None:
+        return payload
+    enriched = dict(payload)
+    enriched["timeout_seconds"] = timeout_seconds
+    return enriched
 
 
 async def create_server() -> fastmcp.FastMCP:
@@ -583,7 +618,11 @@ async def create_server() -> fastmcp.FastMCP:
                    - "context_paths": (optional) extra read-only paths beyond the parent
                      workspace. Use for peer workspace paths (from Available agent
                      workspaces section) or other allowed paths. Defaults to [].
-                   - "subagent_id": (optional) custom identifier
+                   - "subagent_id": (optional) custom identifier. Must be unique across
+                     all spawned subagents — use a different ID for each invocation
+                     (e.g. "round_eval_r2", "round_eval_r3").
+                   - "subagent_type": (optional) specialized type name (e.g. "round_evaluator").
+                     Injects the type's system prompt and skills automatically.
                    - "context_files": (optional) files to copy into subagent workspace
             background: (optional) If True, spawn subagents in the background and return immediately.
                         Results will be automatically injected into your context when subagents complete.
@@ -687,6 +726,7 @@ async def create_server() -> fastmcp.FastMCP:
         """
         try:
             manager = _get_manager()
+            effective_timeout_seconds = _resolve_effective_timeout_seconds(manager)
 
             # Validate tasks
             if not tasks:
@@ -706,12 +746,14 @@ async def create_server() -> fastmcp.FastMCP:
 
             # Merge top-level context_paths into every task so callers can share
             # peer workspace mounts without repeating them per-task.
-            top_level_paths: list[str] = context_paths or []
+            normalized_top_level_paths = _normalize_context_paths_arg(context_paths)
+            top_level_paths: list[str] = normalized_top_level_paths or []
             if top_level_paths:
                 merged_tasks = []
                 for t in tasks:
                     t = dict(t)  # shallow copy — don't mutate caller's dicts
-                    per_task = list(t.get("context_paths") or [])
+                    normalized_task_paths = _normalize_context_paths_arg(t.get("context_paths"))
+                    per_task = list(normalized_task_paths or [])
                     # Append top-level paths, preserving per-task order and
                     # avoiding duplicates while keeping list semantics.
                     for p in top_level_paths:
@@ -730,7 +772,8 @@ async def create_server() -> fastmcp.FastMCP:
                 for t in tasks:
                     if t.get("include_temp_workspace", True):
                         t = dict(t)
-                        per_task = list(t.get("context_paths") or [])
+                        normalized_task_paths = _normalize_context_paths_arg(t.get("context_paths"))
+                        per_task = list(normalized_task_paths or [])
                         if tw_str not in per_task:
                             per_task.insert(0, tw_str)
                         t["context_paths"] = per_task
@@ -746,7 +789,7 @@ async def create_server() -> fastmcp.FastMCP:
                     }
                 # context_paths is now optional (defaults to []).
                 # Parent workspace is always mounted unless include_parent_workspace=False.
-                context_paths_val = task_config.get("context_paths", [])
+                context_paths_val = _normalize_context_paths_arg(task_config.get("context_paths", []))
                 if context_paths_val is not None and not isinstance(context_paths_val, list):
                     actual_type = type(context_paths_val).__name__
                     return {
@@ -761,6 +804,7 @@ async def create_server() -> fastmcp.FastMCP:
                             "operation": "spawn_subagents",
                             "error": (f"Task at index {i} context_paths[{idx}]: " f"expected string, got {type(path_str).__name__}"),
                         }
+                task_config["context_paths"] = context_paths_val or []
                 if _workspace_path:
                     workspace_root = Path(_workspace_path)
                     for path_str in context_paths_val or []:
@@ -846,6 +890,9 @@ async def create_server() -> fastmcp.FastMCP:
             # Resolve specialized subagent types (lazy load on first call)
             _ensure_specialized_types_loaded()
             for t in normalized_tasks:
+                # Normalize common alias: some models send "subagent_name" instead of "subagent_type"
+                if "subagent_type" not in t and "subagent_name" in t:
+                    t["subagent_type"] = t.pop("subagent_name")
                 subagent_type = t.get("subagent_type", "")
                 if not subagent_type:
                     continue
@@ -883,11 +930,12 @@ async def create_server() -> fastmcp.FastMCP:
                         context_paths=task_config.get("context_paths") or [],
                         include_parent_workspace=task_config.get("include_parent_workspace", True),
                         system_prompt=task_config.get("system_prompt"),
-                        timeout_seconds=_default_timeout,
+                        timeout_seconds=effective_timeout_seconds,
                         refine=refine,
                         skills=task_config.get("skills"),
                         subagent_type=task_config.get("subagent_type") or None,
                     )
+                    info = _attach_timeout_seconds(info, effective_timeout_seconds)
                     # Clean up manager state for immediately-failed spawns
                     if info.get("status") == "error":
                         assigned_id = task_config.get("subagent_id", "")
@@ -922,6 +970,7 @@ async def create_server() -> fastmcp.FastMCP:
                                 "task": t.get("task", ""),
                                 "status": "running",
                                 "progress_percent": 0,
+                                "timeout_seconds": effective_timeout_seconds,
                                 "workspace": "",
                                 "log_path": "",
                             }
@@ -936,10 +985,11 @@ async def create_server() -> fastmcp.FastMCP:
                 results = run_async_safely(
                     manager.spawn_parallel(
                         tasks=normalized_tasks,
-                        timeout_seconds=_default_timeout,  # Use configured default, not model-specified
+                        timeout_seconds=effective_timeout_seconds,  # Use configured default, not model-specified
                         refine=refine,
                     ),
                 )
+                result_payloads = [_attach_timeout_seconds(r.to_dict(), effective_timeout_seconds) for r in results]
 
                 # Update status file with completion
                 if _workspace_path is not None:
@@ -948,7 +998,7 @@ async def create_server() -> fastmcp.FastMCP:
                         "status": "completed",
                         "started_at": started_at,
                         "completed_at": datetime.now().isoformat(),
-                        "subagents": [r.to_dict() for r in results],
+                        "subagents": result_payloads,
                     }
                     status_file.write_text(json.dumps(completed_status, indent=2))
 
@@ -965,7 +1015,7 @@ async def create_server() -> fastmcp.FastMCP:
                     "success": all_success,
                     "operation": "spawn_subagents",
                     "mode": "blocking",
-                    "results": [r.to_dict() for r in results],
+                    "results": result_payloads,
                     "summary": {
                         "total": len(results),
                         "completed": completed,
@@ -1100,6 +1150,7 @@ async def create_server() -> fastmcp.FastMCP:
         """
         try:
             manager = _get_manager()
+            effective_timeout_seconds = _resolve_effective_timeout_seconds(manager, timeout_seconds)
 
             # Validate inputs
             if not subagent_id or not subagent_id.strip():
@@ -1122,6 +1173,7 @@ async def create_server() -> fastmcp.FastMCP:
                     new_message=message,
                     timeout_seconds=timeout_seconds,
                 )
+                info = _attach_timeout_seconds(info, effective_timeout_seconds)
                 if str(info.get("status", "")).lower() == "error" or info.get("error"):
                     return {
                         "success": False,
@@ -1156,14 +1208,14 @@ async def create_server() -> fastmcp.FastMCP:
                     "operation": "continue_subagent",
                     "mode": "blocking",
                     "error": result.error,
-                    **result.to_dict(),
+                    **_attach_timeout_seconds(result.to_dict(), effective_timeout_seconds),
                 }
 
             return {
                 "success": True,
                 "operation": "continue_subagent",
                 "mode": "blocking",
-                **result.to_dict(),
+                **_attach_timeout_seconds(result.to_dict(), effective_timeout_seconds),
             }
 
         except Exception as e:

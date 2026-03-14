@@ -37,10 +37,20 @@ MAX_TOOL_ARG_SIZE = 15000
 MAX_FILE_CONTENT_LENGTH = 50000
 MAX_FILE_TOOL_ARG_SIZE = 50000
 
+# Higher limits for spawn_subagents task payloads.
+# Subagent prompts can legitimately include large evaluator packets and other
+# orchestrator-generated briefs that are still well below CLI/system limits.
+MAX_SUBAGENT_TASK_STRING_LENGTH = 100000
+MAX_SUBAGENT_TOOL_ARG_SIZE = 100000
+
 # Tools that are allowed higher string limits
 FILE_OPERATION_TOOLS = {
     "write_file",
     "edit_file",
+}
+
+LARGE_PAYLOAD_TOOLS = {
+    "spawn_subagents",
 }
 
 
@@ -722,6 +732,14 @@ def _is_file_operation_tool(tool_name: str | None) -> bool:
     return base_name in FILE_OPERATION_TOOLS
 
 
+def _get_tool_base_name(tool_name: str | None) -> str:
+    """Extract the base tool name from a full MCP tool identifier."""
+    if not tool_name:
+        return ""
+    parts = tool_name.split("__")
+    return parts[-1] if parts else tool_name
+
+
 def validate_tool_arguments(
     arguments: dict[str, Any],
     max_depth: int = MAX_TOOL_ARG_DEPTH,
@@ -746,10 +764,19 @@ def validate_tool_arguments(
     if not isinstance(arguments, dict):
         raise ValueError("Tool arguments must be a dictionary")
 
-    # Use higher limits for file operation tools
+    # Use higher limits for specific tools with legitimate large payloads.
+    base_name = _get_tool_base_name(tool_name)
     is_file_tool = _is_file_operation_tool(tool_name)
-    effective_max_size = MAX_FILE_TOOL_ARG_SIZE if is_file_tool else max_size
-    effective_max_string = MAX_FILE_CONTENT_LENGTH if is_file_tool else MAX_STRING_LENGTH
+    is_large_payload_tool = base_name in LARGE_PAYLOAD_TOOLS
+    if is_file_tool:
+        effective_max_size = MAX_FILE_TOOL_ARG_SIZE
+        effective_max_string = MAX_FILE_CONTENT_LENGTH
+    elif is_large_payload_tool:
+        effective_max_size = MAX_SUBAGENT_TOOL_ARG_SIZE
+        effective_max_string = MAX_SUBAGENT_TASK_STRING_LENGTH
+    else:
+        effective_max_size = max_size
+        effective_max_string = MAX_STRING_LENGTH
 
     current_size = 0
 

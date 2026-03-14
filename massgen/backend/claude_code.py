@@ -1857,22 +1857,40 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         servers_to_use = self._get_background_mcp_servers()
         if not servers_to_use:
             self._background_mcp_initialized = True
+            self._background_mcp_init_error = None
             return None
 
         try:
+            # Derive timeout from server configs' tool_timeout_sec (set by the
+            # orchestrator to subagent_default_timeout + 60).  This ensures the
+            # MCP session read timeout is long enough for blocking
+            # spawn_subagents calls whose duration scales with the configured
+            # subagent timeout — rather than a hardcoded value that silently
+            # caps long-running subagents.
+            max_tool_timeout = max(
+                (s.get("tool_timeout_sec", 0) for s in servers_to_use),
+                default=0,
+            )
+            # Use the max tool_timeout_sec if available, otherwise fall back to
+            # a sensible default.  The +60 buffer accounts for MCP overhead
+            # beyond the tool execution itself.
+            mcp_session_timeout = max(max_tool_timeout + 60, 1800)
+
             self._background_mcp_client = await MCPResourceManager.setup_mcp_client(
                 servers=servers_to_use,
                 allowed_tools=getattr(self, "allowed_tools", None),
                 exclude_tools=getattr(self, "exclude_tools", None),
                 circuit_breaker=getattr(self, "_mcp_tools_circuit_breaker", None),
-                timeout_seconds=400,
+                timeout_seconds=mcp_session_timeout,
                 backend_name=self.get_provider_name(),
                 agent_id=getattr(self, "agent_id", None),
             )
             self._background_mcp_initialized = True
+            self._background_mcp_init_error = None
             return self._background_mcp_client
         except Exception as e:  # noqa: BLE001
             self._background_mcp_initialized = True
+            self._background_mcp_init_error = str(e)
             logger.warning(
                 "[ClaudeCodeBackend] Failed to initialize background MCP client: %s",
                 e,
@@ -2596,6 +2614,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "use_default_prompt",  # Handled in stream_with_tools - controls system prompt mode
             "max_thinking_tokens",  # Deprecated: handled below via reasoning config
             "reasoning",  # Unified reasoning config → SDK thinking + effort fields
+            "env",  # Handled separately: CLAUDECODE="" is always injected, then user overrides are merged
             # Note: use_mcpwrapped_for_tool_filtering and use_no_roots_wrapper are in base excluded params
             # Note: system_prompt is NOT excluded - it's needed for internal workflow prompt injection
             # Validation prevents it from being set in YAML backend config
@@ -2676,6 +2695,12 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "autoAllowBashIfSandboxed": True,
         }
 
+        # Clear CLAUDECODE env var so child Claude Code sessions are not blocked
+        # by nested session detection (CLAUDECODE=1 is inherited from the parent).
+        env_overrides = {"CLAUDECODE": ""}
+        if "env" in options_kwargs:
+            env_overrides.update(options_kwargs["env"])
+
         options = {
             "cwd": str(cwd_option),
             "resume": self.get_current_session_id(),
@@ -2684,6 +2709,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "add_dirs": add_dirs if add_dirs else [],
             "sandbox": sandbox_settings,
             "setting_sources": setting_sources,
+            "env": env_overrides,
             **{k: v for k, v in options_kwargs.items() if k not in excluded_params},
         }
 

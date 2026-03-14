@@ -505,6 +505,50 @@ Error Handling Best Practices
       else:
           # Handle missing results
 
+Session Viewer
+==============
+
+While ``--automation`` mode runs headless, you can observe any session (live or completed) in the full Textual TUI using ``massgen viewer``.
+
+.. code-block:: bash
+
+   # In terminal 1: Run headless
+   uv run massgen --automation --config config.yaml "Your question"
+   # Outputs: LOG_DIR: .massgen/massgen_logs/log_20260309_120000_123456/turn_1/attempt_1
+
+   # In terminal 2: View live in TUI
+   uv run massgen viewer .massgen/massgen_logs/log_20260309_120000_123456/turn_1/attempt_1
+
+The viewer shows the exact same TUI as a normal interactive run — agent panels, tool calls, votes, and final presentation — but in read-only mode.
+
+Quick Reference
+---------------
+
+.. code-block:: bash
+
+   # View the most recent session (auto-detected)
+   massgen viewer
+
+   # View a specific log directory
+   massgen viewer /path/to/log_dir
+
+   # Interactive session picker
+   massgen viewer --pick
+
+   # Replay a completed session at real-time speed
+   massgen viewer /path/to/log_dir --replay-speed 1
+
+   # View in browser (requires textual-serve)
+   massgen viewer /path/to/log_dir --web
+
+**Live vs Replay:**
+
+- If the session is still running (``is_complete: false`` in ``status.json``), the viewer tails ``events.jsonl`` in real time
+- If the session is completed, all events are replayed instantly (or at ``--replay-speed`` if specified)
+
+.. tip::
+   This is especially useful for cloud runs, CI/CD pipelines, and embedded processes where you need visual monitoring without a terminal attached to the running process.
+
 Performance Tips
 ================
 

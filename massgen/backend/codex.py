@@ -75,6 +75,7 @@ except ImportError:
     tomli_w = None
 
 from ..logger_config import get_event_emitter, logger
+from ..mcp_tools.backend_utils import MCPResourceManager
 from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import (
     FilesystemSupport,
@@ -163,6 +164,9 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         self._background_wait_interrupt_file: Path | None = None
         self._active_background_wait_calls: set[str] = set()
         self._background_wait_interrupt_provider: Callable[[str], Any] | None = None
+        self._background_mcp_client = None
+        self._background_mcp_initialized = False
+        self._background_mcp_init_error: str | None = None
 
         # Hook IPC for MCP server-level PostToolUse injection
         self._hook_sequence: int = 0
@@ -616,6 +620,70 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             filtered.append(server_cfg)
 
         return filtered
+
+    async def _get_background_mcp_client(self):
+        """Create or return a host-side MCP client for orchestrator-managed tool calls.
+
+        Codex owns the model-facing MCP connections internally via the CLI, but the
+        orchestrator still needs a programmatic path for out-of-band operations such
+        as managed round evaluator spawns. This mirrors the Claude Code backend's
+        sidecar MCP client shape so the orchestrator can stay backend-agnostic.
+        """
+        if self._background_mcp_client:
+            return self._background_mcp_client
+        if self._background_mcp_initialized:
+            return None
+
+        servers_to_use = self._collect_background_mcp_servers()
+        if not servers_to_use:
+            self._background_mcp_initialized = True
+            self._background_mcp_init_error = None
+            return None
+
+        try:
+            max_tool_timeout = max(
+                (server.get("tool_timeout_sec", 0) for server in servers_to_use if isinstance(server, dict)),
+                default=0,
+            )
+            mcp_session_timeout = max(max_tool_timeout + 60, 1800)
+
+            self._background_mcp_client = await MCPResourceManager.setup_mcp_client(
+                servers=servers_to_use,
+                allowed_tools=getattr(self, "allowed_tools", None),
+                exclude_tools=getattr(self, "exclude_tools", None),
+                circuit_breaker=getattr(self, "_mcp_tools_circuit_breaker", None),
+                timeout_seconds=mcp_session_timeout,
+                backend_name=self.get_provider_name(),
+                agent_id=getattr(self, "agent_id", None),
+            )
+            self._background_mcp_initialized = True
+            self._background_mcp_init_error = None
+            return self._background_mcp_client
+        except Exception as e:  # noqa: BLE001
+            self._background_mcp_initialized = True
+            self._background_mcp_init_error = str(e)
+            logger.warning(
+                "[CodexBackend] Failed to initialize background MCP client: %s",
+                e,
+                exc_info=True,
+            )
+            return None
+
+    async def _disconnect_background_mcp_client(self) -> None:
+        """Disconnect any cached host-side MCP client and clear init state."""
+        if self._background_mcp_client is not None:
+            try:
+                await self._background_mcp_client.disconnect()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "[CodexBackend] Failed disconnecting background MCP client: %s",
+                    e,
+                )
+            finally:
+                self._background_mcp_client = None
+
+        self._background_mcp_initialized = False
+        self._background_mcp_init_error = None
 
     def _setup_custom_tools_mcp(self, custom_tools: list[dict[str, Any]]) -> None:
         """Wrap MassGen custom tools as an MCP server and add to mcp_servers.
@@ -2066,6 +2134,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
 
     async def reset_state(self) -> None:
         """Reset session state for new conversation."""
+        await self._disconnect_background_mcp_client()
         self.session_id = None
         self._session_file = None
         self._pending_workflow_instructions = ""
@@ -2079,6 +2148,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
 
         For Codex, this starts a fresh session.
         """
+        await self._disconnect_background_mcp_client()
         self.session_id = None
         self._session_file = None
         self._cleanup_workspace_config()

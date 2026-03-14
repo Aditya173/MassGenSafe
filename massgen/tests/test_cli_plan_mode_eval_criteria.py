@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from massgen.cli import (
     _disable_evaluation_criteria_generation_for_planning,
+    _inject_checklist_criteria_preset_into_config,
     _is_planning_turn,
     _set_planning_checklist_criteria_defaults,
 )
@@ -119,3 +120,50 @@ def test_set_planning_checklist_defaults_noops_when_preset_set():
 
     assert changed is False
     assert coordination_config["checklist_criteria_preset"] == "persona"
+
+
+# ---------------------------------------------------------------------------
+# Tests: _inject_checklist_criteria_preset_into_config (CLI --checklist-criteria-preset)
+# ---------------------------------------------------------------------------
+
+
+class TestInjectChecklistCriteriaPreset:
+    def test_injects_preset_into_empty_config(self):
+        config = {}
+        _inject_checklist_criteria_preset_into_config(config, "planning")
+        assert config["orchestrator"]["coordination"]["checklist_criteria_preset"] == "planning"
+
+    def test_injects_preset_into_existing_coordination(self):
+        config = {"orchestrator": {"coordination": {"max_rounds": 3}}}
+        _inject_checklist_criteria_preset_into_config(config, "evaluation")
+        assert config["orchestrator"]["coordination"]["checklist_criteria_preset"] == "evaluation"
+        assert config["orchestrator"]["coordination"]["max_rounds"] == 3
+
+    def test_overrides_existing_preset(self):
+        config = {"orchestrator": {"coordination": {"checklist_criteria_preset": "persona"}}}
+        _inject_checklist_criteria_preset_into_config(config, "planning")
+        assert config["orchestrator"]["coordination"]["checklist_criteria_preset"] == "planning"
+
+    def test_all_valid_presets(self):
+        from massgen.evaluation_criteria_generator import VALID_CRITERIA_PRESETS
+
+        for preset in VALID_CRITERIA_PRESETS:
+            config = {}
+            _inject_checklist_criteria_preset_into_config(config, preset)
+            assert config["orchestrator"]["coordination"]["checklist_criteria_preset"] == preset
+
+
+class TestChecklistCriteriaPresetCLIArg:
+    def test_parser_accepts_preset_flag(self):
+        from massgen.cli import main_parser
+
+        parser = main_parser()
+        args = parser.parse_args(["--checklist-criteria-preset", "planning", "test question"])
+        assert args.checklist_criteria_preset == "planning"
+
+    def test_parser_default_is_none(self):
+        from massgen.cli import main_parser
+
+        parser = main_parser()
+        args = parser.parse_args(["test question"])
+        assert args.checklist_criteria_preset is None

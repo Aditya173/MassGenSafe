@@ -1,0 +1,57 @@
+name: Sync MassGen Skills to Standalone Repo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'massgen/skills/massgen/**'
+
+jobs:
+  sync-skill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Checkout skills repo
+        uses: actions/checkout@v4
+        with:
+          repository: massgen/skills
+          token: ${{ secrets.SKILL_REPO_TOKEN }}
+          path: _skills_repo
+
+      - name: Sync skill files
+        run: |
+          # Clear old massgen skill content (preserve repo-level files)
+          rm -rf _skills_repo/massgen
+
+          # Copy skill directory
+          mkdir -p _skills_repo/massgen
+          cp massgen/skills/massgen/SKILL.md _skills_repo/massgen/
+          cp -r massgen/skills/massgen/references _skills_repo/massgen/
+          if [ -d massgen/skills/massgen/scripts ]; then
+            cp -r massgen/skills/massgen/scripts _skills_repo/massgen/
+          fi
+
+          # Copy LICENSE from main repo
+          cp LICENSE _skills_repo/LICENSE
+
+      - name: Commit and push
+        working-directory: _skills_repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if there are changes
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to sync"
+            exit 0
+          fi
+
+          git add -A
+          COMMIT_SHA="${GITHUB_SHA::8}"
+          git commit -m "Sync from massgen/massgen@${COMMIT_SHA}"
+          git push

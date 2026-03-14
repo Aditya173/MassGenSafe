@@ -262,9 +262,15 @@ class TestSpecificBackends:
         caps = get_capabilities("claude_code")
         assert "bash" in caps.supported_capabilities
         assert "mcp" in caps.supported_capabilities
+        assert "reasoning" in caps.supported_capabilities
         assert caps.filesystem_support == "native"
         assert caps.env_var == "ANTHROPIC_API_KEY"
         assert len(caps.builtin_tools) > 0
+
+    def test_codex_capabilities_include_reasoning(self):
+        """Codex quickstart should advertise reasoning-capable GPT-5 models."""
+        caps = get_capabilities("codex")
+        assert "reasoning" in caps.supported_capabilities
 
     def test_claude_code_models_include_sonnet_46_after_opus_46(self):
         """Claude Code quickstart models should list Sonnet 4.6 right after Opus 4.6."""

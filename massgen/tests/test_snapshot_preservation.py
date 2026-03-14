@@ -483,6 +483,192 @@ class TestHasMeaningfulContent:
         (d / "deliverable.txt").write_text("content")
         assert has_meaningful_content(d) is True
 
+
+class TestRestoreWorkspaceFromLatestAnswerDir:
+    """Tests for _restore_workspace_from_latest_answer_dir orchestrator helper.
+
+    In timeout/fallback paths, the live workspace may have been cleared between
+    rounds and only has scaffolding.  The real deliverables live in the immutable
+    per-round answer directories under log_session_dir/<agent_id>/<ts>/workspace/.
+    The orchestrator must restore the workspace from the latest one before the
+    final snapshot save.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, tmp_path: Path):
+        from massgen.orchestrator import Orchestrator
+
+        self.workspace = tmp_path / "workspace"
+        self.workspace.mkdir()
+        self.log_dir = tmp_path / "logs"
+        self.log_dir.mkdir()
+
+        # Minimal mock agent with filesystem_manager.cwd pointing to workspace
+        self.fm_mock = MagicMock()
+        self.fm_mock.cwd = str(self.workspace)
+        self.backend_mock = MagicMock()
+        self.backend_mock.filesystem_manager = self.fm_mock
+        self.agent_mock = MagicMock()
+        self.agent_mock.backend = self.backend_mock
+
+        self.orch = Orchestrator.__new__(Orchestrator)
+        self.orch.agents = {"eval_gemini": self.agent_mock}
+
+    def test_copies_deliverables_from_latest_answer_dir(self):
+        """Workspace has only tasks/, per-round dirs have critique_packet.md."""
+        # Workspace only has scaffolding
+        (self.workspace / "tasks").mkdir()
+        _create_file(self.workspace / "tasks", "plan.json", '{"tasks": []}')
+
+        # Per-round answer dirs (immutable, have real content)
+        round1 = self.log_dir / "eval_gemini" / "20260309_141507" / "workspace"
+        round1.mkdir(parents=True)
+        _create_file(round1, "critique_packet.md", "# Round 1 (older)")
+        _create_file(round1, "verdict.json", '{"verdict": "iterate"}')
+
+        round2 = self.log_dir / "eval_gemini" / "20260309_143151" / "workspace"
+        round2.mkdir(parents=True)
+        _create_file(round2, "critique_packet.md", "# Round 2 (latest)")
+        _create_file(round2, "verdict.json", '{"verdict": "iterate"}')
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is True
+        assert (self.workspace / "critique_packet.md").read_text() == "# Round 2 (latest)"
+        assert (self.workspace / "verdict.json").read_text() == '{"verdict": "iterate"}'
+        # Existing scaffolding untouched
+        assert (self.workspace / "tasks" / "plan.json").exists()
+
+    def test_does_not_overwrite_existing_files(self):
+        """Files already in workspace must NOT be overwritten."""
+        _create_file(self.workspace, "critique_packet.md", "# Already here")
+
+        round1 = self.log_dir / "eval_gemini" / "20260309_141507" / "workspace"
+        round1.mkdir(parents=True)
+        _create_file(round1, "critique_packet.md", "# From answer dir")
+        _create_file(round1, "verdict.json", '{"verdict": "iterate"}')
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is True
+        # Existing file preserved — NOT overwritten
+        assert (self.workspace / "critique_packet.md").read_text() == "# Already here"
+        # New file from answer dir was copied
+        assert (self.workspace / "verdict.json").exists()
+
+    def test_no_answer_dirs_returns_false(self):
+        """No per-round answer dirs → returns False gracefully."""
+        # Agent log dir exists but has no timestamped subdirs
+        (self.log_dir / "eval_gemini").mkdir(parents=True)
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is False
+
+    def test_no_log_session_dir_returns_false(self):
+        """No log session dir → returns False."""
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=None):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is False
+
+    def test_unknown_agent_returns_false(self):
+        """Unknown agent_id → returns False."""
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("nonexistent")
+
+        assert result is False
+
+    def test_no_filesystem_manager_returns_false(self):
+        """Agent without filesystem_manager → returns False."""
+        self.backend_mock.filesystem_manager = None
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is False
+
+    def test_skips_final_directory(self):
+        """The 'final' directory must be excluded from answer dir candidates."""
+        # Only a 'final' dir exists — should not be used
+        final_dir = self.log_dir / "eval_gemini" / "final" / "workspace"
+        final_dir.mkdir(parents=True)
+        _create_file(final_dir, "critique_packet.md", "# Final content")
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is False
+
+    def test_copies_subdirectories(self):
+        """Directories in the answer dir should be recursively copied."""
+        round1 = self.log_dir / "eval_gemini" / "20260309_141507" / "workspace"
+        round1.mkdir(parents=True)
+        (round1 / "subdir").mkdir()
+        _create_file(round1 / "subdir", "nested.txt", "nested content")
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is True
+        assert (self.workspace / "subdir" / "nested.txt").read_text() == "nested content"
+
+    def test_skips_symlinks(self):
+        """Symlinks in answer dirs should be skipped."""
+        round1 = self.log_dir / "eval_gemini" / "20260309_141507" / "workspace"
+        round1.mkdir(parents=True)
+        _create_file(round1, "real.txt", "real content")
+
+        # Create a symlink in the answer dir
+        target = self.log_dir / "target.txt"
+        target.write_text("target")
+        (round1 / "link.txt").symlink_to(target)
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=self.log_dir):
+            result = self.orch._restore_workspace_from_latest_answer_dir("eval_gemini")
+
+        assert result is True
+        assert (self.workspace / "real.txt").exists()
+        assert not (self.workspace / "link.txt").exists()
+
+
+class TestFinalSnapshotWithWorkspaceContent:
+    """Validate that save_snapshot(is_final=True) works correctly when workspace has real content."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, tmp_path: Path):
+        self.workspace = tmp_path / "workspace"
+        self.workspace.mkdir()
+        self.snapshot = tmp_path / "snapshot_storage"
+        self.snapshot.mkdir()
+        self.log_dir = tmp_path / "logs"
+        self.log_dir.mkdir()
+
+        self.fm = FilesystemManager.__new__(FilesystemManager)
+        self.fm.cwd = str(self.workspace)
+        self.fm.snapshot_storage = self.snapshot
+        self.fm.agent_id = "eval_gemini"
+        self.fm.use_two_tier_workspace = False
+        self.fm.is_shared_workspace = False
+
+    @pytest.mark.asyncio
+    async def test_final_still_uses_workspace_when_it_has_real_content(self):
+        """If workspace has real deliverables, final save should use it normally."""
+        _create_file(self.workspace, "critique_packet.md", "# Fresh critique")
+        _create_file(self.workspace, "verdict.json", '{"verdict": "converged"}')
+
+        with patch(
+            "massgen.filesystem_manager._filesystem_manager.get_log_session_dir",
+            return_value=self.log_dir,
+        ):
+            await self.fm.save_snapshot(is_final=True)
+
+        final_workspace = self.log_dir / "final" / "eval_gemini" / "workspace"
+        assert (final_workspace / "critique_packet.md").read_text() == "# Fresh critique"
+
     def test_symlink_only_returns_false(self, tmp_path: Path):
         from massgen.filesystem_manager import has_meaningful_content
 

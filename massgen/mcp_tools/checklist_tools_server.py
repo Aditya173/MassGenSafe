@@ -25,9 +25,23 @@ from typing import Any
 
 import fastmcp
 
+from massgen.mcp_tools.planning.planning_dataclasses import normalize_task_execution
+
 logger = logging.getLogger(__name__)
 
 SERVER_NAME = "massgen_checklist"
+
+
+def _normalize_task_execution_for_item(item: dict[str, Any], default_mode: str = "inline") -> dict[str, Any]:
+    """Return canonical execution metadata for a task-plan item."""
+    metadata = item.get("metadata")
+    item_metadata = metadata if isinstance(metadata, dict) else {}
+    return normalize_task_execution(
+        item.get("execution") or item_metadata.get("execution"),
+        subagent_id=item.get("subagent_id") or item_metadata.get("subagent_id"),
+        subagent_name=item.get("subagent_name") or item_metadata.get("subagent_name"),
+        default_mode=default_mode,
+    )
 
 
 def _resolve_hook_middleware() -> Any:
@@ -98,6 +112,44 @@ def _read_specs(specs_path: Path) -> dict[str, Any]:
     except Exception as exc:
         logger.error(f"Failed to read checklist specs: {exc}")
         return {}
+
+
+def build_round_evaluator_task_mode_redirect(state: dict[str, Any]) -> str | None:
+    """Return a redirect message when post-evaluator tasks are already injected."""
+    if not bool(state.get("round_evaluator_auto_injected", False)):
+        return None
+
+    critique_path = str(state.get("round_evaluator_primary_artifact_path") or "").strip()
+    verdict_path = str(state.get("round_evaluator_verdict_artifact_path") or "").strip()
+    next_tasks_path = str(state.get("round_evaluator_next_tasks_artifact_path") or "").strip()
+    objective = str(state.get("round_evaluator_objective") or "").strip()
+    primary_strategy = str(state.get("round_evaluator_primary_strategy") or "").strip()
+    why_this_strategy = str(state.get("round_evaluator_why_this_strategy") or "").strip()
+    deprioritize_raw = state.get("round_evaluator_deprioritize_or_remove")
+    deprioritize = [str(item).strip() for item in deprioritize_raw or [] if str(item).strip()] if isinstance(deprioritize_raw, list) else []
+
+    parts = [
+        "The round evaluator has already finished and auto-injected your next tasks.",
+        "`get_task_plan` is the source of truth.",
+        "Implement and verify those tasks, then call `new_answer`.",
+        "Do not call `submit_checklist` or `propose_improvements` here.",
+        "Do not write a second diagnostic report.",
+    ]
+    if objective:
+        parts.append(f"Chosen objective: {objective}.")
+    if primary_strategy:
+        parts.append(f"Chosen strategy: {primary_strategy}.")
+    if why_this_strategy:
+        parts.append(f"Why this strategy: {why_this_strategy}.")
+    if deprioritize:
+        parts.append(f"Deprioritize or remove: {', '.join(deprioritize)}.")
+    if critique_path:
+        parts.append(f"Reference critique packet: {critique_path}.")
+    if verdict_path:
+        parts.append(f"Reference verdict metadata: {verdict_path}.")
+    if next_tasks_path:
+        parts.append(f"Reference next-task handoff: {next_tasks_path}.")
+    return " ".join(parts)
 
 
 def _extract_score(entry: Any) -> int:
@@ -420,16 +472,20 @@ def evaluate_proposed_improvements(
                 # Keep backward-compat "improvement" key
                 "improvement": norm["plan"],
             }
-            if norm["impact"] in ("structural", "transformative"):
-                # Advisory delegation signal; agent still chooses whether to delegate.
-                task_entry["subagent_name"] = "builder"
+            if bool(_state.get("subagents_enabled")) and norm["impact"] in ("structural", "transformative"):
+                task_entry["execution"] = {"mode": "delegate", "subagent_type": "builder"}
+            else:
+                task_entry["execution"] = {"mode": "inline"}
             task_plan.append(task_entry)
 
     # Single verify_preserve checkpoint at the END (not N individual preserve rows)
     if normalized_preserve:
         preserve_items = [{"criterion_id": cid, "what": p["what"], "source": p["source"]} for cid, p in normalized_preserve.items()]
         verify_description = (
-            "Before submitting: verify these strengths haven't regressed — " "confirm each preserved item is present in the actual output, " "and that passing criteria scores haven't dropped."
+            "Before submitting: verify these strengths haven't regressed and "
+            "that earlier correctness fixes still hold after later changes — "
+            "confirm each preserved item is present in the actual output, and "
+            "that passing criteria scores haven't dropped."
         )
         if bool(_state.get("subagents_enabled")):
             verify_description += (
@@ -446,7 +502,9 @@ def evaluate_proposed_improvements(
         }
         if bool(_state.get("subagents_enabled")):
             # Advisory: evaluator subagent is a strong fit for regression/comparison checks.
-            verify_task["subagent_name"] = "evaluator"
+            verify_task["execution"] = {"mode": "delegate", "subagent_type": "evaluator"}
+        else:
+            verify_task["execution"] = {"mode": "inline"}
         task_plan.append(verify_task)
 
     result: dict[str, Any] = {
@@ -456,9 +514,12 @@ def evaluate_proposed_improvements(
             f"Improvements validated for {len(failed_criteria)} criteria. "
             f"{len(normalized_preserve)} criteria marked for preservation. "
             "Add each item from task_plan to your task plan tool, then "
-            "execute them. The verify_preserve item at the end is a final "
-            "guardrail — confirm preserved strengths are intact before submitting. "
-            "Do not skip criteria or substitute easier work."
+            "execute them. Do correctness-critical tasks first when present, "
+            "then the remaining higher-order work. The verify_preserve item at "
+            "the end is a final guardrail — confirm preserved strengths are "
+            "intact and that earlier correctness fixes still hold after later "
+            "changes before submitting. Do not defer blocker correctness fixes "
+            "in favor of easier polish."
         ),
     }
     if normalized_preserve:
@@ -466,8 +527,27 @@ def evaluate_proposed_improvements(
     return result
 
 
+def _resolve_allowed_external_report_paths(state: dict[str, Any]) -> set[Path]:
+    """Return exact external report paths the checklist server may accept."""
+    allowed: set[Path] = set()
+
+    explicit = state.get("allowed_external_report_paths")
+    if isinstance(explicit, list):
+        for path_value in explicit:
+            path_text = str(path_value or "").strip()
+            if not path_text:
+                continue
+            allowed.add(Path(path_text).resolve())
+
+    critique_path = str(state.get("round_evaluator_primary_artifact_path") or "").strip()
+    if critique_path:
+        allowed.add(Path(critique_path).resolve())
+
+    return allowed
+
+
 def _resolve_report_file(report_path: str, state: dict[str, Any]) -> tuple[Path | None, str | None]:
-    """Resolve report path to a workspace-local absolute path."""
+    """Resolve report path to an allowed absolute path."""
     if report_path is None:
         raw_path = ""
     elif isinstance(report_path, str):
@@ -489,7 +569,9 @@ def _resolve_report_file(report_path: str, state: dict[str, Any]) -> tuple[Path 
     try:
         candidate.relative_to(workspace)
     except ValueError:
-        return None, f"Report path must stay inside workspace ({workspace})."
+        if candidate in _resolve_allowed_external_report_paths(state):
+            return candidate, None
+        return None, f"Report path must stay inside workspace ({workspace}) unless it is an allowed external evaluator artifact."
 
     return candidate, None
 
@@ -1039,14 +1121,56 @@ def _convert_task_plan_to_inject_format(task_plan: list[dict]) -> list[dict]:
     """Convert task_plan items from evaluate_proposed_improvements to injection format.
 
     Args:
-        task_plan: List of dicts with "type" key ("improve" or "verify_preserve")
+        task_plan: List of dicts in either legacy evaluator-task format
+            ("explore"/"improve"/"verify_preserve") or already plan-compatible
+            task specs ready for planning MCP consumption.
 
     Returns:
         List of dicts ready for inject_tasks.json consumption by planning MCP
     """
     tasks = []
     for item in task_plan:
-        if item["type"] == "improve":
+        item_type = item.get("type")
+
+        # Structured next_tasks payloads are already in planning-task format.
+        # Pass them through while annotating metadata for injection provenance.
+        if item_type not in {"explore", "improve", "novelty_quality_spawn", "verify_preserve"}:
+            metadata = item.get("metadata")
+            normalized_metadata = metadata.copy() if isinstance(metadata, dict) else {}
+            normalized_item = item.copy()
+            normalized_item["metadata"] = normalized_metadata
+            normalized_execution = _normalize_task_execution_for_item(normalized_item)
+            normalized_metadata["injected"] = True
+            normalized_item["execution"] = normalized_execution
+            normalized_metadata["execution"] = normalized_execution.copy()
+            normalized_item.pop("subagent_name", None)
+            normalized_item.pop("subagent_id", None)
+            for key in ("verification", "verification_method", "impact", "relates_to", "sources", "chunk", "implementation_guidance"):
+                if key in normalized_item:
+                    normalized_metadata.setdefault(key, normalized_item[key])
+            tasks.append(normalized_item)
+        elif item_type == "explore":
+            explore_entry: dict = {
+                "description": f"[OPPORTUNITY] {item['idea']}",
+                "verification": item.get("rationale", ""),
+                "priority": "high",
+                "type": "explore",
+                "impact": item.get("impact", "transformative"),
+                "relates_to": item.get("relates_to", []),
+                "metadata": {
+                    "type": "explore",
+                    "idea": item.get("idea", ""),
+                    "rationale": item.get("rationale", ""),
+                    "impact": item.get("impact", "transformative"),
+                    "relates_to": item.get("relates_to", []),
+                    "injected": True,
+                },
+            }
+            normalized_execution = _normalize_task_execution_for_item(item)
+            explore_entry["execution"] = normalized_execution
+            explore_entry["metadata"]["execution"] = normalized_execution.copy()
+            tasks.append(explore_entry)
+        elif item_type == "improve":
             task = {
                 "description": f"[{item['criterion_id']}] {item['plan']}",
                 "verification": item["criterion"],
@@ -1064,14 +1188,11 @@ def _convert_task_plan_to_inject_format(task_plan: list[dict]) -> list[dict]:
                     "injected": True,
                 },
             }
-            if item.get("subagent_name"):
-                task["subagent_name"] = item["subagent_name"]
-                task["metadata"]["subagent_name"] = item["subagent_name"]
-            if item.get("subagent_id"):
-                task["subagent_id"] = item["subagent_id"]
-                task["metadata"]["subagent_id"] = item["subagent_id"]
+            normalized_execution = _normalize_task_execution_for_item(item)
+            task["execution"] = normalized_execution
+            task["metadata"]["execution"] = normalized_execution.copy()
             tasks.append(task)
-        elif item["type"] == "novelty_quality_spawn":
+        elif item_type == "novelty_quality_spawn":
             metadata = {
                 "type": "novelty_quality_spawn",
                 "failing_criteria": item.get("metadata", {}).get("failing_criteria", []),
@@ -1097,37 +1218,39 @@ def _convert_task_plan_to_inject_format(task_plan: list[dict]) -> list[dict]:
                     ),
                     "priority": item.get("priority", "high"),
                     "type": "novelty_quality_spawn",
+                    "execution": {"mode": "inline"},
                     "metadata": metadata,
                 },
             )
-        elif item["type"] == "verify_preserve":
+        elif item_type == "verify_preserve":
             bullet_list = "; ".join(f"[{p['criterion_id']}] {p['what']} ({p['source']})" for p in item["items"])
             blind_eval_suffix = ""
-            if item.get("subagent_name") in {"evaluator", "critic"}:
+            normalized_execution = _normalize_task_execution_for_item(item)
+            if normalized_execution.get("subagent_type") in {"evaluator", "critic"}:
                 blind_eval_suffix = " For anti-bias comparison, pass all candidate answers with neutral labels " "without revealing which answer is yours."
             task: dict[str, Any] = {
                 "description": (
                     f"Before submitting: verify preserved strengths haven't regressed — {bullet_list}. "
                     "Confirm each preserved item is present in the actual output (run/render/screenshot, "
-                    "not just checking the code), and that passing criteria scores haven't dropped."
+                    "not just checking the code), confirm preserved strengths remain intact, and make sure "
+                    "earlier correctness fixes still pass after later changes. "
+                    "Passing criteria scores also must not drop."
                     f"{blind_eval_suffix}"
                 ),
                 "verification": (
-                    "All preserved elements verified in actual output (run/render/screenshot as appropriate), " "not just present in source files; passing criteria scores confirmed not dropped"
+                    "All preserved elements verified in actual output (run/render/screenshot as appropriate), "
+                    "not just present in source files; preserved strengths intact; earlier correctness fixes "
+                    "still pass after later changes; passing criteria scores confirmed not dropped"
                 ),
                 "priority": "high",
                 "metadata": {
                     "type": "verify_preserve",
                     "items": item["items"],
                     "injected": True,
+                    "execution": normalized_execution.copy(),
                 },
             }
-            if item.get("subagent_name"):
-                task["subagent_name"] = item["subagent_name"]
-                task["metadata"]["subagent_name"] = item["subagent_name"]
-            if item.get("subagent_id"):
-                task["subagent_id"] = item["subagent_id"]
-                task["metadata"]["subagent_id"] = item["subagent_id"]
+            task["execution"] = normalized_execution
             tasks.append(task)
     return tasks
 
@@ -1186,6 +1309,13 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path, injection_d
         scores: dict,
         report_path: str = "",
     ) -> str:
+        current = _read_specs(specs_path)
+        current_items = current.get("items", items)
+        state = current.get("state", {})
+        redirect_message = build_round_evaluator_task_mode_redirect(state)
+        if redirect_message:
+            return json.dumps({"error": redirect_message})
+
         # Codex sometimes sends scores as a JSON string; normalise to dict
         if isinstance(scores, str):
             try:
@@ -1198,11 +1328,6 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path, injection_d
             return json.dumps(
                 {"error": "scores must be a JSON object"},
             )
-
-        # Re-read specs to get latest state from orchestrator
-        current = _read_specs(specs_path)
-        current_items = current.get("items", items)
-        state = current.get("state", {})
         decomposition_mode = bool(state.get("decomposition_mode", False))
         item_prefix = str(state.get("item_prefix", "E"))
         submitted_agent_labels = _extract_submitted_agent_labels(scores, item_prefix=item_prefix)
@@ -1394,6 +1519,9 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path, injection_d
 
         current_for_improve = _read_specs(specs_path)
         state_for_improve = current_for_improve.get("state", {})
+        redirect_message = build_round_evaluator_task_mode_redirect(state_for_improve)
+        if redirect_message:
+            return json.dumps({"valid": False, "error": redirect_message})
         iterate_action = state_for_improve.get("iterate_action", "new_answer")
         status = str(_last_result.get("status", "none"))
         verdict = _last_result.get("verdict")
@@ -1447,14 +1575,19 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path, injection_d
             result["message"] = (
                 f"Your task plan has been pre-populated with {task_count} items. "
                 "Call get_task_plan to see the list and start executing. "
-                "Preserve items are guardrails — verify after implementing. "
-                "Do not skip criteria."
+                "Correctness-critical tasks come first; if explicit correctness "
+                "criteria exist, use them as anchors. Preserve items are the "
+                "final regression check — verify after implementing that "
+                "preserved strengths remain and earlier correctness fixes still "
+                "hold. Do not defer blocker correctness fixes in favor of "
+                "easier polish."
             )
             # Append subagent delegation guidance when subagents are enabled
             if state_for_improve.get("subagents_enabled"):
                 builder_criteria_ids: list[str] = []
                 for task in result["task_plan"]:
-                    if task.get("type") == "improve" and task.get("subagent_name") == "builder":
+                    execution = task.get("execution") or {}
+                    if task.get("type") == "improve" and execution.get("mode") == "delegate" and execution.get("subagent_type") == "builder":
                         cid = task.get("criterion_id")
                         if cid and cid not in builder_criteria_ids:
                             builder_criteria_ids.append(cid)

@@ -756,6 +756,10 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         self._event_listener_registered = False
 
+        # Viewer mode: read-only TUI driven by EventFeeder from disk
+        self.viewer_mode = kwargs.get("viewer_mode", False)
+        self._viewer_event_feeder = None  # Set externally before run
+
     def _validate_agent_ids(self):
         """Validate agent IDs for security and robustness."""
         if not self.agent_ids:
@@ -2898,6 +2902,8 @@ if TEXTUAL_AVAILABLE:
             Layout: [phase] [activity] [progress] [tools] [votes] --- spacer --- [mcp] [cwd] [events] [hints] [timer] [cancel]
             """
             # Left-aligned items
+            # Viewer mode indicator (hidden by default, shown in viewer mode)
+            yield Static("👁 VIEWER", id="status_viewer_mode", classes="hidden")
             yield Static("⏳ Idle", id="status_phase")
             yield Static("", id="status_activity", classes="activity-indicator hidden")  # Pulsing activity indicator
             yield Static("", id="status_progress")  # Progress summary: "3 agents | 2 answers | 4/6 votes"
@@ -3613,8 +3619,10 @@ if TEXTUAL_AVAILABLE:
             self._welcome_screen: Optional["WelcomeScreen"] = None
             self._status_bar: Optional["StatusBar"] = None
             # Show welcome if no real question (detect placeholder strings)
+            # Viewer mode skips welcome — always go straight to agent panels
+            self._viewer_mode = display.viewer_mode
             is_placeholder = not question or question.lower().startswith("welcome")
-            self._showing_welcome = is_placeholder
+            self._showing_welcome = is_placeholder and not self._viewer_mode
             self.current_agent_index = 0
             self._pending_flush = False
             self._resize_debounce_handle = None
@@ -4139,7 +4147,14 @@ if TEXTUAL_AVAILABLE:
 
             self._thread_id = threading.get_ident()
             self.coordination_display._app_ready.set()
-            self._register_event_listener()
+
+            # In viewer mode, start the EventFeeder instead of the in-process listener
+            if self._viewer_mode and self.coordination_display._viewer_event_feeder:
+                feeder = self.coordination_display._viewer_event_feeder
+                feeder._event_callback = self._handle_event_from_emitter
+                feeder.start()
+            else:
+                self._register_event_listener()
             self.set_interval(self.buffer_flush_interval, self._flush_buffers)
             if self._timing_debug:
                 self._last_heartbeat_at = time.monotonic()
@@ -4171,9 +4186,25 @@ if TEXTUAL_AVAILABLE:
             # Re-run once after the first layout pass so width-dependent hint
             # truncation can use settled regions.
             self.call_after_refresh(lambda: (self._refresh_welcome_context_hint(), self._refresh_input_modes_row_layout()))
-            # Auto-focus input field on startup
-            if self.question_input:
-                self.question_input.focus()
+            # Viewer mode: hide input area, show viewer indicator
+            if self._viewer_mode:
+                input_area = self.query_one("#input_area", Container)
+                if input_area:
+                    input_area.add_class("hidden")
+                viewer_label = self.query_one("#status_viewer_mode", Static)
+                if viewer_label:
+                    viewer_label.remove_class("hidden")
+                # Set phase to indicate viewer mode
+                feeder = self.coordination_display._viewer_event_feeder
+                is_live = feeder._is_live if feeder else False
+                phase_label = "👁 LIVE" if is_live else "👁 REPLAY"
+                phase_widget = self.query_one("#status_phase", Static)
+                if phase_widget:
+                    phase_widget.update(phase_label)
+            else:
+                # Auto-focus input field on startup (not in viewer mode)
+                if self.question_input:
+                    self.question_input.focus()
 
             # DEBUG: Log widget state to file (opt-in)
             if os.environ.get("MASSGEN_TUI_LAYOUT_DEBUG", "").lower() in ("1", "true", "yes", "on"):
@@ -4618,6 +4649,19 @@ if TEXTUAL_AVAILABLE:
             self.coordination_display._event_listener_registered = True
             tui_log("[_register_event_listener] SUCCESS: listener registered")
 
+        # Event types that bypass the agent_id-in-widgets guard because they
+        # fire before agent widgets exist or carry no agent_id.
+        _AGENT_GUARD_BYPASS_EVENTS = frozenset(
+            {
+                "pre_collab_started",
+                "pre_collab_completed",
+                "personas_set",
+                "evaluation_criteria_set",
+                "subtasks_set",
+                "orchestrator_timeout",
+            },
+        )
+
         def _handle_event_from_emitter(self, event) -> None:
             """Handle an event from the global EventEmitter.
 
@@ -4633,9 +4677,12 @@ if TEXTUAL_AVAILABLE:
             # context_received) are now rendered through the event pipeline
             # instead of direct display callbacks.
 
+            # Pre-collab and config events may fire before agent widgets
+            # exist or have no agent_id. Let them through unconditionally.
             agent_id = event.agent_id
-            if not agent_id or agent_id not in self.agent_widgets:
-                return
+            if event.event_type not in self._AGENT_GUARD_BYPASS_EVENTS:
+                if not agent_id or agent_id not in self.agent_widgets:
+                    return
 
             with self._event_batch_lock:
                 self._event_batch.append(event)
@@ -4683,6 +4730,11 @@ if TEXTUAL_AVAILABLE:
                             adapter = TimelineEventAdapter(panel, agent_id=aid)
                             self._event_adapters[aid] = adapter
                         adapter.handle_event(event)
+                    continue
+
+                # Pre-collab and config events are handled entirely by
+                # side effects above — skip adapter routing for them.
+                if event.event_type in self._AGENT_GUARD_BYPASS_EVENTS:
                     continue
 
                 if not agent_id or agent_id not in self.agent_widgets:
@@ -4890,6 +4942,55 @@ if TEXTUAL_AVAILABLE:
                         self.update_agent_context(agent_id, context_labels)
                     except Exception as e:
                         tui_log(f"[TextualDisplay] {e}")
+
+            elif event.event_type == "pre_collab_started":
+                try:
+                    self.show_runtime_subagent_card(
+                        agent_id=event.data.get("agent_id") or event.agent_id or "",
+                        subagent_id=event.data.get("subagent_id", ""),
+                        task=event.data.get("task", ""),
+                        timeout_seconds=event.data.get("timeout_seconds", 300),
+                        call_id=event.data.get("call_id", event.data.get("subagent_id", "")),
+                        status_callback=None,
+                        log_path=event.data.get("log_path"),
+                    )
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] pre_collab_started: {e}")
+
+            elif event.event_type == "pre_collab_completed":
+                try:
+                    self.update_runtime_subagent_card(
+                        agent_id=event.data.get("agent_id") or event.agent_id or "",
+                        subagent_id=event.data.get("subagent_id", ""),
+                        call_id=event.data.get("call_id", event.data.get("subagent_id", "")),
+                        status=event.data.get("status", "completed"),
+                        answer_preview=event.data.get("answer_preview"),
+                        error=event.data.get("error"),
+                    )
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] pre_collab_completed: {e}")
+
+            elif event.event_type == "personas_set":
+                try:
+                    personas = event.data.get("personas", {})
+                    self.set_agent_personas(personas)
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] personas_set: {e}")
+
+            elif event.event_type == "evaluation_criteria_set":
+                try:
+                    criteria = event.data.get("criteria", [])
+                    source = event.data.get("source", "default")
+                    self.set_evaluation_criteria(criteria, source=source)
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] evaluation_criteria_set: {e}")
+
+            elif event.event_type == "subtasks_set":
+                try:
+                    subtasks = event.data.get("subtasks", {})
+                    self.set_agent_subtasks(subtasks)
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] subtasks_set: {e}")
 
         def _is_execution_in_progress(self) -> bool:
             """Check if agents are currently executing.
@@ -6331,6 +6432,7 @@ Type your question and press Enter to ask the agents.
             call_id: str,
             status_callback: Callable[[str], Any | None] | None = None,
             log_path: str | None = None,
+            round_number: int | None = None,
             _retry_count: int = 0,
         ) -> None:
             """Render a subagent card for orchestrator-owned runtime subagents."""
@@ -6404,6 +6506,7 @@ Type your question and press Enter to ask the agents.
                             call_id=call_id,
                             status_callback=status_callback,
                             log_path=log_path,
+                            round_number=round_number,
                             _retry_count=_retry_count + 1,
                         ),
                     )
@@ -6450,6 +6553,7 @@ Type your question and press Enter to ask the agents.
                             call_id=call_id,
                             status_callback=status_callback,
                             log_path=log_path,
+                            round_number=round_number,
                             _retry_count=_retry_count + 1,
                         ),
                     )
@@ -6475,6 +6579,7 @@ Type your question and press Enter to ask the agents.
                             call_id=call_id,
                             status_callback=status_callback,
                             log_path=log_path,
+                            round_number=round_number,
                             _retry_count=_retry_count + 1,
                         ),
                     )
@@ -6498,11 +6603,15 @@ Type your question and press Enter to ask the agents.
                     status_callback=status_callback,
                     id=card_id,
                 )
-                round_number = max(
-                    1,
-                    int(getattr(panel, "_current_round", getattr(timeline, "_viewed_round", 1)) or 1),
+                effective_round = (
+                    round_number
+                    if round_number is not None
+                    else max(
+                        1,
+                        int(getattr(panel, "_current_round", getattr(timeline, "_viewed_round", 1)) or 1),
+                    )
                 )
-                timeline.add_widget(card, round_number=round_number)
+                timeline.add_widget(card, round_number=effective_round)
 
         def update_runtime_subagent_card(
             self,
@@ -9745,11 +9854,8 @@ Type your question and press Enter to ask the agents.
                     by_id[subagent_id] = merged
                     return merged
 
-                # Ignore non-terminal file entries when we already have a live snapshot.
-                entry_status = str(entry.get("status", "")).lower()
-                if latest and entry_status in {"running", "pending", "spawning"}:
-                    return latest
-
+                # Merge running file entries too: the spawn status file can carry
+                # authoritative timeout metadata before terminal results arrive.
                 baseline = latest or by_id.get(subagent_id)
                 merged = _build_subagent_display_data(entry, baseline)
                 by_id[subagent_id] = merged

@@ -156,6 +156,161 @@ def _ensure_quickstart_skills_ready(
         return False
 
 
+def _pull_docker_image_headless() -> bool:
+    """Pull default Docker image without interactive prompts.
+
+    Returns:
+        True if image was pulled successfully, False otherwise.
+    """
+    import subprocess
+
+    image = "ghcr.io/massgen/mcp-runtime-sudo:latest"
+    try:
+        subprocess.run(
+            ["docker", "pull", image],
+            capture_output=True,
+            timeout=300,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _print_headless_quickstart_summary(result: dict) -> None:
+    """Print structured, machine-parseable summary of headless quickstart."""
+    print(f"\n{'=' * 50}")
+    print("MASSGEN HEADLESS QUICKSTART")
+    print(f"{'=' * 50}")
+
+    # API Keys
+    print("\nAPI Keys:")
+    for key_name, available in result.get("api_keys_summary", {}).items():
+        status = "available" if available else "not set"
+        print(f"  {key_name}: {status}")
+
+    # Selection
+    if result.get("backends") and result.get("models"):
+        # Multi-backend mode
+        pairs = list(zip(result["backends"], result["models"]))
+        print(f"\nSelected ({len(pairs)} backends):")
+        for b, m in pairs:
+            print(f"  {b} / {m}")
+    elif result.get("backend") and result.get("model"):
+        print(f"\nSelected: {result['backend']} / {result['model']}")
+    else:
+        print("\nSelected: none (no API keys found)")
+
+    # Config
+    if result.get("config_path"):
+        print(f"Config: {result['config_path']}")
+    elif result.get("env_template_path"):
+        print(f"Env template: {result['env_template_path']}")
+
+    # Docker
+    docker_status = "available" if result.get("docker_available") else "not available"
+    if result.get("docker_pulled"):
+        docker_status += ", image pulled"
+    print(f"Docker: {docker_status}")
+
+    # Skills
+    skills_status = "installed" if result.get("skills_installed") else "not installed"
+    print(f"Skills: {skills_status}")
+
+    # Status
+    if result["success"]:
+        print("\nSTATUS: SUCCESS")
+        print("\nRun with:")
+        config = result["config_path"]
+        print(
+            f"  massgen --automation --config {config}" ' "Your question"',
+        )
+    else:
+        print("\nSTATUS: NEEDS_CONFIG")
+        for step in result.get("manual_steps", []):
+            print(f"  -> {step}")
+
+    print()
+
+
+def _print_backends_table() -> None:
+    """Print a table of all supported backends with models, capabilities, and auth."""
+    from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+    # Column widths
+    w_type = 16
+    w_name = 22
+    w_default = 26
+    w_auth = 28
+    w_caps = 40
+
+    header = f"{'Backend Type':<{w_type}}" f"{'Provider':<{w_name}}" f"{'Default Model':<{w_default}}" f"{'Auth':<{w_auth}}" f"{'Key Capabilities'}"
+    sep = "-" * (w_type + w_name + w_default + w_auth + w_caps)
+
+    print(f"\n{sep}")
+    print("MASSGEN SUPPORTED BACKENDS")
+    print(f"{sep}\n")
+    print(header)
+    print(sep)
+
+    for backend_type, caps in sorted(BACKEND_CAPABILITIES.items()):
+        # Auth info
+        if caps.env_var:
+            auth = f"{caps.env_var}"
+            # Agent-based backends also support login
+            if backend_type in ("claude_code", "codex"):
+                auth += " or login"
+            elif backend_type == "copilot":
+                auth = "GitHub Copilot subscription"
+        else:
+            auth = "none"
+
+        # Key capabilities (abbreviated)
+        cap_list = []
+        if "web_search" in caps.supported_capabilities:
+            cap_list.append("web")
+        if "code_execution" in caps.supported_capabilities:
+            cap_list.append("code")
+        if caps.filesystem_support == "native":
+            cap_list.append("fs-native")
+        elif caps.filesystem_support == "mcp":
+            cap_list.append("fs-mcp")
+        if "mcp" in caps.supported_capabilities:
+            cap_list.append("mcp")
+        if "reasoning" in caps.supported_capabilities:
+            cap_list.append("reasoning")
+        if "image_generation" in caps.supported_capabilities:
+            cap_list.append("img-gen")
+        if "image_understanding" in caps.supported_capabilities:
+            cap_list.append("vision")
+        cap_str = ", ".join(cap_list) if cap_list else "basic"
+
+        print(
+            f"{backend_type:<{w_type}}" f"{caps.provider_name:<{w_name}}" f"{caps.default_model:<{w_default}}" f"{auth:<{w_auth}}" f"{cap_str}",
+        )
+
+    print(f"\n{sep}")
+    print("MODELS PER BACKEND")
+    print(f"{sep}\n")
+
+    for backend_type, caps in sorted(BACKEND_CAPABILITIES.items()):
+        models_str = ", ".join(caps.models[:8])
+        if len(caps.models) > 8:
+            models_str += f" (+{len(caps.models) - 8} more)"
+        print(f"  {backend_type}: {models_str}")
+
+    print(f"\n{sep}")
+    print(
+        "Use with: massgen --quickstart --headless" " --config-backend <type> --config-model <model>",
+    )
+    print(
+        "Mixed providers: massgen --quickstart --headless"
+        " --quickstart-agent backend=claude,model=claude-opus-4-6"
+        " --quickstart-agent backend=openai,model=gpt-5.4"
+        " --quickstart-agent backend=gemini,model=gemini-3-flash-preview",
+    )
+    print()
+
+
 def _quickstart_filename_from_config_arg(config_path_arg: str | None) -> str | None:
     """Extract quickstart filename override from --config when --quickstart is used."""
     if not config_path_arg:
@@ -166,6 +321,39 @@ def _quickstart_filename_from_config_arg(config_path_arg: str | None) -> str | N
         return None
 
     return normalize_quickstart_config_filename(value)
+
+
+def _parse_quickstart_agent_specs(values: list[str] | None) -> list[dict[str, str | None]]:
+    """Parse repeated --quickstart-agent values into explicit agent specs."""
+    specs: list[dict[str, str | None]] = []
+    if not values:
+        return specs
+
+    allowed_keys = {"id", "backend", "type", "model", "reasoning_effort"}
+    for raw_value in values:
+        spec: dict[str, str | None] = {}
+        for item in raw_value.split(","):
+            key, sep, value = item.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if not sep or not key or not value:
+                raise ValueError(
+                    "Each --quickstart-agent value must use key=value pairs, " "for example backend=claude,model=claude-opus-4-6",
+                )
+            if key not in allowed_keys:
+                allowed = ", ".join(sorted(allowed_keys))
+                raise ValueError(
+                    f"Unsupported --quickstart-agent field '{key}'. " f"Allowed fields: {allowed}",
+                )
+            spec[key] = value
+
+        if not (spec.get("backend") or spec.get("type")):
+            raise ValueError(
+                "Each --quickstart-agent requires backend=<type>.",
+            )
+        specs.append(spec)
+
+    return specs
 
 
 def _setup_logfire_observability() -> bool:
@@ -209,9 +397,10 @@ def _automation_print(msg: str) -> None:
     """Print automation-mode status lines (LOG_DIR, STATUS, OUTPUT_FILE, etc.).
 
     When event streaming is active, stdout is reserved for JSONL, so these
-    lines are routed to stderr instead.
+    lines are routed to stderr instead. Always flush so background processes
+    with piped stdout (block-buffered) emit lines immediately.
     """
-    print(msg, file=sys.stderr if _stream_events_active else sys.stdout)
+    print(msg, file=sys.stderr if _stream_events_active else sys.stdout, flush=True)
 
 
 def _has_evolving_skills_enabled(agents: dict[str, Any] | None) -> bool:
@@ -269,6 +458,7 @@ def _apply_orchestrator_runtime_params(
         "defer_voting_until_all_answered",
         "coordination_mode",
         "presenter_agent",
+        "final_answer_strategy",
     )
     for field_name in direct_fields:
         if field_name in orchestrator_cfg:
@@ -281,16 +471,12 @@ def _apply_orchestrator_runtime_params(
     elif "checklist_require_gap_report" in orchestrator_cfg and "gap_report_mode" not in orchestrator_cfg:
         orchestrator_config.gap_report_mode = "separate" if orchestrator_cfg["checklist_require_gap_report"] else "none"
 
-    if orchestrator_cfg.get("skip_coordination_rounds", False):
-        orchestrator_config.skip_coordination_rounds = True
     if orchestrator_cfg.get("debug_final_answer"):
         orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
-    if orchestrator_cfg.get("skip_final_presentation", False):
-        orchestrator_config.skip_final_presentation = True
-    if orchestrator_cfg.get("skip_voting", False):
-        orchestrator_config.skip_voting = True
-    if orchestrator_cfg.get("disable_injection", False):
-        orchestrator_config.disable_injection = True
+
+    for bool_field in ("skip_final_presentation", "skip_voting", "disable_injection", "skip_coordination_rounds"):
+        if bool_field in orchestrator_cfg:
+            setattr(orchestrator_config, bool_field, bool(orchestrator_cfg[bool_field]))
 
 
 def _is_planning_turn(
@@ -526,6 +712,7 @@ def get_task_planning_prompt_prefix(
     target_chunks: int | None = None,
     enable_subagents: bool = False,
     broadcast_mode: Literal["human", "agents"] | bool = False,
+    thoroughness: str = "standard",
 ) -> str:
     """Generate the user prompt prefix for task planning mode.
 
@@ -538,6 +725,7 @@ def get_task_planning_prompt_prefix(
         target_chunks: Optional explicit target number of chunks (None = default single-chunk planning).
         enable_subagents: Whether subagents are enabled for research tasks.
         broadcast_mode: One of "human", "agents", or False. Controls whether ask_others() is available.
+        thoroughness: One of "standard" or "thorough" controlling strategic reasoning depth.
 
     Returns:
         The prompt prefix string to prepend to the user's question.
@@ -559,6 +747,48 @@ def get_task_planning_prompt_prefix(
         task_target_line = f"- Target tasks: {cfg['target']}"
 
     chunk_target_line = _format_chunk_target_line(target_chunks)
+
+    # Thoroughness section (controls strategic reasoning depth)
+    thoroughness_section = ""
+    if thoroughness == "thorough":
+        thoroughness_section = """
+## Thoroughness: THOROUGH
+
+You are striving for excellence — in both the quality of your strategic \
+reasoning and the originality of your approach. Do not accept a plan that \
+is merely complete or structurally sound. A thorough plan is one where \
+every major decision reflects deep understanding of the problem, where \
+the chosen direction is genuinely the strongest option (not just the \
+first or safest), and where the resulting work would impress someone who \
+knows this domain well.
+
+**Quality bar:** Standard is not enough. Push past the obvious approach. \
+If your plan could have been written by someone who spent 5 minutes on \
+the problem, it's not thorough. Invest the time to understand what \
+separates excellent work from adequate work in this specific domain, and \
+let that understanding shape every task.
+
+**Required auxiliary depth:**
+- `research/` — analyze the problem domain, audience, competitive landscape, \
+and what distinguishes excellent results from adequate ones in this space
+- `framework/` — document your strategic choices: why this approach over \
+alternatives, what anti-patterns to avoid, what principles should guide \
+execution. Name specific failure modes and how to prevent them
+- `risks/` — identify what could go wrong, what assumptions are most fragile, \
+and what the pivot strategy is if key assumptions fail
+
+**Plan structure expectations:**
+- Separate strategic decisions from implementation details. Early tasks should \
+establish the strategic foundation (audience, narrative, design principles, \
+interaction strategy) before any section-level work begins
+- Creative and architectural direction should be exploratory tasks with \
+success criteria, not deterministic tasks with locked-in values
+- Evolution hooks should question the fundamental direction, not just tweak \
+parameters within it
+- The plan should tell a coherent story about WHY this approach will produce \
+excellent results — an evaluator should be able to read the auxiliary docs \
+and understand the reasoning behind every major decision
+"""
 
     # Subagent research section (only if enabled)
     subagent_section = ""
@@ -779,6 +1009,7 @@ You are in task planning mode. Your goal is to **interactively** create a compre
 1. `project_plan.json` - the task list for future execution (REQUIRED)
 2. Supporting docs - requirements, design decisions, technical approach
 3. Scratch/research files - scripts to parse data, analyze structure, gather info FOR PLANNING
+4. `prototypes/` - rough proof-of-concept artifacts for exploratory tasks (see Mini-Prototyping below)
 
 **NOT allowed:**
 - The actual deliverable the user requested (SVG, website, app, final code, etc.)
@@ -786,6 +1017,22 @@ You are in task planning mode. Your goal is to **interactively** create a compre
 
 If you find yourself building what the user asked for - STOP. You're only planning it.
 A different agent will execute this plan later.
+
+### Mini-Prototyping for Exploratory Tasks
+
+For tasks classified as `exploratory` (see Task Type Classification below), \
+you MAY create rough proof-of-concept artifacts to validate assumptions:
+- **Visual tasks**: a rough SVG sketch, wireframe, or color palette test
+- **Code tasks**: a minimal spike proving the algorithm or approach works
+- **Writing tasks**: a paragraph sample testing voice or tone
+
+Store prototypes in `prototypes/` alongside the plan. They validate \
+assumptions — they are NOT deliverables. Reference which assumptions each \
+prototype validated or invalidated in the plan's auxiliary files.
+
+**When to prototype**: when the plan's success depends on an assumption you \
+can't verify by reasoning alone (e.g., "will this visual approach render \
+well in SVG?" or "does this algorithm scale?"). When in doubt, prototype.
 
 ## Planning Process
 
@@ -817,10 +1064,13 @@ Only after scope confirmation and sufficient research:
 1. **Primary artifact**: `project_plan.json` - Write this file using file write tools:
    - If `deliverable/` folder exists in your workspace, put it there: `deliverable/project_plan.json`
    - Otherwise, put it in your workspace root: `project_plan.json`
-2. **Supporting docs**: Create additional markdown docs as needed (same location as project_plan.json):
-   - User stories or requirements docs
-   - Technical approach / design decisions
-   - Separate spec files if request contains multiple distinct features
+2. **Auxiliary files** (optional, organized into purpose-driven subdirectories):
+   - `research/` — background research, prior art, feasibility analysis, codebase exploration notes
+   - `framework/` — architecture decisions, technology choices with rationale, design patterns selected
+   - `risks/` — risk register, mitigation strategies, dependency analysis
+   - `requirements/` — user stories, acceptance criteria, requirements docs
+   - `prototypes/` — quick proof-of-concept artifacts for exploratory tasks (see Mini-Prototyping)
+   Auxiliary files support the plan but are NOT the plan — `project_plan.json` is always the source of truth.
 
 **IMPORTANT**: Write `project_plan.json` directly as a file. Do NOT use MCP planning tools
 (create_task_plan, update_task_status, etc.) to create this deliverable - those tools are for
@@ -829,6 +1079,17 @@ tracking your own internal work progress, not for creating the project plan deli
 ## Planning Principles
 
 **Focus on outcomes, not implementation details.** Describe WHAT the final product needs, not HOW to build it. Implementation choices happen during execution.
+
+**Show strategic depth, not just task structure.** A good plan demonstrates \
+that you deeply understood the problem before breaking it into tasks. \
+Before specifying tasks, reason about the problem space: who is this for, \
+what impression or experience matters most, what distinguishes an excellent \
+result from a competent one? Capture this reasoning in auxiliary files \
+(research/, framework/, decisions/) and let it drive task design. If your \
+plan reads like a generic template with project-specific nouns swapped in, \
+it lacks the specificity that produces excellent results. Each major \
+decision should have rationale tied to the actual problem context — not \
+just "best practice" or "modern trend."
 
 **Think about final product quality:**
 - If it's visual, it should LOOK good - include quality visuals, not just code
@@ -840,7 +1101,64 @@ tracking your own internal work progress, not for creating the project plan deli
 2. Does it look/feel right? (visual quality, UX)
 3. Only then: is the code correct? (builds, tests pass)
 
+**Your JSON output IS the iteration surface.** Prefer tightening existing \
+tasks — sharpen descriptions, add missing verification, fix dependency \
+ordering — over adding new tasks or prose. Adding tasks to fill genuine \
+gaps is fine; adding tasks that don't serve a clear purpose is not.
+
+**Question your own direction.** Your first approach is a hypothesis, not \
+a commitment. When iterating, don't just polish the current direction — \
+challenge whether it's the right direction. Ask: is this the strongest \
+approach, or just the first one I reached for? Would a different \
+architecture, structure, or creative direction produce a fundamentally \
+better result? A sophisticated plan isn't one that executes a safe idea \
+thoroughly — it's one that identifies the most promising direction and \
+specifies it with enough depth and detail that the executor can build \
+something genuinely impressive.
+
 **Tasks should be achievable with the available tools.** Executing agents will have access to the configured tools and will figure out how to use them.
+{thoroughness_section}
+## Task Type Classification
+
+Every task MUST be classified as `deterministic` or `exploratory`:
+
+**Deterministic tasks**:
+- Have a single correct implementation path
+- Can be fully specified upfront (data schemas, API contracts, configs, build setup)
+- Verification is binary: it works or it doesn't
+- The plan specifies WHAT + HOW in detail
+
+**Exploratory tasks**:
+- Have multiple valid approaches where the best one emerges through iteration
+- Cannot be fully specified upfront because quality is subjective or context-dependent
+- Verification requires qualitative assessment (render it, read it, experience it)
+- The plan specifies **success criteria + constraints**, NOT implementation steps
+- The executor has explicit permission to exceed or diverge from the plan when \
+they discover something better
+- MUST include `success_criteria`: 2-4 concrete criteria for what "good" looks \
+like (not how to get there)
+- SHOULD include `evolution_hooks` in metadata: what discoveries during \
+implementation should trigger a plan revision
+
+**Classification test**: "If two competent engineers followed this task \
+independently, would they produce essentially the same output?" \
+Yes -> deterministic. No -> exploratory.
+
+## Plan Evolution Protocol
+
+Plans are hypotheses, not contracts. Include explicit mechanisms for evolution:
+
+**Discovery annotations**: for each chunk, note:
+- What assumptions could this chunk invalidate?
+- What would you learn during execution that you can't know now?
+- If this chunk reveals the approach is wrong, what's the pivot?
+
+**Evaluation integration points**: mark tasks where evaluation should be \
+invoked mid-execution by adding `"eval_checkpoint": true` to the task's \
+metadata. Place these at:
+- After the first exploratory chunk completes (early signal on approach viability)
+- After any chunk whose `evolution_hooks` flag high-risk assumptions
+- Before the final polish chunk (ensure the foundation is worth polishing)
 
 ## Task List Format
 Write `project_plan.json` with this structure:
@@ -850,14 +1168,18 @@ Write `project_plan.json` with this structure:
     {{
       "id": "F001",
       "chunk": "C01_foundation",
+      "task_type": "deterministic|exploratory",
       "description": "Feature Name - What this feature accomplishes and the expected outcome",
       "status": "pending",
       "depends_on": ["F000"],
       "priority": "high|medium|low",
+      "success_criteria": ["Only for exploratory tasks: what good looks like, not how to get there"],
       "metadata": {{
         "verification": "How to verify this task is complete",
         "verification_method": "Output-first verification approach",
-        "verification_group": "optional_group_name"
+        "verification_group": "optional_group_name",
+        "evolution_hooks": ["Discoveries during this task that should trigger plan revision"],
+        "eval_checkpoint": false
       }}
     }}
   ]
@@ -886,11 +1208,18 @@ Write `project_plan.json` with this structure:
 ## Quality Criteria
 - Each task should be independently verifiable
 - Dependencies (depends_on) should form a valid DAG (no cycles)
-- Descriptions should be specific enough to implement
+- Descriptions must include both WHAT and HOW — not just "Create hero \
+section" but specific layout, content, and behavior. A developer reading \
+the task should know what to build without asking questions
+- Where tasks connect or produce artifacts consumed by other tasks, \
+specify interface contracts: data shapes, file conventions, API \
+signatures. Independent execution should not require reverse-engineering \
+unstated agreements
 - Scope should be confirmed with user before detailed planning
 - Verification criteria should be testable and specific
 - Use verification_group to batch related tasks (e.g., verify all pages after building them)
 - For user-facing tasks, include at least one verification step that checks the actual user-visible output
+- Prefer tightening existing tasks over adding new ones. Growth is fine when filling genuine gaps; growth without clear purpose is sprawl
 
 ---
 
@@ -1017,15 +1346,41 @@ file write tools:
    - If `deliverable/` folder exists in your workspace, put it there: \
 `deliverable/project_spec.json`
    - Otherwise, put it in your workspace root: `project_spec.json`
-2. **Supporting docs**: Create additional markdown docs as needed \
-(same location as project_spec.json):
-   - Design decisions and rationale
-   - Technical context and constraints
-   - User stories or acceptance criteria
+2. **Auxiliary files** (optional, organized into purpose-driven subdirectories):
+   - `research/` — domain analysis, user research, competitive analysis, prior art
+   - `design/` — system design notes, data models, API contracts, integration points
+   - `decisions/` — architectural decision records (ADRs), trade-off analyses
+   - `requirements/` — user stories, acceptance criteria, persona descriptions
+   Auxiliary files support the spec but are NOT the spec — `project_spec.json` \
+is always the source of truth.
 
 **IMPORTANT**: Write `project_spec.json` directly as a file. Do NOT use \
 MCP planning tools (create_task_plan, update_task_status, etc.) to create \
 this deliverable.
+
+**Show strategic depth, not just requirements structure.** A good spec \
+demonstrates that you deeply understood the problem before writing \
+requirements. Reason about the problem space: who is this for, what \
+experience matters most, what distinguishes an excellent result from a \
+competent one? Capture this reasoning in auxiliary files (research/, \
+design/, decisions/) and let it drive requirement design. If your spec \
+reads like a generic template with project-specific nouns swapped in, it \
+lacks the specificity that produces excellent results.
+
+**Your JSON output IS the iteration surface.** Prefer tightening existing \
+requirements — sharpen EARS statements, add missing verification, \
+resolve ambiguities — over adding new requirements or prose. Adding \
+requirements to fill genuine gaps is fine; adding them without clear \
+purpose is not.
+
+**Question your own direction.** Your first approach is a hypothesis, not \
+a commitment. When iterating, don't just polish the current spec — \
+challenge whether the underlying design direction is the right one. Ask: \
+is this the strongest approach, or just the first one I reached for? \
+Would a different architecture, interaction model, or system design \
+produce a fundamentally better result? A strong spec identifies the most \
+promising direction and specifies it with enough depth that the executor \
+can build something genuinely excellent.
 
 ## EARS Notation
 
@@ -1094,10 +1449,11 @@ dependency DAG.
 ## Quality Criteria
 - Each requirement should be independently verifiable
 - Dependencies (depends_on) should form a valid DAG (no cycles)
-- EARS statements should be unambiguous and testable
+- EARS statements should be unambiguous and testable — a single behavior per requirement
 - Scope should be confirmed with user before detailed spec writing
 - Verification criteria should be specific and measurable
 - Rationale should explain the business or technical reason
+- Prefer tightening existing requirements over adding new ones. Growth is fine when filling genuine gaps; growth without clear purpose is sprawl
 
 ---
 
@@ -2960,6 +3316,22 @@ def validate_mode_flag_combinations(args: argparse.Namespace) -> list[str]:
             "--personas requires parallel coordination mode, not decomposition.",
         )
 
+    if getattr(args, "web_quickstart", False) and getattr(args, "web", False):
+        errors.append(
+            "--web-quickstart already launches a dedicated browser setup flow; do not combine it with --web.",
+        )
+
+    quickstart_agents = getattr(args, "quickstart_agents", None)
+    if quickstart_agents:
+        if not getattr(args, "quickstart", False) or not getattr(args, "headless", False):
+            errors.append(
+                "--quickstart-agent requires --quickstart --headless.",
+            )
+        if getattr(args, "config_backend", None) or getattr(args, "config_model", None) or getattr(args, "config_agents", None) is not None:
+            errors.append(
+                "--quickstart-agent cannot be combined with --config-backend, --config-model, or --config-agents.",
+            )
+
     return errors
 
 
@@ -3183,6 +3555,8 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         subagent_types=coord_cfg.get("subagent_types"),
         round_evaluator_before_checklist=coord_cfg.get("round_evaluator_before_checklist", False),
         orchestrator_managed_round_evaluator=coord_cfg.get("orchestrator_managed_round_evaluator", False),
+        round_evaluator_skip_synthesis=coord_cfg.get("round_evaluator_skip_synthesis", False),
+        round_evaluator_refine=coord_cfg.get("round_evaluator_refine", False),
         enable_quality_rethink_on_iteration=coord_cfg.get("enable_quality_rethink_on_iteration", False),
         enable_novelty_on_iteration=coord_cfg.get("enable_novelty_on_iteration", False),
         novelty_injection=coord_cfg.get("novelty_injection", "none"),
@@ -6679,6 +7053,7 @@ async def run_textual_interactive_mode(
                         target_chunks=mode_state.plan_config.target_chunks,
                         enable_subagents=enable_subagents,
                         broadcast_mode=mode_state.plan_config.broadcast,
+                        thoroughness=mode_state.plan_config.thoroughness,
                     )
 
                     planning_feedback = (mode_state.pending_planning_feedback or "").strip()
@@ -8597,6 +8972,7 @@ async def run_plan_and_execute(
     config: dict[str, Any],
     question: str,
     plan_depth: str = "dynamic",
+    plan_thoroughness: str = "standard",
     plan_target_steps: int | None = None,
     plan_target_chunks: int | None = None,
     broadcast_mode: str | bool = "false",
@@ -8613,6 +8989,7 @@ async def run_plan_and_execute(
         config: Full config dict
         question: User's task/question
         plan_depth: dynamic/shallow/medium/deep
+        plan_thoroughness: standard/thorough
         plan_target_steps: Optional explicit target number of tasks.
         plan_target_chunks: Optional explicit target number of chunks (defaults to 1).
         broadcast_mode: human/agents/false
@@ -8689,6 +9066,8 @@ async def run_plan_and_execute(
             "--plan",
             "--plan-depth",
             plan_depth,
+            "--plan-thoroughness",
+            plan_thoroughness,
             "--broadcast",
             effective_broadcast_mode,
             "--config",
@@ -9195,11 +9574,16 @@ async def main(args):
             else:
                 orchestrator_cfg_plan["coordination"].setdefault("broadcast", False)
 
-            # Set plan_depth
+            # Set plan_depth and plan_thoroughness
             orchestrator_cfg_plan["coordination"]["plan_depth"] = getattr(
                 args,
                 "plan_depth",
                 "dynamic",
+            )
+            orchestrator_cfg_plan["coordination"]["plan_thoroughness"] = getattr(
+                args,
+                "plan_thoroughness",
+                "standard",
             )
             orchestrator_cfg_plan["coordination"]["plan_target_steps"] = getattr(
                 args,
@@ -9234,6 +9618,24 @@ async def main(args):
 
         # Apply CLI mode flags (--quick, --coordination-mode, --personas, --single-agent)
         apply_mode_flags_to_config(config, args)
+
+        # Handle --eval-criteria: load JSON file and inject into coordination config
+        if getattr(args, "eval_criteria", None):
+            criteria = _load_eval_criteria(args.eval_criteria)
+            _inject_eval_criteria_into_config(config, criteria)
+            logger.info(
+                "[CLI] Injected %d eval criteria from %s",
+                len(criteria),
+                args.eval_criteria,
+            )
+
+        # Handle --checklist-criteria-preset: inject preset into coordination config
+        if getattr(args, "checklist_criteria_preset", None):
+            _inject_checklist_criteria_preset_into_config(config, args.checklist_criteria_preset)
+            logger.info(
+                "[CLI] Set checklist_criteria_preset=%s",
+                args.checklist_criteria_preset,
+            )
 
         # Check for prompt in config if not provided via CLI
         if not args.question and "prompt" in config:
@@ -9333,8 +9735,8 @@ async def main(args):
             # LOG_DIR is the main session directory, STATUS includes turn/attempt subdirectory
             if args.automation:
                 full_log_dir = get_log_session_dir()
-                _automation_print(f"LOG_DIR: {log_dir}")
-                _automation_print(f"STATUS: {full_log_dir / 'status.json'}")
+                _automation_print(f"LOG_DIR: {Path(log_dir).resolve()}")
+                _automation_print(f"STATUS: {Path(full_log_dir).resolve() / 'status.json'}")
 
             # Only register in global session registry if not suppressed (e.g., subagent runs)
             if not getattr(args, "no_session_registry", False):
@@ -9401,17 +9803,20 @@ async def main(args):
             else:
                 broadcast_mode = coordination_cfg.get("broadcast", False)
 
+            plan_thoroughness = getattr(args, "plan_thoroughness", "standard")
             planning_prefix = get_task_planning_prompt_prefix(
                 plan_depth,
                 target_steps=plan_target_steps,
                 target_chunks=plan_target_chunks,
                 enable_subagents=enable_subagents,
                 broadcast_mode=broadcast_mode,
+                thoroughness=plan_thoroughness,
             )
             args.question = planning_prefix + args.question
             logger.info(
-                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, target_steps={plan_target_steps}, "
-                f"target_chunks={plan_target_chunks}, subagents={enable_subagents}, broadcast={broadcast_mode})",
+                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, thoroughness={plan_thoroughness}, "
+                f"target_steps={plan_target_steps}, target_chunks={plan_target_chunks}, "
+                f"subagents={enable_subagents}, broadcast={broadcast_mode})",
             )
 
         # Prepend spec creation instructions if --spec mode is active
@@ -9566,6 +9971,7 @@ async def main(args):
                 config=config,
                 question=args.question,
                 plan_depth=getattr(args, "plan_depth", "dynamic") or "dynamic",
+                plan_thoroughness=getattr(args, "plan_thoroughness", "standard") or "standard",
                 plan_target_steps=getattr(args, "plan_steps", None),
                 plan_target_chunks=getattr(args, "plan_chunks", None),
                 broadcast_mode=broadcast,
@@ -9872,6 +10278,14 @@ async def main(args):
 
 def cli_main():
     """Synchronous wrapper for CLI entry point."""
+    # Handle 'viewer' subcommand — view a session in the TUI (read-only)
+    if len(sys.argv) >= 2 and sys.argv[1] == "viewer":
+        from .viewer import build_viewer_parser, viewer_command
+
+        viewer_parser = build_viewer_parser()
+        viewer_args = viewer_parser.parse_args(sys.argv[2:])
+        sys.exit(viewer_command(viewer_args))
+
     # Handle 'logs' subcommand specially before main argument parsing
     # This avoids conflict with the positional 'question' argument
     if len(sys.argv) >= 2 and sys.argv[1] == "logs":
@@ -10163,6 +10577,32 @@ def cli_main():
             shares_parser.print_help()
             sys.exit(1)
 
+    parser = main_parser()
+    args = parser.parse_args()
+
+    if args.plan_steps is not None and args.plan_steps <= 0:
+        print("❌ --plan-steps must be a positive integer")
+        sys.exit(2)
+    if args.plan_chunks is not None and args.plan_chunks <= 0:
+        print("❌ --plan-chunks must be a positive integer")
+        sys.exit(2)
+
+    # Validate mode flag combinations
+    mode_errors = validate_mode_flag_combinations(args)
+    if mode_errors:
+        for err in mode_errors:
+            print(f"❌ {err}")
+        sys.exit(2)
+
+    # Continue with the rest of cli_main() logic
+    _cli_main_continued(args)
+
+
+def main_parser() -> argparse.ArgumentParser:
+    """Build and return the main CLI argument parser.
+
+    Extracted so tests can parse arguments without running cli_main().
+    """
     parser = argparse.ArgumentParser(
         description="MassGen - Multi-Agent Coordination CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -10318,6 +10758,11 @@ Environment Variables:
         help="Launch web UI server for real-time visualization",
     )
     parser.add_argument(
+        "--web-quickstart",
+        action="store_true",
+        help="Launch a temporary browser-based setup + quickstart flow that exits automatically when complete",
+    )
+    parser.add_argument(
         "--web-port",
         type=int,
         default=8000,
@@ -10361,6 +10806,14 @@ Environment Variables:
         choices=["dynamic", "shallow", "medium", "deep"],
         default="dynamic",
         help="Plan granularity for --plan mode: dynamic (scope-adaptive), shallow (5-10 tasks), " "medium (20-50 tasks), deep (100-200+ tasks). Default: dynamic.",
+    )
+    parser.add_argument(
+        "--plan-thoroughness",
+        choices=["standard", "thorough"],
+        default="standard",
+        help="Strategic reasoning depth for --plan mode: standard (reasonable justification), "
+        "thorough (deep strategic reasoning, anti-patterns, risk analysis, design principles). "
+        "Orthogonal to --plan-depth which controls task count. Default: standard.",
     )
     parser.add_argument(
         "--plan-steps",
@@ -10420,6 +10873,18 @@ Environment Variables:
         help="Treat @tokens in prompt text as plain text instead of extracting @path/@path:w context references.",
     )
     parser.add_argument(
+        "--eval-criteria",
+        type=str,
+        metavar="FILE",
+        help="Path to JSON file with evaluation criteria. " "Each entry: {text, category (must/should/could), verify_by?}. " "Injected as checklist_criteria_inline in coordination config.",
+    )
+    parser.add_argument(
+        "--checklist-criteria-preset",
+        type=str,
+        metavar="PRESET",
+        help="Use a built-in criteria preset (e.g., planning, evaluation, persona, " "decomposition, prompt, analysis, spec). Overrides YAML checklist_criteria_preset.",
+    )
+    parser.add_argument(
         "--output-file",
         type=str,
         metavar="PATH",
@@ -10441,6 +10906,13 @@ Environment Variables:
         help="Quick setup: specify number of agents/models, get a full-featured config with code tools and Docker, and optionally install skill packages",
     )
     parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Non-interactive mode for --quickstart: auto-detect API keys, "
+        "select best backend/model, generate config, pull Docker images, "
+        "and install skills. Designed for programmatic use by AI agents.",
+    )
+    parser.add_argument(
         "--generate-config",
         type=str,
         metavar="PATH",
@@ -10449,7 +10921,7 @@ Environment Variables:
     parser.add_argument(
         "--config-agents",
         type=int,
-        default=2,
+        default=None,
         help="Number of agents for --generate-config (default: 2)",
     )
     parser.add_argument(
@@ -10473,6 +10945,12 @@ Environment Variables:
         help="Add context path to generated config",
     )
     parser.add_argument(
+        "--quickstart-agent",
+        action="append",
+        dest="quickstart_agents",
+        help="Explicit headless quickstart agent spec. Repeat for mixed providers, e.g. " "--quickstart-agent backend=claude,model=claude-opus-4-6",
+    )
+    parser.add_argument(
         "--setup",
         action="store_true",
         help="Launch interactive API key setup wizard to configure credentials",
@@ -10486,6 +10964,11 @@ Environment Variables:
         "--setup-docker",
         action="store_true",
         help="Interactively select and pull MassGen Docker executor images (sudo image recommended by default)",
+    )
+    parser.add_argument(
+        "--list-backends",
+        action="store_true",
+        help="List all supported backends with models, capabilities, and auth requirements",
     )
     parser.add_argument(
         "--list-examples",
@@ -10589,22 +11072,67 @@ Environment Variables:
     # Mode settings (mirror TUI mode bar toggles)
     add_mode_flags_to_parser(parser)
 
-    args = parser.parse_args()
+    return parser
 
-    if args.plan_steps is not None and args.plan_steps <= 0:
-        print("❌ --plan-steps must be a positive integer")
-        sys.exit(2)
-    if args.plan_chunks is not None and args.plan_chunks <= 0:
-        print("❌ --plan-chunks must be a positive integer")
-        sys.exit(2)
 
-    # Validate mode flag combinations
-    mode_errors = validate_mode_flag_combinations(args)
-    if mode_errors:
-        for err in mode_errors:
-            print(f"❌ {err}")
-        sys.exit(2)
+def _load_eval_criteria(file_path: str) -> list[dict]:
+    """Load and validate evaluation criteria from a JSON file.
 
+    Returns a list of criteria dicts. Calls sys.exit on error.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        print(f"{BRIGHT_RED}Error: --eval-criteria file not found: {file_path}{RESET}")
+        sys.exit(EXIT_CONFIG_ERROR)
+    try:
+        criteria_data = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        print(f"{BRIGHT_RED}Error: --eval-criteria file is not valid JSON: {e}{RESET}")
+        sys.exit(EXIT_CONFIG_ERROR)
+    if not isinstance(criteria_data, list):
+        print(f"{BRIGHT_RED}Error: --eval-criteria must be a JSON array{RESET}")
+        sys.exit(EXIT_CONFIG_ERROR)
+    return criteria_data
+
+
+def _inject_eval_criteria_into_config(
+    config: dict,
+    criteria: list[dict],
+) -> None:
+    """Inject evaluation criteria into config as checklist_criteria_inline.
+
+    Merges into config["orchestrator"]["coordination"]["checklist_criteria_inline"],
+    creating intermediate dicts as needed. CLI criteria override any YAML inline criteria.
+    """
+    if "orchestrator" not in config:
+        config["orchestrator"] = {}
+    if "coordination" not in config["orchestrator"]:
+        config["orchestrator"]["coordination"] = {}
+    config["orchestrator"]["coordination"]["checklist_criteria_inline"] = criteria
+
+
+def _inject_checklist_criteria_preset_into_config(
+    config: dict,
+    preset: str,
+) -> None:
+    """Inject checklist criteria preset into config from CLI flag.
+
+    Sets config["orchestrator"]["coordination"]["checklist_criteria_preset"],
+    creating intermediate dicts as needed. CLI flag overrides any YAML preset.
+    """
+    if "orchestrator" not in config:
+        config["orchestrator"] = {}
+    if "coordination" not in config["orchestrator"]:
+        config["orchestrator"]["coordination"] = {}
+    config["orchestrator"]["coordination"]["checklist_criteria_preset"] = preset
+
+
+def _cli_main_continued(args):
+    """Continuation of cli_main() after argument parsing.
+
+    This is split out because main_parser() was extracted between the parser
+    construction and the post-parse logic. This function is called from cli_main().
+    """
     # Handle --continue flag BEFORE setup_logging so we can reuse log directory
     if args.continue_session:
         from massgen.session import SessionRegistry
@@ -10687,6 +11215,10 @@ Environment Variables:
         if not result.is_valid() or (args.strict and result.has_warnings()):
             sys.exit(1)
         sys.exit(0)
+
+    if args.list_backends:
+        _print_backends_table()
+        return
 
     if args.list_examples:
         show_available_examples()
@@ -10953,6 +11485,40 @@ Environment Variables:
         server.serve()
         return
 
+    if args.web_quickstart:
+        try:
+            from .frontend.web.server import run_temporary_quickstart_server
+
+            print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web Quickstart...{RESET}")
+            print(
+                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}/setup?temporary=1{RESET}",
+            )
+            print(
+                f"{BRIGHT_YELLOW}   This temporary setup session will close automatically when complete{RESET}\n",
+            )
+
+            session_result = run_temporary_quickstart_server(
+                host=args.web_host,
+                port=args.web_port,
+                no_browser=getattr(args, "no_browser", False),
+            )
+            if session_result.get("status") == "completed":
+                config_path = session_result.get("config_path")
+                if config_path:
+                    print(f"{BRIGHT_GREEN}✅ Configuration saved to: {config_path}{RESET}")
+                    print(
+                        f'{BRIGHT_CYAN}Run with: massgen --config {config_path} "Your question"{RESET}',
+                    )
+                return
+
+            print(f"{BRIGHT_YELLOW}⚠️  Web quickstart cancelled{RESET}")
+            sys.exit(1)
+        except ImportError as e:
+            print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+            print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+            logger.debug(f"Import error: {e}")
+            sys.exit(1)
+
     # Launch web UI server if requested
     if args.web:
         try:
@@ -11060,7 +11626,7 @@ Environment Variables:
             builder = ConfigBuilder()
             success = builder.generate_config_programmatic(
                 output_path=args.generate_config,
-                num_agents=args.config_agents,
+                num_agents=args.config_agents or 2,
                 backend_type=args.config_backend,
                 model=args.config_model,
                 use_docker=args.config_docker,
@@ -11087,6 +11653,37 @@ Environment Variables:
     # Launch quickstart if requested
     # Skip terminal quickstart if --web is also provided (web UI will show wizard directly)
     if args.quickstart and not args.web:
+        # Headless quickstart: auto-detect keys, generate config, no user interaction.
+        # Also triggers when stdin is not a TTY (e.g., piped from an AI agent).
+        if args.headless or not sys.stdin.isatty():
+            from massgen.config_builder import ConfigBuilder
+
+            builder = ConfigBuilder()
+            quickstart_agent_specs = _parse_quickstart_agent_specs(
+                getattr(args, "quickstart_agents", None),
+            )
+            headless_result = builder.run_quickstart_headless(
+                output_dir=".massgen",
+                num_agents=args.config_agents or 3,
+                backend_override=args.config_backend,
+                model_override=args.config_model,
+                use_docker=args.config_docker if args.config_docker else None,
+                context_path=args.config_context_path,
+                agent_specs=quickstart_agent_specs or None,
+            )
+
+            # Docker pull if available and headless
+            if headless_result.get("docker_available") and headless_result.get("success"):
+                headless_result["docker_pulled"] = _pull_docker_image_headless()
+
+            _print_headless_quickstart_summary(headless_result)
+
+            # Install skills if config was generated
+            if headless_result.get("config_path"):
+                _ensure_quickstart_skills_ready(headless_result["config_path"], True)
+
+            return
+
         # Launch TUI Quickstart Wizard
         try:
             result = _run_quickstart_wizard_tui(quickstart_config_filename)

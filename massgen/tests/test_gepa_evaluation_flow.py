@@ -67,16 +67,12 @@ class TestItemCategoriesInState:
             assert _CHECKLIST_ITEM_CATEGORIES[c.id] == c.category
 
     def test_changedoc_categories_have_4_items(self):
-        """Changedoc categories must have 4 items (2 must + 1 should + 1 could)."""
+        """Changedoc categories must have 4 items, all 'must'."""
         from massgen.system_prompt_sections import _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC
 
         assert len(_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC) == 4
         must_count = sum(1 for v in _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC.values() if v == "must")
-        should_count = sum(1 for v in _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC.values() if v == "should")
-        could_count = sum(1 for v in _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC.values() if v == "could")
-        assert must_count == 2
-        assert should_count == 1
-        assert could_count == 1
+        assert must_count == 4
 
 
 class TestDynamicCriteriaInToolSchema:
@@ -103,31 +99,20 @@ class TestDynamicCriteriaInToolSchema:
         assert len(schema_keys) == 8
 
     def test_item_categories_from_generated_criteria(self):
-        """Item categories dict should match generated criteria categories."""
+        """Item categories dict should all map to 'must'."""
         criteria = [
-            GeneratedCriterion(id="E1", text="Goal met", category="core"),
-            GeneratedCriterion(id="E2", text="No bugs", category="core"),
-            GeneratedCriterion(id="E3", text="Complete", category="core"),
-            GeneratedCriterion(id="E4", text="Thorough", category="core"),
-            GeneratedCriterion(id="E5", text="Polish", category="stretch"),
-            GeneratedCriterion(id="E6", text="Elegant", category="stretch"),
+            GeneratedCriterion(id="E1", text="Goal met", category="must"),
+            GeneratedCriterion(id="E2", text="No bugs", category="must"),
+            GeneratedCriterion(id="E3", text="Complete", category="must"),
+            GeneratedCriterion(id="E4", text="Thorough", category="must"),
+            GeneratedCriterion(id="E5", text="Polish", category="must"),
+            GeneratedCriterion(id="E6", text="Elegant", category="must"),
         ]
 
         item_categories = {c.id: c.category for c in criteria}
 
-        assert item_categories == {
-            "E1": "core",
-            "E2": "core",
-            "E3": "core",
-            "E4": "core",
-            "E5": "stretch",
-            "E6": "stretch",
-        }
-
-        core_ids = [k for k, v in item_categories.items() if v == "core"]
-        stretch_ids = [k for k, v in item_categories.items() if v == "stretch"]
-        assert len(core_ids) == 4
-        assert len(stretch_ids) == 2
+        for v in item_categories.values():
+            assert v == "must"
 
 
 class TestCustomItemsInSystemMessage:

@@ -442,19 +442,32 @@ Checklist mode is policy, not the core coordination primitive:
 - common flow:
   1. implement + verify
   2. if `round_evaluator_before_checklist: true` and this is round 2+, launch one blocking `round_evaluator` before checklist submission
-  3. parent uses the returned critique/spec packet as the diagnostic basis for checklist submission
-  4. parent saves or copies that packet into its workspace as the diagnostic report and calls `submit_checklist`
-  5. if checklist returns `status=validation_error`, fix payload/report and call `submit_checklist` again
-  6. if accepted iterate verdict, call `propose_improvements`
-  7. implement plan (use `improvement_spec` from the evaluator packet as richer guidance when present)
-  8. write/update `memory/short_term/verification_latest.md` with replayable verification steps/artifacts
-  9. submit via `new_answer` (or terminal action)
+  3. if the evaluator returns valid structured `next_tasks`, those tasks are auto-injected into the parent plan
+  4. in that task-driven branch, the parent uses `get_task_plan` as the source of truth, may open the evaluator artifact paths for rationale, and does not call `submit_checklist` or `propose_improvements`
+  5. in that task-driven branch, the parent implements, verifies, and submits via `new_answer` directly; for pure text artifacts, the final artifact body goes straight into `new_answer.content`
+  6. if structured `next_tasks` are missing or invalid, the parent uses the returned critique/spec packet as the diagnostic basis for checklist submission
+  7. in that fallback branch, the parent saves or copies that packet into its workspace as the diagnostic report and calls `submit_checklist`
+  8. if checklist returns `status=validation_error`, fix payload/report and call `submit_checklist` again
+  9. if accepted iterate verdict, call `propose_improvements`
+  10. implement plan (use `improvement_spec` from the evaluator packet as richer guidance when present)
+  11. write/update `memory/short_term/verification_latest.md` with replayable verification steps/artifacts
+  12. submit via `new_answer` (or terminal action)
 - round evaluator contract notes:
   - returns a packet with `criteria_interpretation`, `criterion_findings`, `cross_answer_synthesis`, `preserve`, `improvement_spec`, `verification_plan`, and `evidence_gaps`
   - the packet is critique/spec guidance only, not a checklist payload or terminal recommendation
+  - the inline `verdict_block` is intentionally minimal and carries verdict metadata (`verdict` + `scores`) rather than the full task handoff
+  - `next_tasks.json` is the authoritative machine-readable task handoff on the normal path
+  - tasks in `next_tasks.json` use canonical `execution` metadata:
+    - `execution.mode: "inline"` means the parent agent executes the task itself
+    - `execution.mode: "delegate"` means the task is a good subagent target when the parent can delegate to a matching specialized subagent
+    - the evaluator should base delegation hints on the parent-facing `PARENT DELEGATION OPTIONS` context, not on whether the evaluator child run itself can spawn subagents
+    - if the task brief says no parent-specialized subagents are available, task handoff stays inline-only and should not offer delegate execution hints
   - the round evaluator never calls `submit_checklist`, `propose_improvements`, or `vote` itself
+  - when valid structured `next_tasks` are present, the evaluator result header points to exact `critique_packet.md` and `next_tasks.json` paths and the parent treats those files as reference-only, not something to rewrite into a second report
   - the parent should not run a second full self-evaluation pass after delegation; only close explicit `evidence_gaps` if grounded checklist submission still needs more facts
-  - generated child YAML for `round_evaluator` omits checklist-gated child settings and always mounts the shared temp-workspace root read-only
+  - generated child YAML for `round_evaluator` always mounts the shared temp-workspace root read-only
+  - `refine=false` keeps the evaluator child checklist-free; `refine=true` may inherit the parent checklist gate
+  - checklist-enabled `round_evaluator` child runs use a dedicated default criteria preset for evaluator-packet quality when no child-specific criteria are configured
 - checklist result contract:
   - accepted path: `status=accepted` + `verdict`
   - invalid path: `status=validation_error`, `requires_resubmission=true`, no `verdict`
@@ -555,6 +568,85 @@ orchestrator:
   max_checklist_calls_per_round: 1
   checklist_first_answer: false
 ```
+
+## Self-Improvement and Evaluator Rescue Cycle
+
+MassGen agents self-improve iteratively within each round, then submit their best answer. This cycle is by design — agents should push themselves to plateau before asking for external feedback. The round evaluator exists to rescue agents from plateaus they cannot break through alone.
+
+### The plateau problem
+
+Agents get stuck in three distinct ways:
+
+1. **Blind spots**: The agent cannot identify remaining problems. It believes its answer is strong, but hidden requirement misses, verification gaps, or ambition ceilings persist. The agent's self-evaluation converges prematurely.
+
+2. **Implementation ceiling**: The agent can identify problems (via checklist, self-critique, or prior evaluator feedback) but fails to fix them. It sees the gap, attempts a fix, and the fix either doesn't land or creates new problems. The agent loops without progress.
+
+3. **Approach ceiling**: The agent's strategy is fundamentally limited. Fixes produce diminishing returns because the approach itself has a low quality ceiling — the output is "correct but not good." Multiple structurally different attempts all plateau at a similar quality level. No amount of refinement within this approach will push quality significantly higher.
+
+### Evaluator as rescue, not just critic
+
+The round evaluator addresses both failure modes:
+
+- **For blind spots**: Fresh-eyes critique with cross-answer synthesis reveals weaknesses the agent cannot see in its own work. Multiple evaluator agents with different strengths (code analysis, visual inspection, domain expertise) catch different blind spots.
+
+- **For implementation ceilings**: This is where the evaluator's `implementation_guidance` field in `next_tasks.json` is critical. High-level task descriptions ("fix the animation") are not enough when the agent already tried and failed. The evaluator must provide concrete HOW-to specs: specific techniques, code patterns, step-by-step approaches, and — crucially — a diagnosis of why the agent's previous approach likely failed.
+
+- **For approach ceilings**: The evaluator's `approach_assessment` with `ceiling_status` (`ceiling_not_reached` / `ceiling_approaching` / `ceiling_reached`) diagnoses whether the approach itself needs to change, not just the implementation. When `ceiling_reached`, `evolution_tasks` in `next_tasks.json` propose a fundamentally different strategy rather than more fixes. The `paradigm_shift` field names the current limitation, an alternative approach, and which elements from the current work should carry over.
+
+### The escalation pattern
+
+```text
+Agent self-improves (checklist, self-critique, tool use)
+    │
+    ├─ Makes progress → continues iterating
+    │
+    └─ Plateaus (can't improve further) → submits new_answer
+                                              │
+                                              ▼
+                                    Round evaluator runs
+                                    (fresh critique + approach assessment)
+                                              │
+                                    ┌─────────┼─────────┐
+                                    ▼         ▼         ▼
+                              ceiling_not   ceiling    ceiling
+                              _reached    _approaching _reached
+                                    │         │         │
+                                    ▼         ▼         ▼
+                              fix_tasks   fix_tasks  evolution_tasks
+                              dominate    + stretch   dominate
+                                    │    evolution    │
+                                    │    tasks        │
+                                    ▼         │       ▼
+                              Agent fixes     ▼     Agent pivots to
+                              defects     Agent     fundamentally
+                              within      fixes     different strategy
+                              approach    then      (paradigm shift)
+                                    │    evolves     │
+                                    └────────┼───────┘
+                                              │
+                                    Agent also receives:
+                                    - Breakthroughs to amplify (not just preserve)
+                                    - What NOT to break (preserve list)
+                                    - HOW to fix/evolve (implementation guidance)
+                                              │
+                                    Repeat until quality bar met or plateau acknowledged
+```
+
+### Breakthrough amplification
+
+When the evaluator identifies a breakthrough — one component that is dramatically better than the rest — the next iteration should restructure around it rather than just preserving it. The evaluator's `approach_assessment.breakthroughs` array names each breakthrough element, explains WHY it works, and recommends how its technique or principle can be applied to lift weaker components.
+
+This is distinct from the `preserve` list. Preserved elements survive unchanged; breakthroughs are actively spread. For example, if a data visualization section uses progressive disclosure that other sections lack, the evaluator recommends applying progressive disclosure to the timeline and comparison sections too — not just keeping the good visualization intact.
+
+### When to accept a plateau
+
+Not every criterion can be driven to 10/10. Distinguish between two cases:
+
+1. **Implementation plateau** (scores flat despite different `implementation_guidance`): the criterion may be at the limit of what the current agent configuration can achieve. The evaluator should acknowledge this explicitly rather than prescribing yet another approach.
+
+2. **Approach ceiling** (evaluator signals `ceiling_reached`): the approach itself is fundamentally limited. This is NOT the same as implementation difficulty — it means no amount of refinement within this approach will produce excellent output. The correct response is to pivot via `evolution_tasks`, not to accept mediocrity.
+
+The evaluator's `ceiling_status` signal lets the orchestrator make informed convergence decisions rather than burning rounds on diminishing returns.
 
 ## Related Docs
 

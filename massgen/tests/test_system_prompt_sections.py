@@ -68,8 +68,8 @@ def test_checklist_gated_decision_requires_blocking_evaluator_execution():
     assert "required before scoring" in lower
 
 
-def test_checklist_gated_decision_round_evaluator_mode_requires_packet_before_submit():
-    """Round evaluator mode should require a manual blocking critique packet before checklist submission by default."""
+def test_checklist_gated_decision_round_evaluator_mode_requires_managed_packet_before_submit():
+    """Round evaluator mode should consistently describe the orchestrator-managed packet workflow."""
     content = _build_checklist_gated_decision(
         checklist_items=_CHECKLIST_ITEMS,
         round_evaluator_before_checklist=True,
@@ -79,12 +79,13 @@ def test_checklist_gated_decision_round_evaluator_mode_requires_packet_before_su
     assert "criteria_interpretation" in content
     assert "improvement_spec" in content
     assert "very critical" in lower
-    assert "use that critique packet as evidence" in lower
+    assert "sole diagnostic basis" in lower
     assert "before round 2" in lower
-    assert "blocking `round_evaluator` subagent yourself" in lower
-    assert "wait for its packet before" in lower
+    assert "orchestrator" in lower
+    assert "do not spawn another round_evaluator yourself" in lower
     assert "do not run a separate self-evaluation pass" in lower
-    assert "save or copy that round-evaluator report into your workspace" in lower
+    assert "report_path" in content
+    assert "save or copy that round-evaluator report into your workspace" not in lower
     assert "spawn_subagents" not in content
     assert "submit_checklist_args" not in content
     assert "expected_verdict" not in content
@@ -103,7 +104,40 @@ def test_checklist_gated_decision_orchestrator_managed_round_evaluator_mode_requ
     assert "orchestrator" in lower
     assert "do not spawn another round_evaluator yourself" in lower
     assert "do not run a separate self-evaluation pass" in lower
-    assert "save or copy that round-evaluator report into your workspace" in lower
+    assert "pass that exact path as report_path" in lower
+    assert "save or copy that round-evaluator report into your workspace" not in lower
+
+
+def test_checklist_gated_decision_orchestrator_managed_auto_injection_is_task_driven():
+    """Managed mode should teach the auto-injected branch as get_task_plan -> implement -> new_answer."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+        round_evaluator_before_checklist=True,
+        orchestrator_managed_round_evaluator=True,
+    )
+    lower = content.lower()
+    assert "auto-injected into your task plan" in lower
+    assert "get_task_plan" in content
+    assert "do not call `submit_checklist`" in content
+    assert "do not call `propose_improvements`" in content
+    assert "do not write a second diagnostic report" in lower
+    assert "pure text artifact" in lower
+    assert "multiple independent critiques" not in lower
+
+
+def test_checklist_gated_decision_auto_injection_prioritizes_correctness_then_regression_check():
+    """Auto-injected round-evaluator guidance should make correctness-first execution order explicit."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+        round_evaluator_before_checklist=True,
+        orchestrator_managed_round_evaluator=True,
+    )
+    lower = content.lower()
+    assert "if the task plan includes correctness-critical tasks" in lower
+    assert "do those first" in lower
+    assert "then execute the remaining higher-order work" in lower
+    assert "use explicit correctness criteria when they exist" in lower
+    assert "finish with the final preserve/regression verification" in lower
 
 
 def test_checklist_gated_decision_includes_peer_build_copy_guidance():
@@ -146,6 +180,8 @@ def test_task_planning_section_no_subagents_omits_classification_step():
     content = TaskPlanningSection().build_content()
     assert "Classify Every Task for Delegation" not in content
     assert "Available subagent types" not in content
+    assert "subagent_type" not in content
+    assert '"mode": "delegate"' not in content
     # Step numbering should not reference STEP 3/4 when subagents are absent
     assert "STEP 2 — Execute Every Task" in content
     assert "STEP 3 — Include Task Summary" in content
@@ -164,9 +200,11 @@ def test_task_planning_section_with_subagents_includes_classification_step():
     assert "Available subagent types" in content
     assert '"builder"' in content
     assert '"evaluator"' in content
-    # subagent_name and subagent_id should appear in the classification step
-    assert "subagent_name" in content
+    assert '"mode": "inline"' in content
+    assert '"mode": "delegate"' in content
+    assert "subagent_type" in content
     assert "subagent_id" in content
+    assert "Inline means you execute the task yourself" in content
     # novelty guidance should appear in the classification step
     assert "novelty" in content.lower()
     # Step numbering should use STEP 3/4 when subagents are present
@@ -174,11 +212,37 @@ def test_task_planning_section_with_subagents_includes_classification_step():
     assert "STEP 4 — Include Task Summary" in content
 
 
+def test_checklist_gated_decision_without_subagents_does_not_offer_delegate_execution():
+    """Managed round-evaluator guidance should stay inline-only when no subagents are available."""
+    content = _build_checklist_gated_decision(
+        checklist_items=_CHECKLIST_ITEMS,
+        round_evaluator_before_checklist=True,
+        orchestrator_managed_round_evaluator=True,
+        specialized_subagents_available=False,
+    )
+    lower = content.lower()
+    assert "execution.mode" not in content
+    assert "spawn_subagents()" not in content
+    assert "all injected tasks are inline in this run" in lower
+
+
 def test_task_planning_section_is_mandatory_for_complex_tasks():
     """Task planning section must state planning is required, not optional."""
     content = TaskPlanningSection().build_content()
     assert "REQUIRED" in content
     assert "propose_improvements" in content
+
+
+def test_task_planning_section_prioritizes_correctness_and_final_regression_verification():
+    """Shared planning guidance should order blocker correctness before polish and re-check it at the end."""
+    content = TaskPlanningSection().build_content()
+    lower = content.lower()
+    assert "if the plan includes correctness-critical tasks" in lower
+    assert "complete those first" in lower
+    assert "then move to the remaining quality, novelty, or polish tasks" in lower
+    assert "use explicit correctness criteria when they exist" in lower
+    assert "final preserve/regression pass" in lower
+    assert "correctness fixes still pass after later changes" in lower
 
 
 def test_checklist_gated_decision_requires_verification_replay_memory_capture():

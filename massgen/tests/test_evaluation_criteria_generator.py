@@ -35,22 +35,18 @@ class TestDefaultCriteria:
         criteria = get_default_criteria(has_changedoc=False)
         assert len(criteria) == 5
 
-    def test_default_criteria_have_must_should_could(self):
-        """Default criteria should have 2 must + 2 should + 1 could."""
+    def test_default_criteria_all_must(self):
+        """Default criteria should all be 'must' — no tier deprioritization."""
         criteria = get_default_criteria(has_changedoc=False)
-        must_count = sum(1 for c in criteria if c.category == "must")
-        should_count = sum(1 for c in criteria if c.category == "should")
-        could_count = sum(1 for c in criteria if c.category == "could")
-        assert must_count == 2
-        assert should_count == 2
-        assert could_count == 1
+        for c in criteria:
+            assert c.category == "must", f"{c.id} has category '{c.category}', expected 'must'"
 
     def test_default_criteria_includes_quality_craft(self):
         """Default criteria must include the quality/craft criterion."""
         criteria = get_default_criteria(has_changedoc=False)
         craft_criteria = [c for c in criteria if "craft" in c.text or "intentional" in c.text]
         assert len(craft_criteria) == 1
-        assert craft_criteria[0].category == "should"
+        assert craft_criteria[0].category == "must"
 
     def test_default_criteria_sequential_ids(self):
         """Default criteria should have sequential E1-E5 IDs."""
@@ -144,7 +140,7 @@ class TestCriteriaValidation:
         assert result[0].id == "E1"
         assert result[0].text == "Goal alignment check"
         assert result[0].category == "must"
-        assert result[3].category == "could"
+        assert result[3].category == "must"
 
     def test_parse_invalid_json_returns_none(self):
         """Invalid JSON should return None (triggering fallback)."""
@@ -179,8 +175,8 @@ class TestCriteriaValidation:
         result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
         assert result is None
 
-    def test_parse_missing_core_criteria_returns_none(self):
-        """Must have at least min_criteria - 1 core items."""
+    def test_all_stretch_criteria_promoted_to_must(self):
+        """All criteria regardless of input category are promoted to must."""
         from massgen.evaluation_criteria_generator import _parse_criteria_response
 
         response = json.dumps(
@@ -194,7 +190,9 @@ class TestCriteriaValidation:
             },
         )
         result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
-        assert result is None
+        assert result is not None
+        for c in result:
+            assert c.category == "must"
 
     def test_parse_criteria_from_markdown_code_block(self):
         """Should extract JSON from markdown code blocks."""
@@ -235,7 +233,7 @@ class TestCriteriaValidation:
         assert result[5].id == "E6"
 
     def test_variable_item_count_8(self):
-        """8 criteria with 6 core + 2 stretch should work."""
+        """8 criteria with 6 core + 2 stretch should work — all promoted to must."""
         from massgen.evaluation_criteria_generator import _parse_criteria_response
 
         response = json.dumps(
@@ -246,10 +244,8 @@ class TestCriteriaValidation:
         result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
         assert result is not None
         assert len(result) == 8
-        must_count = sum(1 for c in result if c.category == "must")
-        could_count = sum(1 for c in result if c.category == "could")
-        assert must_count == 6
-        assert could_count == 2
+        for c in result:
+            assert c.category == "must"
 
 
 class TestGenerationPrompt:
@@ -271,10 +267,16 @@ class TestGenerationPrompt:
         prompt = self._make_prompt(task="Build a snake game with mobile support")
         assert "snake game" in prompt
 
-    def test_prompt_changedoc_adds_traceability(self):
-        """When changedoc is enabled, prompt should mention traceability."""
+    def test_prompt_changedoc_does_not_add_criterion(self):
+        """Changedoc traceability is no longer injected as an eval criterion.
+
+        When changedoc was a criterion, agents burned iterations improving
+        the changedoc instead of the actual deliverable.  Traceability is
+        handled during final presentation instead.
+        """
         prompt = self._make_prompt(has_changedoc=True)
-        assert "changedoc" in prompt.lower() or "traceability" in prompt.lower()
+        # The changedoc instruction should be empty — no criterion injection
+        assert "changedoc traceability" not in prompt.lower()
 
     def test_prompt_specifies_criteria_range(self):
         """Generation prompt should specify the min-max range."""
@@ -336,12 +338,10 @@ class TestGenerationPrompt:
         assert "sample" in prompt.lower() or "not a sample" in prompt.lower()
 
     def test_prompt_requires_dedicated_rendering_correctness_criterion(self):
-        """Prompt must explicitly require a dedicated must criterion for rendering correctness."""
+        """Prompt must explicitly require a dedicated criterion for rendering correctness."""
         prompt = self._make_prompt()
         # Must be a numbered requirement, not just guidance
         assert "rendering" in prompt.lower() or "rendered" in prompt.lower()
-        # Must say it is always must, not should
-        assert "do not make this criterion" in prompt.lower() or "always `must`" in prompt.lower()
         # Must say not to merge with craft
         assert "craft" in prompt.lower() and ("separate" in prompt.lower() or "not merge" in prompt.lower())
 
@@ -547,3 +547,51 @@ async def test_subagent_criteria_generation_keeps_file_operation_mcps_when_comma
     backend = captured["parent_agent_configs"][0]["backend"]
     assert backend["enable_mcp_command_line"] is False
     assert backend["exclude_file_operation_mcps"] is False
+
+
+@pytest.mark.asyncio
+async def test_subagent_criteria_generation_omits_null_base_url_for_claude_code(monkeypatch, tmp_path):
+    """base_url: null must not appear in simplified configs — claude_code rejects it."""
+    captured = {}
+
+    class _FakeSubagentManager:
+        def __init__(self, *args, **kwargs):
+            captured["parent_agent_configs"] = kwargs.get("parent_agent_configs")
+
+        async def spawn_subagent(self, **kwargs):
+            return SimpleNamespace(
+                success=True,
+                answer=json.dumps(
+                    {
+                        "criteria": [
+                            {"text": "Goal alignment", "category": "must"},
+                            {"text": "No defects", "category": "must"},
+                            {"text": "Depth and completeness", "category": "should"},
+                            {"text": "Intentional craft", "category": "should"},
+                        ],
+                    },
+                ),
+                error=None,
+                workspace_path=None,
+            )
+
+        def get_subagent_display_data(self, _subagent_id):
+            return None
+
+    monkeypatch.setattr("massgen.subagent.manager.SubagentManager", _FakeSubagentManager)
+
+    generator = EvaluationCriteriaGenerator()
+    criteria = await generator.generate_criteria_via_subagent(
+        task="Test task",
+        agent_configs=[{"id": "parent", "backend": {"type": "claude_code", "model": "claude-sonnet-4-6"}}],
+        has_changedoc=False,
+        parent_workspace=str(tmp_path),
+        log_directory=None,
+        orchestrator_id="orch_test",
+        min_criteria=4,
+        max_criteria=7,
+    )
+
+    assert len(criteria) >= 4
+    backend = captured["parent_agent_configs"][0]["backend"]
+    assert "base_url" not in backend, "base_url: null leaked into claude_code simplified config"

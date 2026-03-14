@@ -5,14 +5,9 @@ consensus run, replacing fixed T1-T4 items with dynamic E1-EN criteria tailored
 to the actual task. When generation is disabled or fails, concrete static defaults
 are used instead.
 
-Each criterion is tagged with a tier:
-- "must": Hard requirements — failing these means the answer is wrong.
-- "should": Quality expectations that demand deliberate craft — not just
-  functional completeness, but thoughtful execution a user would notice.
-- "could": Excellence markers — genuine creative ambition or distinctive
-  quality that makes the output stand out.
-
-For backward compatibility, old "core" maps to "must" and "stretch" maps to "could".
+All criteria use category "must" — no criterion is deprioritized via tier labels.
+For backward compatibility, old "core" maps to "must" and "stretch" maps to "must".
+Legacy "should" and "could" from user configs are silently promoted to "must".
 """
 
 import json
@@ -75,7 +70,7 @@ _DEFAULT_CRITERIA_TEXTS = [
     ("The output shows care beyond correctness — thoughtful choices," " consistent style, attention to edge cases, or creative elements that" " distinguish it from adequate work."),
 ]
 
-_DEFAULT_CATEGORIES = ["must", "must", "should", "could"]
+_DEFAULT_CATEGORIES = ["must", "must", "must", "must"]
 
 # ---------------------------------------------------------------------------
 # Domain-specific criteria presets
@@ -107,13 +102,13 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "The persona set collectively provides coverage — the major reasonable"
             " approaches, value trade-offs, or methodological choices for this task are"
             " represented. No critical perspective is missing.",
-            "should",
+            "must",
         ),
         (
             "Personas are vivid enough to resist homogenization under peer pressure."
             " The perspective is strongly stated so that even after seeing other agents'"
             " answers, the core viewpoint remains distinguishable.",
-            "could",
+            "must",
         ),
     ],
     "decomposition": [
@@ -134,7 +129,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "Subtask scoping is balanced — no single subtask is trivial while another"
             " carries the bulk of the complexity. Work is distributed so each agent has"
             " a meaningful, roughly comparable contribution.",
-            "should",
+            "must",
         ),
         (
             "Each subtask description is self-contained and specific enough that an" " agent can execute it without needing to infer intent from other subtasks" " or the original prompt.",
@@ -144,7 +139,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "The decomposition strategy is appropriate for the task type — creative"
             " tasks split along conceptual boundaries, technical tasks along component"
             " boundaries, analytical tasks along dimension boundaries.",
-            "could",
+            "must",
         ),
     ],
     "evaluation": [
@@ -163,7 +158,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "The criteria set distinguishes excellent work from adequate work. If every"
             " competent first draft would pass all criteria, the bar is too low. At"
             " least one criterion should require genuine effort to satisfy.",
-            "should",
+            "must",
         ),
         (
             "Tier categorization is correct. MUST criteria represent"
@@ -176,7 +171,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "Criteria do not conflict with each other or create impossible trade-offs."
             " Meeting one criterion should not require violating another. Where genuine"
             " tensions exist, the criteria acknowledge the trade-off explicitly.",
-            "could",
+            "must",
         ),
     ],
     "prompt": [
@@ -193,17 +188,17 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
         ),
         (
             "Important requirements are explicit, not implied. The prompt does not" ' depend on shared context, cultural assumptions, or "obvious" intentions' " that a model might miss.",
-            "should",
+            "must",
         ),
         (
             "The prompt is structured for parseability — key instructions are" " prominent, not buried in paragraphs. An agent skimming the prompt would" " still catch the critical constraints.",
-            "could",
+            "must",
         ),
         (
             "The prompt anticipates likely failure modes for its task type and includes"
             ' guardrails against them (e.g., "do not summarize when asked to analyze"'
             ' or "include concrete examples, not abstract principles").',
-            "could",
+            "must",
         ),
     ],
     "analysis": [
@@ -221,7 +216,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "The analysis distinguishes symptoms from root causes. Surface-level"
             ' observations (e.g., "agent 2 was slow") are traced to underlying'
             ' explanations (e.g., "agent 2 hit rate limits due to tool call volume").',
-            "should",
+            "must",
         ),
         (
             "Actionable recommendations follow from findings. Each significant finding" " includes a concrete suggestion for what to change, not just a description" " of what went wrong.",
@@ -231,7 +226,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "The analysis identifies patterns across the dataset, not just individual"
             " anomalies. Recurring behaviors, systematic biases, or structural issues"
             " are surfaced alongside one-off events.",
-            "could",
+            "must",
         ),
     ],
     "planning": [
@@ -265,29 +260,54 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "must",
         ),
         (
-            "Technology and tooling choices are explicit and justified."
-            " Frameworks, libraries, APIs, and tools are named — not left for"
-            " the executor to guess. For existing codebases, the plan respects"
-            " the established stack and conventions rather than introducing"
-            " gratuitous alternatives.",
+            "Technology and tooling choices are explicit — frameworks,"
+            " libraries, APIs, and tools are named, not left for the executor"
+            " to guess. Where tasks connect or produce artifacts consumed by"
+            " other tasks, interface contracts are specified: data shapes,"
+            " file conventions, API signatures, or shared types.",
             "must",
-        ),
-        (
-            "Where tasks connect or produce artifacts consumed by other tasks,"
-            " interface contracts are specified: data shapes, file conventions,"
-            " API signatures, or shared types. Independent execution of tasks"
-            " should not require reverse-engineering unstated agreements.",
-            "should",
-        ),
-        (
-            "Assumptions, boundaries, and trade-offs are documented with" " rationale. Ambiguities are resolved with explicit defaults rather" " than left implicit.",
-            "should",
         ),
         (
             "The plan demonstrates thoughtful sequencing and risk management:"
             " chunking and prioritization reduce rework, high-risk or"
             " foundational tasks come first, and quality gates are placed"
             " where they most improve final output quality.",
+            "must",
+        ),
+        (
+            "The plan demonstrates strategic depth — major decisions"
+            " (architecture, creative direction, structure, approach) are"
+            " deliberate and justified with rationale tied to the actual"
+            " problem context, not just 'best practice' or 'modern trend.'"
+            " Assumptions, boundaries, and trade-offs are documented with"
+            " rationale rather than left implicit. If the project name could"
+            " be swapped out and the plan reused unchanged, it lacks the"
+            " specificity that produces excellent results.",
+            "must",
+        ),
+        (
+            "Iterations prefer tightening existing tasks over adding new ones."
+            " New tasks are justified when filling genuine gaps, but unjustified"
+            " growth indicates sprawl. Descriptions, verification, and"
+            " dependencies should improve in precision across rounds.",
+            "must",
+        ),
+        (
+            "Tasks are classified as deterministic or exploratory with"
+            " appropriate specification depth. Deterministic tasks (single"
+            " correct path, binary verification) have exact steps and"
+            " interface contracts. Exploratory tasks (multiple valid"
+            " approaches, qualitative verification) have success criteria"
+            " and constraints instead of implementation steps, giving the"
+            " executor freedom to iterate.",
+            "should",
+        ),
+        (
+            "The plan includes evaluation checkpoints after high-risk or"
+            " exploratory chunks, and evolution hooks that flag assumptions"
+            " which should trigger plan revision if invalidated during"
+            " execution. The plan treats itself as a hypothesis, not a"
+            " contract.",
             "should",
         ),
     ],
@@ -311,11 +331,76 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " requirements contradict each other, and the priority or"
             " ordering reflects genuine implementation dependencies and"
             " user-facing importance.",
-            "should",
+            "must",
         ),
         (
             "Requirements anticipate edge cases, error states, and boundary" " conditions relevant to the domain. The spec does not only" " describe the happy path.",
-            "could",
+            "must",
+        ),
+        (
+            "The spec demonstrates strategic depth — the chosen design"
+            " direction, system architecture, and interaction model are"
+            " deliberate and justified with rationale tied to the actual"
+            " problem context and users. If the project name could be"
+            " swapped out and the spec reused unchanged, it lacks the"
+            " specificity that produces excellent results.",
+            "must",
+        ),
+        (
+            "Iterations prefer tightening existing requirements over adding"
+            " new ones. New requirements are justified when filling genuine"
+            " gaps, but unjustified growth indicates sprawl. EARS statements,"
+            " verification, and rationale should improve in precision across"
+            " rounds.",
+            "must",
+        ),
+    ],
+    "round_evaluator": [
+        (
+            "The evaluator packet fully follows the round_evaluator contract."
+            " Required sections are present, the output stays critique-only, and"
+            " it does not drift into checklist payload drafting, parent workflow"
+            " tool instructions, or terminal outcome recommendations.",
+            "must",
+        ),
+        (
+            "criteria_interpretation is rigorous for every active criterion."
+            " It explains what the criterion truly demands, what excellent work"
+            " would look like, and which false positives or shallow passes might"
+            " otherwise slip through.",
+            "must",
+        ),
+        (
+            "criterion_findings are evidence-grounded and criterion-specific."
+            " They cite concrete details from the candidate answers, identify"
+            " hidden risks, and clearly separate weak spots from source-answer"
+            " strengths worth carrying forward.",
+            "must",
+        ),
+        (
+            "cross_answer_synthesis and preserve guidance are decisive and"
+            " lossless. The packet makes clear which answer is strongest on"
+            " which dimension, what no answer gets right yet, and what strengths"
+            " must not regress in the next revision.",
+            "must",
+        ),
+        (
+            "improvement_spec is actionable, prioritized, and concrete enough"
+            " that the parent can implement it with minimal reinterpretation."
+            " It should describe what to change and how to change it, not just"
+            " restate the problem.",
+            "must",
+        ),
+        (
+            "verification_plan and evidence_gaps are specific and useful."
+            " They name what still needs to be checked, what evidence is"
+            " missing, and how the parent can close those gaps instead of"
+            " falling back to generic 'test more' guidance.",
+            "must",
+        ),
+        (
+            "unexplored_approaches includes at least one grounded, non-obvious" " direction that could beat every current answer rather than merely" " patching the current weaknesses.",
+            "must",
         ),
     ],
 }
@@ -335,19 +420,13 @@ def criteria_from_inline(inline_list: list[dict[str, str]]) -> list[GeneratedCri
     """
     criteria: list[GeneratedCriterion] = []
     for i, item in enumerate(inline_list):
-        category = str(item.get("category") or "should").strip().lower()
-        if category == "core":
-            category = "must"
-        elif category == "stretch":
-            category = "could"
-        if category not in {"must", "should", "could"}:
-            category = "should"
+        # Accept any category from user configs for backward compat, but promote to "must".
         verify_by = str(item.get("verify_by") or "").strip() or None
         criteria.append(
             GeneratedCriterion(
                 id=f"E{i + 1}",
                 text=item["text"],
-                category=category,
+                category="must",
                 verify_by=verify_by,
             ),
         )
@@ -381,7 +460,7 @@ def build_decomposition_execution_criteria(subtask: str) -> list[GeneratedCriter
         ),
         (
             "This revision is a meaningful improvement to the owned subtask, not just churn, " "reformatting, or superficial edits.",
-            "should",
+            "must",
         ),
     ]
     return [GeneratedCriterion(id=f"E{i + 1}", text=text, category=category) for i, (text, category) in enumerate(criteria)]
@@ -391,8 +470,7 @@ def get_criteria_for_preset(preset: str) -> list[GeneratedCriterion]:
     """Return domain-specific criteria for a named preset.
 
     Args:
-        preset: One of the known preset names (persona, decomposition,
-                evaluation, prompt, analysis).
+        preset: One of the known preset names.
 
     Returns:
         List of GeneratedCriterion with E1..E5 IDs.
@@ -409,7 +487,7 @@ def get_criteria_for_preset(preset: str) -> list[GeneratedCriterion]:
     return [GeneratedCriterion(id=f"E{i + 1}", text=text, category=category) for i, (text, category) in enumerate(_CRITERIA_PRESETS[preset])]
 
 
-# Quality/craft criterion — always appended as the last should-tier criterion.
+# Quality/craft criterion — always appended as the last criterion.
 # Ensures evaluators assess whether the output shows intentional, thoughtful
 # choices beyond functional correctness. Without this, agents satisfy all
 # requirements while producing output that feels like a minimum viable version.
@@ -453,7 +531,7 @@ def get_default_criteria(has_changedoc: bool = False) -> list[GeneratedCriterion
         GeneratedCriterion(
             id=f"E{len(criteria) + 1}",
             text=_QUALITY_CRAFT_TEXT,
-            category="should",
+            category="must",
         ),
     )
 
@@ -530,17 +608,10 @@ def _parse_criteria_response(
             )
             return None
 
-        # Parse into GeneratedCriterion objects with tier mapping
-        # Backward compat: "core" → "must", "stretch" → "could"
-        _CATEGORY_MAP = {"core": "must", "stretch": "could"}
-        _VALID_CATEGORIES = {"must", "should", "could"}
+        # Parse into GeneratedCriterion objects — all categories forced to "must".
         criteria = []
         for i, item in enumerate(raw_criteria):
             text = item.get("text", "")
-            raw_category = item.get("category", "core")
-            category = _CATEGORY_MAP.get(raw_category, raw_category)
-            if category not in _VALID_CATEGORIES:
-                category = "must"
             verify_by = item.get("verify_by") or None
             if verify_by and not isinstance(verify_by, str):
                 verify_by = None
@@ -548,18 +619,10 @@ def _parse_criteria_response(
                 GeneratedCriterion(
                     id=f"E{i + 1}",
                     text=text,
-                    category=category,
+                    category="must",
                     verify_by=verify_by,
                 ),
             )
-
-        # Validate: at least min_criteria - 1 must/should items
-        core_count = sum(1 for c in criteria if c.category in ("must", "should"))
-        if core_count < min_criteria - 1:
-            logger.warning(
-                f"Not enough core criteria: {core_count} < {min_criteria - 1}",
-            )
-            return None
 
         return criteria
 
@@ -607,13 +670,11 @@ class EvaluationCriteriaGenerator:
         Returns:
             The formatted prompt string
         """
+        # Changedoc traceability is handled during final presentation,
+        # not as an evaluation criterion.  When it was a criterion, agents
+        # burned iterations just improving the changedoc instead of the
+        # actual deliverable.
         changedoc_instruction = ""
-        if has_changedoc:
-            changedoc_instruction = """
-- **One criterion MUST assess changedoc traceability**: whether decisions are
-  documented with genuine rationale and implementation references are accurate.
-  Tag this criterion as "must".
-"""
 
         planning_context_section = ""
         if has_planning_spec_context:
@@ -659,15 +720,12 @@ button that does nothing, a layout that is visually broken at the default viewpo
 a *wrong* output, not a mediocre one. Correctness criteria must cover all three \
 dimensions, not just structural validity.
 
-Experiential correctness at the **primary use context** is always MUST — the output \
-must work correctly where and how it will normally be used. Extended contexts (e.g., \
-multiple screen sizes, edge-case inputs, non-default settings) may be SHOULD or COULD \
-depending on whether the task explicitly requires them.
+Experiential correctness at the **primary use context** is always required — the output \
+must work correctly where and how it will normally be used.
 
 Correctness is separate from **quality/craft**: a correct output can still be mediocre. Craft \
 criteria ask whether the output shows intentional quality — cohesive choices, thoughtful \
-structure, elegance — beyond what is merely correct. Include at least one craft criterion \
-tagged "should".
+structure, elegance — beyond what is merely correct. Include at least one craft criterion.
 
 BAD (abstract): "Visual design quality."
 GOOD (concrete): "Visual design: typography is legible at mobile resolution \
@@ -683,70 +741,34 @@ BAD (only structural): all criteria check whether the output exists and has the 
 GOOD (covers all dimensions): criteria cover what it says/computes, how it behaves \
 when actually used, and whether it shows intentional craft beyond correctness.
 
-## Tier System
-
-Organize criteria into three tiers:
-- **MUST**: Hard requirements from the task. Failing these means the answer is wrong — \
-across all dimensions of correctness (structural, content, and experiential). A first-year \
-professional in the domain would not ship output that fails this. \
-(e.g., "Output is a working 30-second video, not a still image or broken render")
-- **SHOULD**: Quality dimensions where the output must demonstrate deliberate, \
-thoughtful execution — not just functional completeness. A SHOULD criterion \
-asks "did the creator make intentional choices here, or just do the obvious \
-thing?" Functional baselines (e.g., "has mobile support", "images load") \
-belong in MUST if they're requirements, not SHOULD. SHOULD criteria target \
-the quality of execution: how well something is done, not whether it exists. \
-(e.g., "Typography creates clear visual hierarchy with intentional size, \
-weight, and spacing choices — not just default browser styles")
-- **COULD**: Creative ambition and distinctive quality that makes the output \
-memorable. COULD criteria ask "does this show a point of view?" — not just \
-competent execution but something a viewer would specifically remember or \
-comment on. These matter; they are what separates \
-forgettable-but-correct output from work someone would show to a colleague. \
-(e.g., "The site has a distinctive interactive moment that reinforces the \
-brand identity — not a generic animation library demo but something that \
-feels designed for this specific product")
-
-**Calibration test**: first ask whether this is a correctness criterion — does failing \
-it mean the output is *wrong* (broken, inaccurate, or misbehaving in its actual \
-environment)? If yes, it is MUST regardless of how difficult it is to achieve. \
-Only after ruling that out, ask: is this about the *quality of execution* — how \
-thoughtfully something is done? Then it is SHOULD. Is this about *distinctive \
-creative ambition* — would someone specifically notice or remember this? Then \
-it is COULD. If a criterion can be satisfied by a simple checkbox action \
-(add X, include Y, support Z), it belongs in MUST, not SHOULD.
-
 ## Requirements
 1. Generate between {min_criteria} and {max_criteria} criteria
-2. Tag each as "must", "should", or "could"
-3. At least {min_criteria - 1} criteria must be "must" or "should"
-4. 1-3 criteria may be "could" (what separates good from exceptional)
-5. Each criterion must be specific to THIS task, not generic
-6. Each criterion should be scoreable — an evaluator rates it on a 1-10 scale
-7. **One criterion MUST assess quality/craft** — whether the output shows intentional, \
-cohesive choices that a viewer would notice and appreciate. This criterion should \
-demand evidence of a point of view, not just absence of defects. Tag it as "should". \
+2. Each criterion must be specific to THIS task, not generic
+3. Each criterion should be scoreable — an evaluator rates it on a 1-10 scale
+4. **One criterion MUST assess quality/craft** — whether the output shows intentional, \
+cohesive choices that a viewer would notice and appreciate. This criterion requires \
+evidence of a point of view, not just absence of defects. \
 Without this, agents produce correct but forgettable output.
-8. **Criteria must cover distinct dimensions of the task** — do not cluster \
+5. **Criteria must cover distinct dimensions of the task** — do not cluster \
 multiple criteria around the same aspect. Think about what the major \
 independent quality axes are for this specific task (e.g., content correctness, \
 experiential correctness, completeness, error handling, usability, craft) and \
 ensure each significant dimension gets at least one criterion. An evaluator \
 reading the full set should feel like the entire task space is covered.
-9. **For tasks that produce a rendered or experienced artifact** (website, slides, \
-document, video, audio, interactive app): you MUST include a dedicated `must` \
-criterion whose sole focus is rendering/playback correctness in the primary use \
+6. **For tasks that produce a rendered or experienced artifact** (website, slides, \
+document, video, audio, interactive app): you MUST include a dedicated criterion \
+whose sole focus is rendering/playback correctness in the primary use \
 context — no defects when the output is opened and experienced normally. This means: \
 no text overflow or clipping, no element collisions, no invisible or blank content, \
 no broken playback. Do NOT merge this into a craft or polish criterion — those are \
-separate. Do NOT make this criterion `should`. It is always `must`.
-10. **Per-part quality**: When the output has multiple distinct parts (sections of a \
+separate.
+7. **Per-part quality**: When the output has multiple distinct parts (sections of a \
 page, chapters of a document, modules of a codebase, scenes of a video), include at \
 least one criterion that assesses whether EACH significant part independently meets a \
 quality bar. Whole-output criteria like "visual craft is intentional" allow one strong \
 area to mask mediocrity elsewhere — an impressive hero section can pull up the score \
 while feature cards, testimonials, and CTAs remain template-tier. A per-part criterion \
-forces evaluation of the weakest component, not the average. Tag this "should".
+forces evaluation of the weakest component, not the average.
 {changedoc_instruction}
 ## Examples
 
@@ -762,12 +784,11 @@ For a task "Write an API client library":
 - "Developer ergonomics: naming is clear, the public API is discoverable, and usage is self-evident."
 
 For tasks producing an artifact that is experienced rather than just read (rendered \
-visuals, video, audio, interactive output): always include a MUST criterion covering \
+visuals, video, audio, interactive output): always include a criterion covering \
 correctness in the primary use context — for rendered output this means no visual \
 defects when viewed normally; for video/audio this means plays back correctly without \
 distortion, sync errors, or gaps; for interactive output this means all interactions \
-work as expected without errors. This is separate from extended-context correctness \
-(other viewports, edge devices, alternative players), which is typically SHOULD. \
+work as expected without errors. \
 The verify_by must require actually experiencing the full artifact, not just checking \
 its source or structure.
 
@@ -790,8 +811,8 @@ Return JSON with this structure:
 {{
     "criteria": [
         {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "must"}},
-        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "should", "verify_by": "render output to images and inspect for [specific defects to check]"}},
-        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "could"}}
+        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "must", "verify_by": "render output to images and inspect for [specific defects to check]"}},
+        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "must"}}
     ]
 }}
 
@@ -886,18 +907,20 @@ Generate evaluation criteria now for the task above."""
             simplified = []
             for i, config in enumerate(agent_configs):
                 backend = config.get("backend", {})
+                backend_cfg: dict = {
+                    "type": backend.get("type", "openai"),
+                    "model": backend.get("model"),
+                    "enable_mcp_command_line": False,
+                    "enable_code_based_tools": False,
+                    # Without command-line MCP execution, keep file-operation MCPs available.
+                    "exclude_file_operation_mcps": False,
+                }
+                if backend.get("base_url"):
+                    backend_cfg["base_url"] = backend["base_url"]
                 simplified.append(
                     {
                         "id": config.get("id", f"criteria_agent_{i}"),
-                        "backend": {
-                            "type": backend.get("type", "openai"),
-                            "model": backend.get("model"),
-                            "base_url": backend.get("base_url"),
-                            "enable_mcp_command_line": False,
-                            "enable_code_based_tools": False,
-                            # Without command-line MCP execution, keep file-operation MCPs available.
-                            "exclude_file_operation_mcps": False,
-                        },
+                        "backend": backend_cfg,
                     },
                 )
 

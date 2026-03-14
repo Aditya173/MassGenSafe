@@ -116,6 +116,10 @@ class EventType:
     AGENT_RESTART = "agent_restart"
     PRESENTATION_START = "presentation_start"
 
+    # Round evaluator stage events
+    ROUND_EVALUATOR_STAGE_START = "round_evaluator_stage_start"
+    ROUND_EVALUATOR_STAGE_COMPLETE = "round_evaluator_stage_complete"
+
     # Pipeline gap events (for subagent parity)
     HOOK_EXECUTION = "hook_execution"
     POST_EVALUATION = "post_evaluation"
@@ -133,6 +137,15 @@ class EventType:
     FINAL_PRESENTATION_CHUNK = "final_presentation_chunk"
     FINAL_PRESENTATION_END = "final_presentation_end"
     ANSWER_LOCKED = "answer_locked"
+
+    # Pre-collaboration subagent lifecycle
+    PRE_COLLAB_STARTED = "pre_collab_started"
+    PRE_COLLAB_COMPLETED = "pre_collab_completed"
+
+    # Configuration events (personas, criteria, subtasks)
+    PERSONAS_SET = "personas_set"
+    EVALUATION_CRITERIA_SET = "evaluation_criteria_set"
+    SUBTASKS_SET = "subtasks_set"
 
     # Timeout events
     ORCHESTRATOR_TIMEOUT = "orchestrator_timeout"

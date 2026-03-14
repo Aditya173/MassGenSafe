@@ -217,6 +217,7 @@ BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
             "filesystem_native",
             "image_understanding",
             "web_search",  # WebSearch/WebFetch tools (enabled via enable_web_search config)
+            "reasoning",
         },
         builtin_tools=[
             "Read",
@@ -254,7 +255,7 @@ BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
         notes=(
             "⚠️ Works with local Claude Code CLI login (`claude login`), CLAUDE_CODE_API_KEY, or ANTHROPIC_API_KEY. "
             "Native filesystem access via SDK. Extensive built-in tooling for code operations. "
-            "Image understanding support."
+            "Image understanding support. Reasoning effort controls are available for Claude 4.6 quickstart models."
         ),
     ),
     "codex": BackendCapabilities(
@@ -266,6 +267,7 @@ BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
             "filesystem_native",
             "web_search",
             "image_understanding",
+            "reasoning",
         },
         builtin_tools=[
             "shell",
@@ -289,6 +291,7 @@ BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
             "OpenAI Codex CLI with OAuth support. Run `codex login` and complete the browser "
             "OAuth flow with your ChatGPT Plus/Pro account, or use OPENAI_API_KEY as a fallback. "
             "Native filesystem access via CLI. "
+            "GPT-5 quickstart models support reasoning effort controls. "
             "Requires: npm install -g @openai/codex. "
             "SANDBOX LIMITATION: OS-level sandbox (Seatbelt/Landlock) only restricts writes, "
             "NOT reads. For security-sensitive workloads, prefer Docker mode for full isolation."
@@ -713,6 +716,14 @@ BACKEND_CAPABILITIES: dict[str, BackendCapabilities] = {
     ),
 }
 
+AGENT_FRAMEWORK_BACKENDS = frozenset(
+    {
+        "claude_code",
+        "codex",
+        "copilot",
+    },
+)
+
 
 _DISPLAY_NAME_TO_BACKEND_TYPE: dict[str, str] = {
     "openai": "openai",
@@ -775,6 +786,12 @@ def get_capabilities(backend_type: str | None) -> BackendCapabilities | None:
     """
     normalized_backend_type = normalize_backend_type(backend_type)
     return BACKEND_CAPABILITIES.get(normalized_backend_type) if normalized_backend_type else None
+
+
+def is_agent_framework_backend(backend_type: str | None) -> bool:
+    """Return True when the backend is an agent framework/CLI integration."""
+    normalized_backend_type = normalize_backend_type(backend_type)
+    return normalized_backend_type in AGENT_FRAMEWORK_BACKENDS if normalized_backend_type else False
 
 
 def has_capability(backend_type: str | None, capability: str) -> bool:

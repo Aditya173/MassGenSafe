@@ -645,6 +645,57 @@ def test_spawn_status_callback_uses_spawn_status_file_when_tool_result_is_missin
     assert updated.answer_preview == "# Final evaluator report"
 
 
+def test_spawn_status_callback_merges_timeout_from_running_spawn_status_file(tmp_path):
+    """Running spawn status data should refresh the TUI timeout even with a live card snapshot."""
+    app_cls = textual_display_module.TextualApp
+    app = app_cls.__new__(app_cls)
+    app.agent_widgets = {}
+
+    workspace = tmp_path / "workspace_agent_a"
+    status_file = workspace / "subagents" / "_spawn_status.json"
+    status_file.parent.mkdir(parents=True, exist_ok=True)
+    status_file.write_text(
+        json.dumps(
+            {
+                "status": "spawning",
+                "subagents": [
+                    {
+                        "subagent_id": "evaluator_beatles_site_round2",
+                        "status": "running",
+                        "task": "re-evaluate website after fixes",
+                        "timeout_seconds": 1800,
+                    },
+                ],
+            },
+        ),
+    )
+
+    filesystem_manager = SimpleNamespace(get_current_workspace=lambda: workspace)
+    orchestrator = SimpleNamespace(
+        agents={
+            "agent_a": SimpleNamespace(
+                backend=SimpleNamespace(filesystem_manager=filesystem_manager),
+            ),
+        },
+    )
+    app.coordination_display = SimpleNamespace(orchestrator=orchestrator)
+
+    initial = _make_subagent(
+        "evaluator_beatles_site_round2",
+        status="running",
+        task="re-evaluate website after fixes",
+        timeout_seconds=300.0,
+    )
+    live_card = SimpleNamespace(subagents=[initial])
+
+    callback = app._build_spawn_status_callback("agent_a", [initial], card=live_card)
+    updated = callback("evaluator_beatles_site_round2")
+
+    assert updated is not None
+    assert updated.status == "running"
+    assert updated.timeout_seconds == 1800.0
+
+
 def test_spawn_status_callback_uses_background_history_on_cancel() -> None:
     """When _spawn_status.json is missing, background history should mark cancellation."""
     app_cls = textual_display_module.TextualApp

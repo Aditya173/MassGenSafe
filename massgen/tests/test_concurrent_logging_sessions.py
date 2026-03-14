@@ -410,11 +410,14 @@ class TestSessionRegistryLocking:
         def _slow_save(self, data):
             payload = json.dumps(data, indent=2)
             midpoint = max(1, len(payload) // 2)
-            with open(self.registry_path, "w") as f:
+            tmp_file = self.registry_path.with_suffix(".slow_tmp")
+            with open(tmp_file, "w") as f:
                 f.write(payload[:midpoint])
                 f.flush()
                 time.sleep(0.002)
                 f.write(payload[midpoint:])
+                f.flush()
+            tmp_file.replace(self.registry_path)
 
         monkeypatch.setattr(SessionRegistry, "_save_registry", _slow_save)
 

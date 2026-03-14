@@ -44,7 +44,7 @@ MassGen is a cutting-edge multi-agent framework that coordinates AI agents to so
 This project started with the "threads of thought" and "iterative refinement" ideas presented in [The Myth of Reasoning](https://docs.ag2.ai/latest/docs/blog/2025/04/16/Reasoning/), and extends the classic "multi-agent conversation" idea in [AG2](https://github.com/ag2ai/ag2). Here is a [video recording](https://www.youtube.com/watch?v=xM2Uguw1UsQ) of the background context introduction presented at the Berkeley Agentic AI Summit 2025.
 
 <p align="center">
-  <b>🤖 For LLM Agents:</b> <a href="AI_USAGE.md">AI_USAGE.md</a> - Complete automation guide to run MassGen inside an LLM
+  <b>🧩 Use MassGen as a Skill:</b> <code>npx skills add massgen/skills --all</code> — then type invoke the skill in Claude Code, Cursor, Copilot, or 40+ other agents. <a href="https://github.com/massgen/skills">Learn more →</a>
 </p>
 
 <p align="center">
@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.59 Features](#-latest-features-v0159)
+- [v0.1.62 Features](#-latest-features-v0162)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.59)](#recent-achievements-v0159)
-- [Previous Achievements (v0.0.3 - v0.1.58)](#previous-achievements-v003---v0158)
+- [Recent Achievements (v0.1.62)](#recent-achievements-v0162)
+- [Previous Achievements (v0.0.3 - v0.1.61)](#previous-achievements-v003---v0161)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.60 Roadmap](#v0160-roadmap)
+- [v0.1.63 Roadmap](#v0163-roadmap)
 </details>
 
 <details open>
@@ -154,23 +154,24 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.60)
+## 🆕 Latest Features (v0.1.62)
 
-**🎉 Released: March 6, 2026**
+**🎉 Released: March 11, 2026**
 
-**What's New in v0.1.60:**
-- **🛠️ Multimodal Tool Improvements** - Rewritten `read_media` with clearer schema and `MediaCallLedgerHook` for tracking media calls.
-- **🤖 Subagent Enhancements** - `inherit_spawning_agent_backend` for automatic backend inheritance, `final_answer_strategy` for child orchestrator policy, per-agent `subagent_agents` override.
-- **🧠 GPT-5.4** - New default OpenAI flagship model across all coordination modes.
-- **🔄 Decomp + Checklist Cooperation** - Decomp mode works with checklist workflow for quality-gated subtask iteration.
+**What's New in v0.1.62:**
+- **🧩 MassGen Skill** - New general-purpose multi-agent skill with 4 modes (general, evaluate, plan, spec) for Claude Code and other AI agents.
+- **👁️ Session Viewer** - New `massgen viewer` command for real-time observation of automation sessions with interactive picker and web mode.
+- **⚡ Backend & Quickstart** - Claude Code/Codex/Copilot backend improvements, headless and web quickstart modes.
 
-**Try v0.1.60 Features:**
+**Try v0.1.62 Features:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
+# Install the MassGen Skill for your AI agent
+npx skills add massgen/skills --all
+# Then in Claude Code, Cursor, Copilot, etc.:
+#   /massgen "Your complex task"
 
-# Choose backend 'openai' with model 'gpt-5.4' in the setup wizard to start using GPT-5.4
-uv run massgen --quickstart
+# Try the Session Viewer
+uv run massgen viewer --pick
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -265,6 +266,16 @@ The `--quickstart` command will:
 - Auto-detect Docker availability and configure execution mode
 - If Docker mode is selected, show a Skills step where you can choose package(s) (`openskills`-based Anthropic/OpenAI/Vercel/Agent Browser plus Crawl4AI) and install them in-place with live status
 - Create a ready-to-use config and launch into interactive TUI mode
+
+**🤖 Use MassGen from Your AI Coding Agent:**
+
+Install the [MassGen skill](https://github.com/massgen/skills) to invoke MassGen directly from Claude Code, OpenAI Codex, GitHub Copilot, Cursor, and [40+ other agents](https://skills.sh) that support the [Agent Skills](https://agentskills.io/home) standard:
+
+```bash
+npx skills add massgen/skills
+```
+
+Then use `/massgen` (Claude Code) or `$massgen` (Codex) to run multi-agent evaluation, planning, spec writing, or any general task. See the [skills docs](https://docs.massgen.ai/en/latest/user_guide/skills.html) for per-agent install options.
 
 **🖥️ Textual TUI (Default Display Mode):**
 
@@ -1232,31 +1243,29 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.60)
+### Recent Achievements (v0.1.62)
 
-**🎉 Released: March 6, 2026**
+**🎉 Released: March 11, 2026**
 
-#### Multimodal Tools
-- **Rewritten `read_media` Tool** ([#978](https://github.com/massgen/MassGen/pull/978)): Clearer schema, better error handling, and improved naming
-- **`MediaCallLedgerHook`**: New hook for tracking `read_media` and `generate_media` tool calls
+#### MassGen Skill
+- **General-Purpose Skill** ([#992](https://github.com/massgen/MassGen/pull/992)): New multi-agent skill with 4 modes (general, evaluate, plan, spec) for Claude Code and other AI agents
+- **Auto-Sync**: GitHub Actions workflow to auto-sync skill to separate repository for easy installation
+- **Reference Docs**: Comprehensive workflow guides and prompt templates for each mode
 
-#### Subagent Enhancements
-- **`inherit_spawning_agent_backend`** ([#978](https://github.com/massgen/MassGen/pull/978)): Subagents automatically inherit the spawning agent's backend configuration
-- **`final_answer_strategy`**: Configurable child orchestrator final-answer policy (winner_reuse, winner_present, synthesize)
-- **Per-Agent `subagent_agents`**: Per-agent override for subagent agent configs; orchestrator config file support with robust JSON parsing
+#### Session Viewer
+- **Viewer Command** ([#992](https://github.com/massgen/MassGen/pull/992)): New `massgen viewer` for real-time observation of automation sessions
+- **Interactive Picker**: `--pick` flag for session selection, `--web` for browser-based viewing
 
-#### Model & Coordination
-- **GPT-5.4 Support** ([#978](https://github.com/massgen/MassGen/pull/978)): New default OpenAI flagship model added to the model registry
-- **Decomp + Checklist Cooperation**: Decomposition mode works with the checklist workflow for quality-gated subtask iteration
-- **Improved Verification Round Time**: Better `verification_latest` prompts for faster verification rounds
+#### Backend & Quickstart
+- **Backend Improvements** ([#992](https://github.com/massgen/MassGen/pull/992)): Claude Code background task execution, Codex native filesystem and MCP support, Copilot runtime model discovery
+- **Quickstart Modes**: Headless quickstart (`--quickstart --headless`) for CI/CD, web quickstart (`--web-quickstart`) for browser-based setup
+- **Evaluation & Planning**: Better planning prompts with thoroughness support, removed should/could criteria
 
-#### Fixes
-- **Checklist & Proposal Injections**: More reliable checklist behavior with improved proposal injection
-- **Codex Prompt Caching**: Fixed prompt caching calculation for pricing accuracy
-- **Task Plan Refresh**: Fixed task plan refresh during quality rounds
-- **Skill Prefix Handling**: Fixed edge cases in skill prefix resolution
+### Previous Achievements (v0.0.3 - v0.1.61)
 
-### Previous Achievements (v0.0.3 - v0.1.59)
+✅ **Round Evaluator Paradigm (v0.1.61)**: New round evaluator subagent type that automatically spawns evaluator subagents after each new answer to provide detailed feedback as input to the next round. Major orchestrator refactoring with improved evaluation prompts, task plan injection, and subagent fixes.
+
+✅ **Multimodal Tools, Subagent Enhancements & GPT-5.4 (v0.1.60)**: Rewritten read_media with clearer schema and MediaCallLedgerHook. Subagent enhancements with inherit_spawning_agent_backend, final_answer_strategy, per-agent subagent_agents. GPT-5.4 as default OpenAI flagship. Decomp mode cooperates with checklist workflow. Codex prompt caching fix.
 
 ✅ **Quality Round Improvements (v0.1.59)**: Auto-add improvements to task plan, plan review enhancements. Better eval gen config, checklist fixes, Gemini tool name normalization for MCP. Subagent behavior adjustments, Docker skill write access fixes. Video gen skill adjustments and impact metric restoration.
 
@@ -1521,12 +1530,13 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.60 Roadmap
+### v0.1.63 Roadmap
 
-Version 0.1.60 focuses on improving skill use and exploration:
+Version 0.1.63 focuses on adding a Gemini CLI backend and image/video editing capabilities:
 
 #### Planned Features
-- **Improve Skill Use and Exploration** ([#873](https://github.com/massgen/MassGen/issues/873)): Local skill execution, skill registry with hierarchical organization, and skill consolidation workflow
+- **Gemini CLI Backend** ([#952](https://github.com/massgen/MassGen/issues/952)): Gemini CLI as a first-class backend option
+- **Image/Video Edit Capabilities** ([#959](https://github.com/massgen/MassGen/issues/959)): Check and support image/video editing capabilities across providers
 
 ---
 

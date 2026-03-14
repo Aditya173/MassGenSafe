@@ -42,10 +42,11 @@ class TestGetCriteriaForPreset:
         assert ids == expected
 
     @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
-    def test_categories_are_valid(self, preset_name: str):
+    def test_categories_are_must_or_should(self, preset_name: str):
         criteria = get_criteria_for_preset(preset_name)
         for c in criteria:
-            assert c.category in ("must", "should", "could"), f"Preset {preset_name}, {c.id}: invalid category '{c.category}'"
+            assert c.category in ("must", "should"), f"Preset {preset_name}, {c.id}: expected 'must' or 'should', got '{c.category}'"
+        assert any(c.category == "must" for c in criteria), f"Preset {preset_name}: must have at least one 'must' criterion"
 
     @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
     def test_texts_are_non_empty(self, preset_name: str):
@@ -54,11 +55,11 @@ class TestGetCriteriaForPreset:
             assert c.text.strip(), f"Preset {preset_name}, {c.id}: empty text"
 
     @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
-    def test_at_least_three_core_criteria(self, preset_name: str):
-        """Each preset should have a majority of core criteria."""
+    def test_all_criteria_are_must_or_should(self, preset_name: str):
+        """Each preset should have only 'must' or 'should' criteria."""
         criteria = get_criteria_for_preset(preset_name)
-        must_should_count = sum(1 for c in criteria if c.category in ("must", "should"))
-        assert must_should_count >= 3, f"Preset {preset_name}: only {must_should_count} must/should criteria (need >= 3)"
+        for c in criteria:
+            assert c.category in ("must", "should"), f"Preset {preset_name}, {c.id}: expected 'must' or 'should', got '{c.category}'"
 
     def test_unknown_preset_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown criteria preset"):
@@ -206,48 +207,46 @@ class TestPresetContentSanity:
 
     def test_persona_preset_exists(self):
         criteria = get_criteria_for_preset("persona")
-        # Should have 3 must + 1 should + 1 could per composition.md
-        categories = [c.category for c in criteria]
-        assert categories.count("must") == 3
-        assert categories.count("should") == 1 and categories.count("could") == 1
+        assert len(criteria) == 5
+        assert all(c.category == "must" for c in criteria)
 
     def test_decomposition_preset_exists(self):
         criteria = get_criteria_for_preset("decomposition")
-        categories = [c.category for c in criteria]
-        assert categories.count("must") == 3
-        assert categories.count("should") == 1 and categories.count("could") == 1
+        assert len(criteria) == 5
+        assert all(c.category == "must" for c in criteria)
 
     def test_evaluation_preset_exists(self):
         criteria = get_criteria_for_preset("evaluation")
-        categories = [c.category for c in criteria]
-        assert categories.count("must") == 3
-        assert categories.count("should") == 1 and categories.count("could") == 1
+        assert len(criteria) == 5
+        assert all(c.category == "must" for c in criteria)
 
     def test_prompt_preset_exists(self):
         criteria = get_criteria_for_preset("prompt")
-        categories = [c.category for c in criteria]
-        assert categories.count("must") == 2
-        assert categories.count("should") == 1 and categories.count("could") == 2
+        assert len(criteria) == 5
+        assert all(c.category == "must" for c in criteria)
 
     def test_analysis_preset_exists(self):
         criteria = get_criteria_for_preset("analysis")
-        categories = [c.category for c in criteria]
-        assert categories.count("must") == 3
-        assert categories.count("should") == 1 and categories.count("could") == 1
+        assert len(criteria) == 5
+        assert all(c.category == "must" for c in criteria)
 
     def test_planning_preset_exists(self):
         criteria = get_criteria_for_preset("planning")
-        categories = [c.category for c in criteria]
-        assert len(criteria) == 8
-        assert categories.count("must") == 5
-        assert categories.count("should") == 3 and categories.count("could") == 0
+        assert len(criteria) == 10
+        must_count = sum(1 for c in criteria if c.category == "must")
+        should_count = sum(1 for c in criteria if c.category == "should")
+        assert must_count == 8
+        assert should_count == 2
 
     def test_spec_preset_exists(self):
         criteria = get_criteria_for_preset("spec")
-        categories = [c.category for c in criteria]
-        assert len(criteria) == 5
-        assert categories.count("must") == 3
-        assert categories.count("should") == 1 and categories.count("could") == 1
+        assert len(criteria) == 7
+        assert all(c.category == "must" for c in criteria)
+
+    def test_round_evaluator_preset_exists(self):
+        criteria = get_criteria_for_preset("round_evaluator")
+        assert len(criteria) == 7
+        assert all(c.category == "must" for c in criteria)
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +307,10 @@ class TestCriteriaFromInline:
 
         result = criteria_from_inline(_SAMPLE_INLINE)
         assert result[0].text == "Visual design is cohesive and polished"
+        # All categories promoted to "must" regardless of input
         assert result[0].category == "must"
-        assert result[1].category == "should"
-        assert result[2].category == "could"
+        assert result[1].category == "must"
+        assert result[2].category == "must"
 
     def test_empty_list_returns_empty(self):
         from massgen.evaluation_criteria_generator import criteria_from_inline
@@ -482,7 +482,7 @@ class TestGetActiveCriteria:
         assert len(items) == 3
         assert items[0] == "Visual design is cohesive and polished"
         assert categories["E1"] == "must"
-        assert categories["E2"] == "should"
+        assert categories["E2"] == "must"
 
     def test_inline_beats_generated_in_active_criteria(self):
         """Inline should take priority over generated criteria."""
