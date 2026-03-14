@@ -37,6 +37,50 @@ from .base_with_custom_tool_and_mcp import (
 )
 
 
+class _WSEvent:
+    """Adapter that exposes websocket JSON events like SDK response objects."""
+
+    def __init__(self, data: dict[str, Any]):
+        self._data = data
+
+    @staticmethod
+    def _wrap(value: Any) -> Any:
+        if isinstance(value, dict):
+            return _WSEvent(value)
+        if isinstance(value, list):
+            return [_WSEvent(item) if isinstance(item, dict) else item for item in value]
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_") or name not in self._data:
+            raise AttributeError(name)
+        return self._wrap(self._data[name])
+
+    def __getitem__(self, key: str) -> Any:
+        return self._wrap(self._data[key])
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __bool__(self) -> bool:
+        return bool(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._wrap(self._data.get(key, default))
+
+    def model_dump(self) -> dict[str, Any]:
+        return self._data
+
+    def __repr__(self) -> str:
+        return f"_WSEvent({self._data.get('type', '?')})"
+
+
 class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """Backend using the standard Response API format with multimodal support."""
 
@@ -52,6 +96,8 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
             self.api_params_handler = OpenAIOperatorAPIParamsHandler(self)
         else:
             self.api_params_handler = ResponseAPIParamsHandler(self)
+
+        self._websocket_mode = kwargs.get("websocket_mode", False)
 
         # Queue for pending image saves
         self._pending_image_saves = []
@@ -79,6 +125,40 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         self._clear_streaming_buffer(**kwargs)
         agent_id = kwargs.get("agent_id", self.agent_id)
 
+        ws_transport = None
+        if self._websocket_mode:
+            try:
+                from ._websocket_transport import WebSocketResponseTransport
+
+                ws_url = None
+                base_url = self.config.get("base_url")
+                if base_url:
+                    # Convert HTTP base URL to WebSocket URL
+                    ws_base = base_url.replace("https://", "wss://").replace(
+                        "http://",
+                        "ws://",
+                    )
+                    ws_url = ws_base.rstrip("/") + "/responses"
+
+                ws_transport = WebSocketResponseTransport(
+                    api_key=self.api_key or "",
+                    organization=self.config.get("organization") or os.getenv("OPENAI_ORG_ID"),
+                    **({"url": ws_url} if ws_url else {}),
+                )
+                await ws_transport.connect()
+                kwargs["_ws_transport"] = ws_transport
+                logger.info(
+                    "[WebSocket] Transport active for this stream_with_tools call",
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[WebSocket] Failed to establish connection: {e}. Falling back to HTTP mode.",
+                )
+                ws_transport = None
+                # Ensure the params handler builds HTTP-mode params (stream=True)
+                # instead of websocket-mode params (stream omitted).
+                kwargs["websocket_mode"] = False
+
         try:
             async for chunk in super().stream_with_tools(messages, tools, **kwargs):
                 yield chunk
@@ -87,6 +167,8 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
             self._finalize_streaming_buffer(agent_id=agent_id)
             # Cleanup File Search resources after stream completes
             await self._cleanup_file_search_if_needed(**kwargs)
+            if ws_transport is not None:
+                await ws_transport.close()
 
     async def _cleanup_file_search_if_needed(self, **kwargs) -> None:
         """Cleanup File Search resources if needed."""
@@ -123,7 +205,7 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     ) -> AsyncGenerator[StreamChunk]:
         agent_id = kwargs.get("agent_id")
         # Filter out internal flags that shouldn't be passed to API
-        filtered_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_compression")}
+        filtered_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_compression") and not k.startswith("_ws_")}
         all_params = {**self.config, **filtered_kwargs}
 
         processed_messages = await self._process_upload_files(messages, all_params)
@@ -160,9 +242,14 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
 
         # Check for compression retry flag to prevent infinite loops
         _compression_retry = kwargs.get("_compression_retry", False)
+        ws_transport = kwargs.get("_ws_transport")
 
         try:
-            stream = await client.responses.create(**api_params)
+            stream = await self._create_response_stream(
+                api_params,
+                client,
+                ws_transport,
+            )
         except Exception as e:
             # Debug: Catch input[N].content format errors and print the problematic message
             error_str = str(e)
@@ -216,7 +303,11 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 )
 
                 # Retry with compressed context
-                stream = await client.responses.create(**api_params)
+                stream = await self._create_response_stream(
+                    api_params,
+                    client,
+                    ws_transport,
+                )
 
                 # Notify user that compression succeeded
                 input_count = len(compressed_messages) if compressed_messages else 0
@@ -347,7 +438,7 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
 
         # Build API params for this iteration
         # Filter out internal flags that shouldn't be passed to API
-        filtered_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_compression")}
+        filtered_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_compression") and not k.startswith("_ws_")}
         all_params = {**self.config, **filtered_kwargs}
 
         if all_params.get("_has_file_search_files"):
@@ -372,10 +463,15 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
 
         # Check for compression retry flag to prevent infinite loops
         _compression_retry = kwargs.get("_compression_retry", False)
+        ws_transport = kwargs.get("_ws_transport")
 
         # Start streaming with context error handling
         try:
-            stream = await client.responses.create(**api_params)
+            stream = await self._create_response_stream(
+                api_params,
+                client,
+                ws_transport,
+            )
         except Exception as e:
             # Debug: Catch input[N].content format errors and print the problematic message
             error_str = str(e)
@@ -433,7 +529,11 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 current_messages = compressed_messages
 
                 # Retry with compressed context
-                stream = await client.responses.create(**api_params)
+                stream = await self._create_response_stream(
+                    api_params,
+                    client,
+                    ws_transport,
+                )
 
                 # Notify user that compression succeeded
                 input_count = len(compressed_messages) if compressed_messages else 0
@@ -459,73 +559,100 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         response_id = None  # Track response ID for reasoning continuity
         response_output_items = []  # Track ALL output items (reasoning, messages, function_calls)
 
-        async for chunk in stream:
-            if hasattr(chunk, "type"):
-                # Detect function call start
-                if chunk.type == "response.output_item.added" and hasattr(chunk, "item") and chunk.item and getattr(chunk.item, "type", None) == "function_call":
-                    current_function_call = {
-                        "call_id": getattr(chunk.item, "call_id", ""),
-                        "name": getattr(chunk.item, "name", ""),
-                        "arguments": "",
-                    }
-                    logger.info(f"Function call detected: {current_function_call['name']}")
+        try:
+            async for chunk in stream:
+                if hasattr(chunk, "type"):
+                    # Detect function call start
+                    if chunk.type == "response.output_item.added" and hasattr(chunk, "item") and chunk.item and getattr(chunk.item, "type", None) == "function_call":
+                        current_function_call = {
+                            "call_id": getattr(chunk.item, "call_id", ""),
+                            "name": getattr(chunk.item, "name", ""),
+                            "arguments": "",
+                        }
+                        logger.info(
+                            f"Function call detected: {current_function_call['name']}",
+                        )
 
-                # Accumulate function arguments
-                elif chunk.type == "response.function_call_arguments.delta" and current_function_call is not None:
-                    delta = getattr(chunk, "delta", "")
-                    current_function_call["arguments"] += delta
+                    # Accumulate function arguments
+                    elif chunk.type == "response.function_call_arguments.delta" and current_function_call is not None:
+                        delta = getattr(chunk, "delta", "")
+                        current_function_call["arguments"] += delta
 
-                # Function call completed
-                elif chunk.type == "response.output_item.done" and current_function_call is not None:
-                    captured_function_calls.append(current_function_call)
-                    current_function_call = None
+                    # Function call completed
+                    elif chunk.type == "response.output_item.done" and current_function_call is not None:
+                        captured_function_calls.append(current_function_call)
+                        current_function_call = None
 
-                # Handle regular content and other events
-                elif chunk.type == "response.output_text.delta":
-                    self.record_first_token()  # Record TTFT on first content
-                    delta = getattr(chunk, "delta", "")
-                    # Track content in streaming buffer for compression recovery
-                    self._append_to_streaming_buffer(delta)
-                    # Record content chunk for LLM call logging
-                    yield TextStreamChunk(
-                        type=ChunkType.CONTENT,
-                        content=delta,
-                        source="response_api",
-                    )
+                    # Handle regular content and other events
+                    elif chunk.type == "response.output_text.delta":
+                        self.record_first_token()  # Record TTFT on first content
+                        delta = getattr(chunk, "delta", "")
+                        # Track content in streaming buffer for compression recovery
+                        self._append_to_streaming_buffer(delta)
+                        # Record content chunk for LLM call logging
+                        yield TextStreamChunk(
+                            type=ChunkType.CONTENT,
+                            content=delta,
+                            source="response_api",
+                        )
 
-                # Handle other streaming events (reasoning, provider tools, etc.)
-                else:
-                    result = self._process_stream_chunk(chunk, agent_id)
-                    yield result
-
-                # Response completed
-                if chunk.type in ["response.completed", "response.incomplete"]:
-                    response_completed = True
-                    # Note: Usage tracking is handled in _process_stream_chunk() above
-                    # Capture response ID and ALL output items for reasoning continuity
-                    if hasattr(chunk, "response") and chunk.response:
-                        response_id = getattr(chunk.response, "id", None)
-                        if response_id:
-                            logger.debug(f"Captured response ID for reasoning continuity: {response_id}")
-                        # CRITICAL: Capture ALL output items (reasoning, function_call, message)
-                        # These must be included in the next request for reasoning models
-                        output = getattr(chunk.response, "output", [])
-                        if output:
-                            for item in output:
-                                # Convert to dict format for the API
-                                item_dict = self._convert_to_dict(item) if hasattr(item, "model_dump") or hasattr(item, "dict") else item
-                                if isinstance(item_dict, dict):
-                                    response_output_items.append(item_dict)
-                            logger.debug(f"Captured {len(response_output_items)} output items for reasoning continuity")
-                    if captured_function_calls:
-                        # Execute captured function calls and recurse
-                        self.end_api_call_timing(success=True)
-                        break  # Exit chunk loop to execute functions
+                    # Handle other streaming events (reasoning, provider tools, etc.)
                     else:
-                        # No function calls, we're done (base case)
-                        self.end_api_call_timing(success=True)
-                        yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
+                        result = self._process_stream_chunk(chunk, agent_id)
+                        yield result
+
+                    # Response failed - terminal error state
+                    if chunk.type == "response.failed":
+                        error_msg = getattr(result, "error", None) or "Response failed"
+                        self.end_api_call_timing(success=False, error=error_msg)
                         return
+
+                    # Response completed
+                    if chunk.type in ["response.completed", "response.incomplete"]:
+                        response_completed = True
+                        # Note: Usage tracking is handled in _process_stream_chunk() above
+                        # Capture response ID and ALL output items for reasoning continuity
+                        if hasattr(chunk, "response") and chunk.response:
+                            response_id = getattr(chunk.response, "id", None)
+                            if response_id:
+                                logger.debug(
+                                    f"Captured response ID for reasoning continuity: {response_id}",
+                                )
+                            # CRITICAL: Capture ALL output items (reasoning, function_call, message)
+                            # These must be included in the next request for reasoning models
+                            output = getattr(chunk.response, "output", [])
+                            if output:
+                                for item in output:
+                                    # Convert to dict format for the API
+                                    item_dict = self._convert_to_dict(item) if hasattr(item, "model_dump") or hasattr(item, "dict") else item
+                                    if isinstance(item_dict, dict):
+                                        response_output_items.append(item_dict)
+                                logger.debug(
+                                    f"Captured {len(response_output_items)} output items for reasoning continuity",
+                                )
+                        if captured_function_calls:
+                            # Execute captured function calls and recurse
+                            self.end_api_call_timing(success=True)
+                            break  # Exit chunk loop to execute functions
+                        else:
+                            # No function calls, we're done (base case)
+                            self.end_api_call_timing(success=True)
+                            yield TextStreamChunk(
+                                type=ChunkType.DONE,
+                                source="response_api",
+                            )
+                            return
+        except Exception as e:
+            # Mid-stream error (e.g., websocket disconnect) - fail cleanly with one error chunk
+            error_msg = str(e) or "Stream interrupted"
+            logger.error(f"[Response API] Mid-stream error: {error_msg}")
+            self.end_api_call_timing(success=False, error=error_msg)
+            yield TextStreamChunk(
+                type=ChunkType.ERROR,
+                error=error_msg,
+                source="response_api",
+            )
+            return
 
         # Execute any captured function calls
         if captured_function_calls and response_completed:
@@ -1045,21 +1172,42 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
 
     async def _process_stream(self, stream, all_params, agent_id=None):
         first_content_recorded = False
-        async for chunk in stream:
-            processed = self._process_stream_chunk(chunk, agent_id)
-            # Record TTFT on first content
-            if not first_content_recorded and processed.type in [ChunkType.CONTENT, "content"]:
-                self.record_first_token()
-                first_content_recorded = True
-            if processed.type == "complete_response":
-                # Yield the complete response first
-                yield processed
-                # Then signal completion with done chunk
-                self.end_api_call_timing(success=True)
-                log_stream_chunk("backend.response", "done", None, agent_id)
-                yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
-            else:
-                yield processed
+        try:
+            async for chunk in stream:
+                processed = self._process_stream_chunk(chunk, agent_id)
+                # Record TTFT on first content
+                if not first_content_recorded and processed.type in [ChunkType.CONTENT, "content"]:
+                    self.record_first_token()
+                    first_content_recorded = True
+                if processed.type in [ChunkType.ERROR, "error"]:
+                    # Response failed - close timing and yield error
+                    self.end_api_call_timing(
+                        success=False,
+                        error=getattr(processed, "error", "unknown"),
+                    )
+                    yield processed
+                    return
+                if processed.type == "complete_response":
+                    # Yield the complete response first
+                    yield processed
+                    # Then signal completion with done chunk
+                    self.end_api_call_timing(success=True)
+                    log_stream_chunk("backend.response", "done", None, agent_id)
+                    yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
+                else:
+                    yield processed
+        except Exception as e:
+            error_msg = str(e) or "Stream interrupted"
+            logger.error(
+                f"[Response API] Mid-stream error in non-MCP path: {error_msg}",
+            )
+            self.end_api_call_timing(success=False, error=error_msg)
+            yield TextStreamChunk(
+                type=ChunkType.ERROR,
+                error=error_msg,
+                source="response_api",
+            )
+            return
 
     def _process_stream_chunk(self, chunk, agent_id) -> TextStreamChunk | StreamChunk:
         """
@@ -1412,6 +1560,19 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 source="response_api",
             )
 
+        elif chunk.type == "response.failed":
+            error_msg = "Response failed"
+            if hasattr(chunk, "response") and chunk.response:
+                error_obj = getattr(chunk.response, "error", None)
+                if error_obj:
+                    error_msg = getattr(error_obj, "message", None) or str(error_obj)
+            logger.error(f"[Response API] {error_msg}")
+            return TextStreamChunk(
+                type=ChunkType.ERROR,
+                error=error_msg,
+                source="response_api",
+            )
+
         elif chunk.type in ["response.completed", "response.incomplete"]:
             # Extract usage data for token tracking
             if hasattr(chunk, "response") and hasattr(chunk.response, "usage"):
@@ -1560,8 +1721,27 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         """Extract content from OpenAI Responses API tool result message."""
         return tool_result_message.get("output", "")
 
+    async def _create_response_stream(self, api_params, client, ws_transport=None):
+        """Create a response stream via HTTP or websocket transport."""
+        if ws_transport is not None and ws_transport.is_connected:
+            logger.debug("[WebSocket] Sending response.create via WebSocket")
+            return self._ws_event_stream(ws_transport, api_params)
+        return await client.responses.create(**api_params)
+
+    async def _ws_event_stream(self, ws_transport, api_params):
+        """Wrap websocket JSON events as objects matching SDK stream chunks."""
+        async for event_dict in ws_transport.send_and_receive(api_params):
+            yield _WSEvent(event_dict)
+
     def _create_client(self, **kwargs) -> AsyncOpenAI:
-        return openai.AsyncOpenAI(api_key=self.api_key)
+        client_kwargs: dict[str, Any] = {"api_key": self.api_key or ""}
+        base_url = self.config.get("base_url")
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        organization = self.config.get("organization")
+        if organization:
+            client_kwargs["organization"] = organization
+        return openai.AsyncOpenAI(**client_kwargs)
 
     def _convert_to_dict(self, obj) -> dict[str, Any]:
         """Convert any object to dictionary with multiple fallback methods."""
