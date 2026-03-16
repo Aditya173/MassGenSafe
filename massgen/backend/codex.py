@@ -134,6 +134,13 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                 - approval_mode: Codex approval mode (full-auto, full-access, suggest)
         """
         super().__init__(api_key, **kwargs)
+        # The base class may have injected the command_line MCP server (when
+        # enable_mcp_command_line=True). In Docker mode the CLI runs *inside*
+        # the container, so the MCP server script (a host-only path) and the
+        # massgen package (not installed in the container) are both unavailable.
+        # Remove it here; Codex's built-in tools cover all execution needs.
+        if kwargs.get("command_line_execution_mode") == "docker":
+            self._remove_injected_command_line_mcp()
         self.__init_native_tool_mixin__()
 
         # Authentication setup
@@ -220,6 +227,20 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             logger.warning(
                 "No API key or cached OAuth credentials found. " "Authentication will be required on first use.",
             )
+
+    def _remove_injected_command_line_mcp(self) -> None:
+        """Remove the command_line MCP server injected by the base class, if present."""
+        mcp_servers = self.config.get("mcp_servers")
+        if not mcp_servers:
+            return
+        if isinstance(mcp_servers, list):
+            filtered = [s for s in mcp_servers if not (isinstance(s, dict) and s.get("name") == "command_line")]
+            if len(filtered) < len(mcp_servers):
+                self.config["mcp_servers"] = filtered
+                logger.info("Codex Docker mode: removed command_line MCP server (host-only paths not available in container)")
+        elif isinstance(mcp_servers, dict) and "command_line" in mcp_servers:
+            del mcp_servers["command_line"]
+            logger.info("Codex Docker mode: removed command_line MCP server (host-only paths not available in container)")
 
     @property
     def cwd(self) -> str:

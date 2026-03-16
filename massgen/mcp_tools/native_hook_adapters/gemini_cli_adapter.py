@@ -62,14 +62,19 @@ class GeminiCLINativeHookAdapter(NativeHookAdapter):
     3. Uses file-based IPC (hook_payload.json) for delivering injection content
     """
 
-    def __init__(self, hook_dir: Path | None = None):
+    def __init__(self, hook_dir: Path | None = None, docker_mode: bool = False):
         """Initialize the Gemini CLI native hook adapter.
 
         Args:
             hook_dir: Directory for hook IPC files (defaults to .gemini in cwd).
+            docker_mode: When True, use ``python3`` and a workspace-local copy of
+                the hook script instead of ``sys.executable`` and the host path.
+                The script is copied into ``hook_dir`` by the backend before
+                ``settings.json`` is written.
         """
         self._hook_dir = hook_dir
         self._hook_sequence = 0
+        self.docker_mode = docker_mode
 
     @property
     def hook_dir(self) -> Path | None:
@@ -151,9 +156,17 @@ class GeminiCLINativeHookAdapter(NativeHookAdapter):
             for hook in hooks:
                 matchers.add(hook.matcher)
 
-            # Build hook command using the hook script
-            python_exe = sys.executable
-            hook_script = str(_HOOK_SCRIPT_PATH)
+            # Build hook command using the hook script.
+            # In Docker mode the massgen source tree is not mounted inside the
+            # container, so use python3 (from the container PATH) and a
+            # workspace-local copy of the script (written by the backend into
+            # hook_dir before settings.json is created).
+            if self.docker_mode:
+                python_exe = "python3"
+                hook_script = str(self._hook_dir / "gemini_cli_hook_script.py")
+            else:
+                python_exe = sys.executable
+                hook_script = str(_HOOK_SCRIPT_PATH)
             hook_dir_str = str(self._hook_dir)
 
             for matcher in matchers:

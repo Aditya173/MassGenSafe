@@ -61,6 +61,13 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
 
     def __init__(self, api_key: str | None = None, **kwargs):
         super().__init__(api_key, **kwargs)
+        # The base class may have injected the command_line MCP server (when
+        # enable_mcp_command_line=True). In Docker mode the CLI runs *inside*
+        # the container, so the MCP server script (a host-only path) and the
+        # massgen package (not installed in the container) are both unavailable.
+        # Remove it here; Gemini CLI's built-in tools cover all execution needs.
+        if kwargs.get("command_line_execution_mode") == "docker":
+            self._remove_injected_command_line_mcp()
         self.__init_native_tool_mixin__()
         self._init_native_hook_adapter(
             "massgen.mcp_tools.native_hook_adapters.GeminiCLINativeHookAdapter",
@@ -105,6 +112,10 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
 
         self._docker_execution = kwargs.get("command_line_execution_mode") == "docker"
         self._docker_gemini_verified = False
+        # Tell the native hook adapter to use container-safe paths when in Docker mode.
+        adapter = self.get_native_hook_adapter()
+        if adapter and hasattr(adapter, "docker_mode"):
+            adapter.docker_mode = self._docker_execution
 
         custom_tools = list(kwargs.get("custom_tools", []))
         enable_multimodal = self.config.get("enable_multimodal_tools", False) or kwargs.get("enable_multimodal_tools", False)
@@ -133,6 +144,20 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
             logger.warning(
                 "No API key or cached Gemini CLI login found. " "Authentication will be required on first use (run `gemini` to login).",
             )
+
+    def _remove_injected_command_line_mcp(self) -> None:
+        """Remove the command_line MCP server injected by the base class, if present."""
+        mcp_servers = self.config.get("mcp_servers")
+        if not mcp_servers:
+            return
+        if isinstance(mcp_servers, list):
+            filtered = [s for s in mcp_servers if not (isinstance(s, dict) and s.get("name") == "command_line")]
+            if len(filtered) < len(mcp_servers):
+                self.config["mcp_servers"] = filtered
+                logger.info("Gemini CLI Docker mode: removed command_line MCP server (host-only paths not available in container)")
+        elif isinstance(mcp_servers, dict) and "command_line" in mcp_servers:
+            del mcp_servers["command_line"]
+            logger.info("Gemini CLI Docker mode: removed command_line MCP server (host-only paths not available in container)")
 
     @property
     def cwd(self) -> str:
@@ -947,9 +972,15 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
             if item_id:
                 self._tool_start_times[item_id] = time.time()
 
-            # Emit structured tool_start event for TUI event pipeline
+            # Emit structured tool_start event for TUI event pipeline.
+            # Skip workflow tools (new_answer, vote): the orchestrator emits
+            # dedicated notify_new_answer / notify_vote cards for these.
+            _is_workflow_tool = tool_name in (
+                "mcp_massgen_workflow_tools_new_answer",
+                "mcp_massgen_workflow_tools_vote",
+            )
             _emitter = get_event_emitter()
-            if _emitter:
+            if _emitter and not _is_workflow_tool:
                 _emitter.emit_tool_start(
                     tool_id=item_id or f"gemini_{tool_name}",
                     tool_name=tool_name,
@@ -992,8 +1023,13 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
                     ),
                 ]
 
-            # Emit structured tool_complete event for TUI event pipeline
-            if tool_name_from_context:
+            # Emit structured tool_complete event for TUI event pipeline.
+            # Skip workflow tools (new_answer, vote): handled by notify_new_answer / notify_vote.
+            _is_workflow_tool_result = tool_name_from_context in (
+                "mcp_massgen_workflow_tools_new_answer",
+                "mcp_massgen_workflow_tools_vote",
+            )
+            if tool_name_from_context and not _is_workflow_tool_result:
                 result_content = ""
                 for key in ("result", "tool_result", "output", "content", "response"):
                     val = event.get(key)
@@ -1126,6 +1162,21 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
         adapter = self.get_native_hook_adapter()
         if adapter and hasattr(adapter, "hook_dir"):
             adapter.hook_dir = config_dir
+        # In Docker mode, copy the hook script into config_dir so both the
+        # permission hook AND the massgen-hooks-config point to a valid path.
+        # _build_permission_hooks_config does this when a manifest exists, but
+        # we must also cover the case where there is no manifest (empty workspace).
+        if self._docker_execution:
+            import shutil as _shutil
+
+            from ..mcp_tools.native_hook_adapters.gemini_cli_adapter import (
+                _HOOK_SCRIPT_PATH,
+            )
+
+            hook_script_dest = config_dir / "gemini_cli_hook_script.py"
+            if not hook_script_dest.exists():
+                self._track_managed_workspace_file(hook_script_dest)
+                _shutil.copy2(_HOOK_SCRIPT_PATH, hook_script_dest)
         permission_hooks_config = self._build_permission_hooks_config(config_dir)
         merged_hooks_config = permission_hooks_config
         if adapter and self._massgen_hooks_config:
@@ -1202,7 +1253,23 @@ class GeminiCLIBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend)
         self._track_managed_workspace_file(manifest_path)
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-        command = f"{sys.executable} {str(_HOOK_SCRIPT_PATH)} " f"--hook-dir {str(config_dir)} --event BeforeTool"
+        if self._docker_execution:
+            # In Docker mode the massgen source tree is not mounted, so sys.executable
+            # and _HOOK_SCRIPT_PATH (host paths) don't exist inside the container.
+            # Copy the hook script into config_dir (which IS mounted) and use the
+            # container's system python3.
+            import shutil as _shutil
+
+            hook_script_dest = config_dir / "gemini_cli_hook_script.py"
+            self._track_managed_workspace_file(hook_script_dest)
+            _shutil.copy2(_HOOK_SCRIPT_PATH, hook_script_dest)
+            python_exe = "python3"
+            hook_script_path = str(hook_script_dest)
+        else:
+            python_exe = sys.executable
+            hook_script_path = str(_HOOK_SCRIPT_PATH)
+
+        command = f"{python_exe} {hook_script_path} --hook-dir {str(config_dir)} --event BeforeTool"
         return {
             "hooks": {
                 "BeforeTool": [
