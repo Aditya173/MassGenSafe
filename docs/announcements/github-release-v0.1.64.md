@@ -6,7 +6,7 @@
 - **MCP tools**: Wired through `.gemini/settings.json` with native hook adapter for tool execution
 - **Docker support**: Containerized execution via `gemini_cli_docker.yaml` config
 
-### ⚡ [WebSocket Streaming](https://docs.massgen.ai/en/latest/reference/yaml_schema.html#orchestrator-configuration)
+### ⚡ WebSocket Streaming
 - **Persistent WebSocket transport**: `wss://` connection to OpenAI Response API for real-time event streaming
 - **Auto-reconnection**: Configurable retry logic with exponential backoff
 - **YAML config**: Enable with `websocket_mode: true` on OpenAI backend
