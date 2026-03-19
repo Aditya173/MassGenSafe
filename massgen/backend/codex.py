@@ -965,7 +965,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             if self.RUNTIME_INPUT_PRIORITY_GUIDANCE not in full_prompt:
                 full_prompt = f"{full_prompt}\n\n{self.RUNTIME_INPUT_PRIORITY_GUIDANCE}"
             agents_md_path = config_dir / "AGENTS.md"
-            agents_md_path.write_text(full_prompt)
+            agents_md_path.write_text(full_prompt, encoding="utf-8")
             config["model_instructions_file"] = str(agents_md_path)
             logger.info(f"Wrote Codex AGENTS.md: {agents_md_path} ({len(full_prompt)} chars)")
 
@@ -1021,7 +1021,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         self._workspace_config_written = True
         # Debug: read back and log the written config
         try:
-            written = config_path.read_text()
+            written = config_path.read_text(encoding="utf-8")
             # Log first 500 chars to see MCP section
             logger.info(f"Codex config.toml written ({len(written)} chars): {written[:800]}")
         except Exception:
@@ -1099,7 +1099,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                 for k, v in section_val.items():
                     lines.append(f"{k} = {CodexBackend._toml_value(v)}")
                 lines.append("")
-        path.write_text("\n".join(lines) + "\n")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _cleanup_workspace_config(self) -> None:
         """Remove the project-scoped .codex/ directory we created."""
