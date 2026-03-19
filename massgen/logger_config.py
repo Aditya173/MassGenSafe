@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import yaml
 from loguru import logger
 
+from massgen.utils.sanitize_console_text import sanitize_console_text_for_encoding
+
 if TYPE_CHECKING:
     from .events import EventEmitter
 
@@ -197,51 +199,6 @@ def session_logger():
     return logger
 
 
-_CONSOLE_CHAR_FALLBACKS = {
-    "→": "->",
-    "❌": "[X]",
-    "✅": "[OK]",
-    "⚠️": "[!]",
-    "⚠": "[!]",
-}
-
-
-def _normalize_console_encoding(encoding: str | None) -> str | None:
-    """Normalize a stream encoding for console safety checks."""
-    if not encoding:
-        return None
-    normalized = encoding.strip().lower()
-    if normalized in {"utf8", "utf-8", "utf_8", "utf-8-sig"}:
-        return "utf-8"
-    return normalized or None
-
-
-def _sanitize_console_text_for_encoding(text: str, encoding: str | None) -> str:
-    """Return text that is safe to write to a console sink with *encoding*."""
-    if not isinstance(text, str):
-        text = str(text)
-
-    normalized = _normalize_console_encoding(encoding)
-    if not text or normalized == "utf-8":
-        return text
-
-    if normalized:
-        try:
-            text.encode(normalized)
-            return text
-        except LookupError:
-            normalized = None
-        except UnicodeEncodeError:
-            pass
-
-    sanitized = text
-    for source, replacement in _CONSOLE_CHAR_FALLBACKS.items():
-        sanitized = sanitized.replace(source, replacement)
-
-    target_encoding = normalized or "ascii"
-    return sanitized.encode(target_encoding, errors="backslashreplace").decode(target_encoding)
-
-
 class _ConsoleSafeSink:
     """File-like sink wrapper that protects console writes on non-UTF-8 terminals."""
 
@@ -249,7 +206,7 @@ class _ConsoleSafeSink:
         self._stream = stream
 
     def write(self, message: Any) -> None:
-        text = _sanitize_console_text_for_encoding(
+        text = sanitize_console_text_for_encoding(
             str(message),
             getattr(self._stream, "encoding", None),
         )

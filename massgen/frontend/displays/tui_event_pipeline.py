@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from massgen.events import MassGenEvent
-from massgen.logger_config import _sanitize_console_text_for_encoding
+from massgen.utils.sanitize_console_text import sanitize_console_text_for_encoding
 
 from .content_processor import ContentOutput, ContentProcessor
 from .shared.tui_debug import tui_log
@@ -20,7 +20,7 @@ from .shared.tui_debug import tui_log
 
 def _get_textual_output_encoding() -> str | None:
     """Return the encoding used by the active Textual/Rich terminal sink."""
-    return getattr(sys.stdout, "encoding", None)
+    return getattr(sys.__stdout__, "encoding", None) or getattr(sys.stdout, "encoding", None)
 
 
 def _sanitize_textual_retry_text(text: str) -> str:
@@ -31,7 +31,7 @@ def _sanitize_textual_retry_text(text: str) -> str:
     if not text.lstrip().startswith("Retry ("):
         return text
 
-    return _sanitize_console_text_for_encoding(text, _get_textual_output_encoding())
+    return sanitize_console_text_for_encoding(text, _get_textual_output_encoding())
 
 
 class TimelineEventAdapter:
