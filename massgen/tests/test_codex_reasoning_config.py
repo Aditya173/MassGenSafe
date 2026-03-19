@@ -27,7 +27,7 @@ def _mock_codex_cli(monkeypatch):
 
 def _read_workspace_codex_config(workspace: Path) -> dict:
     config_path = workspace / ".codex" / "config.toml"
-    return tomllib.loads(config_path.read_text())
+    return tomllib.loads(config_path.read_text(encoding="utf-8"))
 
 
 def test_codex_accepts_openai_style_reasoning_effort(tmp_path: Path):
@@ -93,10 +93,22 @@ def test_codex_writes_instructions_file_under_codex_home(tmp_path: Path):
     config = _read_workspace_codex_config(tmp_path)
     instructions_path = tmp_path / ".codex" / "AGENTS.md"
     assert config["model_instructions_file"] == str(instructions_path)
-    content = instructions_path.read_text()
+    content = instructions_path.read_text(encoding="utf-8")
     assert content.startswith("system instructions")
     assert "[Human Input]:" in content
     assert not (tmp_path / "AGENTS.md").exists()
+
+
+def test_codex_write_workspace_config_uses_utf8_for_unicode_instructions(tmp_path: Path):
+    backend = CodexBackend(cwd=str(tmp_path))
+    backend.system_prompt = "Workflow"
+    backend._pending_workflow_instructions = "Choose best answer → then stop"
+
+    backend._write_workspace_config()
+
+    instructions_path = tmp_path / ".codex" / "AGENTS.md"
+    assert instructions_path.exists()
+    assert "→" in instructions_path.read_text(encoding="utf-8")
 
 
 def test_codex_appends_runtime_input_priority_guidance(tmp_path: Path):
@@ -105,10 +117,40 @@ def test_codex_appends_runtime_input_priority_guidance(tmp_path: Path):
     backend._write_workspace_config()
 
     instructions_path = tmp_path / ".codex" / "AGENTS.md"
-    content = instructions_path.read_text()
+    content = instructions_path.read_text(encoding="utf-8")
     assert "system instructions" in content
     assert "[Human Input]:" in content
     assert "high-priority runtime instruction" in content
+
+
+def test_codex_fallback_toml_writer_uses_utf8_for_unicode_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import massgen.backend.codex as codex_module
+
+    monkeypatch.setattr(codex_module, "tomli_w", None)
+
+    backend = CodexBackend(
+        cwd=str(tmp_path),
+        mcp_servers=[
+            {
+                "name": "unicode_server",
+                "type": "stdio",
+                "command": "python",
+                "args": ["-c", "print('hello')"],
+                "env": {"ARROW_VALUE": "A→B"},
+            },
+        ],
+    )
+    backend.system_prompt = "Workflow"
+    backend._pending_workflow_instructions = "Choose best answer → then stop"
+
+    backend._write_workspace_config()
+
+    config_text = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+    config = tomllib.loads(config_text)
+
+    assert "ARROW_VALUE" in config_text
+    assert config["mcp_servers"]["unicode_server"]["env"]["ARROW_VALUE"] == "A→B"
+    assert "→" in (tmp_path / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
 
 
 def test_codex_mirrors_local_skills_into_codex_home(tmp_path: Path):
@@ -229,7 +271,6 @@ def test_codex_writes_execution_trace_markdown(tmp_path: Path):
     trace_path = backend._save_execution_trace(snapshot_dir)
 
     assert trace_path == snapshot_dir / "execution_trace.md"
-    assert trace_path is not None
     trace_text = trace_path.read_text()
     assert "# Execution Trace: agent_a" in trace_text
     assert "### Reasoning" in trace_text
