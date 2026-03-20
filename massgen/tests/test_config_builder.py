@@ -13,6 +13,7 @@ Run with: uv run pytest massgen/tests/test_config_builder.py -v
 from pathlib import Path
 
 import pytest
+import yaml
 
 from massgen.config_builder import (
     ConfigBuilder,
@@ -747,6 +748,39 @@ class TestConfigBuilderAuthDetection:
         assert output_path.exists()
         assert "type: gemini_cli" in output_path.read_text()
 
+    def test_generate_config_programmatic_defaults_to_single_agent(self, builder, tmp_path, monkeypatch):
+        """Programmatic config generation defaults to one agent."""
+        monkeypatch.setattr(builder, "detect_api_keys", lambda: {"openai": True})
+
+        output_path = tmp_path / "default_single_agent.yaml"
+        success = builder.generate_config_programmatic(
+            output_path=str(output_path),
+            backend_type="openai",
+            model="gpt-5.4",
+            use_docker=False,
+        )
+
+        assert success is True
+        config = yaml.safe_load(output_path.read_text())
+        assert len(config["agents"]) == 1
+
+    def test_generate_config_programmatic_honors_explicit_agent_id(self, builder, tmp_path, monkeypatch):
+        """Programmatic config generation should preserve an explicit single-agent id."""
+        monkeypatch.setattr(builder, "detect_api_keys", lambda: {"openai": True})
+
+        output_path = tmp_path / "explicit_agent_id.yaml"
+        success = builder.generate_config_programmatic(
+            output_path=str(output_path),
+            backend_type="openai",
+            model="gpt-5.4",
+            agent_id="agent_a",
+            use_docker=False,
+        )
+
+        assert success is True
+        config = yaml.safe_load(output_path.read_text())
+        assert config["agents"][0]["id"] == "agent_a"
+
 
 class TestHeadlessQuickstartMultiBackend:
     """Test multi-backend headless quickstart support."""
@@ -952,11 +986,50 @@ class TestHeadlessQuickstartMultiBackend:
         assert generated == [
             {
                 "output_path": str(requested_path),
-                "num_agents": 3,
+                "num_agents": 1,
                 "backend_type": "openai",
                 "model": "gpt-5.4",
             },
         ]
+
+    def test_single_backend_explicit_agent_id_is_forwarded(self, builder, tmp_path, monkeypatch):
+        """Headless quickstart should forward an explicit agent id in single-backend mode."""
+        monkeypatch.setattr(
+            builder,
+            "detect_api_keys",
+            lambda: {"openai": True},
+        )
+
+        generated = []
+
+        def mock_programmatic(output_path, num_agents, backend_type, model, **kwargs):
+            generated.append(
+                {
+                    "output_path": output_path,
+                    "num_agents": num_agents,
+                    "backend_type": backend_type,
+                    "model": model,
+                    "agent_id": kwargs.get("agent_id"),
+                },
+            )
+            import pathlib
+
+            pathlib.Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            pathlib.Path(output_path).write_text("agents: []")
+            return True
+
+        monkeypatch.setattr(builder, "generate_config_programmatic", mock_programmatic)
+
+        result = builder.run_quickstart_headless(
+            output_dir=str(tmp_path / ".massgen"),
+            backend_override="openai",
+            model_override="gpt-5.4",
+            agent_id="agent_a",
+            use_docker=False,
+        )
+
+        assert result["success"]
+        assert generated[0]["agent_id"] == "agent_a"
 
 
 if __name__ == "__main__":

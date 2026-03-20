@@ -3339,9 +3339,9 @@ def validate_mode_flag_combinations(args: argparse.Namespace) -> list[str]:
             errors.append(
                 "--quickstart-agent requires --quickstart --headless.",
             )
-        if getattr(args, "config_backend", None) or getattr(args, "config_model", None) or getattr(args, "config_agents", None) is not None:
+        if getattr(args, "config_backend", None) or getattr(args, "config_model", None) or getattr(args, "config_agent_id", None) or getattr(args, "config_agents", None) is not None:
             errors.append(
-                "--quickstart-agent cannot be combined with --config-backend, --config-model, or --config-agents.",
+                "--quickstart-agent cannot be combined with --config-backend, --config-model, --config-agent-id, or --config-agents.",
             )
 
     return errors
@@ -10731,6 +10731,8 @@ def main_parser() -> argparse.ArgumentParser:
 
     Extracted so tests can parse arguments without running cli_main().
     """
+    from massgen.backend.capabilities import get_all_backend_types
+
     parser = argparse.ArgumentParser(
         description="MassGen - Multi-Agent Coordination CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -10809,21 +10811,7 @@ Environment Variables:
     config_group.add_argument(
         "--backend",
         type=str,
-        choices=[
-            "chatcompletion",
-            "claude",
-            "gemini",
-            "gemini_cli",
-            "grok",
-            "openai",
-            "azure_openai",
-            "copilot",
-            "claude_code",
-            "zai",
-            "lmstudio",
-            "vllm",
-            "sglang",
-        ],
+        choices=sorted(get_all_backend_types()),
         help="Backend type for quick setup",
     )
 
@@ -11067,7 +11055,7 @@ Environment Variables:
         "--config-agents",
         type=int,
         default=None,
-        help="Number of agents for --generate-config (default: 2)",
+        help="Number of agents for --generate-config or --quickstart --headless (default: 1)",
     )
     parser.add_argument(
         "--config-backend",
@@ -11078,6 +11066,11 @@ Environment Variables:
         "--config-model",
         type=str,
         help="Model name for --generate-config (e.g., 'gpt-5', 'claude-sonnet-4', 'gemini-2.5-pro')",
+    )
+    parser.add_argument(
+        "--config-agent-id",
+        type=str,
+        help="Explicit agent id for single-agent --generate-config or --quickstart --headless runs",
     )
     parser.add_argument(
         "--config-docker",
@@ -11093,7 +11086,7 @@ Environment Variables:
         "--quickstart-agent",
         action="append",
         dest="quickstart_agents",
-        help="Explicit headless quickstart agent spec. Repeat for mixed providers, e.g. " "--quickstart-agent backend=claude,model=claude-opus-4-6",
+        help="Explicit headless quickstart agent spec. Repeat for mixed providers, e.g. " "--quickstart-agent id=agent_a,backend=claude,model=claude-opus-4-6",
     )
     parser.add_argument(
         "--setup",
@@ -11776,11 +11769,12 @@ def _cli_main_continued(args):
             builder = ConfigBuilder()
             success = builder.generate_config_programmatic(
                 output_path=args.generate_config,
-                num_agents=args.config_agents or 2,
+                num_agents=args.config_agents if args.config_agents is not None else 1,
                 backend_type=args.config_backend,
                 model=args.config_model,
                 use_docker=args.config_docker,
                 context_path=args.config_context_path,
+                agent_id=args.config_agent_id,
             )
             if success:
                 print(
@@ -11813,12 +11807,13 @@ def _cli_main_continued(args):
             headless_result = builder.run_quickstart_headless(
                 output_dir=".massgen",
                 output_path=headless_quickstart_output_path,
-                num_agents=args.config_agents or 3,
+                num_agents=args.config_agents if args.config_agents is not None else 1,
                 backend_override=args.config_backend,
                 model_override=args.config_model,
                 use_docker=args.config_docker if args.config_docker else None,
                 context_path=args.config_context_path,
                 agent_specs=quickstart_agent_specs or None,
+                agent_id=args.config_agent_id,
             )
 
             # Docker pull if available and headless

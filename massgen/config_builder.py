@@ -4167,21 +4167,23 @@ class ConfigBuilder:
     def generate_config_programmatic(
         self,
         output_path: str,
-        num_agents: int = 2,
+        num_agents: int = 1,
         backend_type: str = None,
         model: str = None,
         use_docker: bool = False,
         context_path: str | None = None,
+        agent_id: str | None = None,
     ) -> bool:
         """Generate config file programmatically without user interaction.
 
         Args:
             output_path: Where to save the config file
-            num_agents: Number of agents (1-10)
+            num_agents: Number of agents (1-10, default: 1)
             backend_type: Backend provider (must have API key)
             model: Model name
             use_docker: Whether to enable Docker execution
             context_path: Optional path to add as context
+            agent_id: Optional explicit id for single-agent configs
 
         Returns:
             True if successful
@@ -4195,6 +4197,10 @@ class ConfigBuilder:
         # Validate num_agents
         if num_agents < 1 or num_agents > 10:
             raise ValueError("Number of agents must be between 1 and 10")
+
+        resolved_agent_id = (agent_id or "").strip() or None
+        if resolved_agent_id and num_agents != 1:
+            raise ValueError("Explicit agent_id is only supported when num_agents=1")
 
         # Check API key availability
         api_keys = self.detect_api_keys()
@@ -4211,7 +4217,7 @@ class ConfigBuilder:
             chr(ord("a") + i) if i < 26 else str(i)
             agents_config.append(
                 {
-                    "id": f"{backend_type.split('.')[-1]}-{model.split('-')[-1]}{i + 1}",
+                    "id": resolved_agent_id or f"{backend_type.split('.')[-1]}-{model.split('-')[-1]}{i + 1}",
                     "type": provider_info.get("type", backend_type),
                     "model": model,
                 },
@@ -4304,12 +4310,13 @@ class ConfigBuilder:
         self,
         output_dir: str = ".massgen",
         output_path: str | None = None,
-        num_agents: int = 3,
+        num_agents: int = 1,
         backend_override: str | None = None,
         model_override: str | None = None,
         use_docker: bool | None = None,
         context_path: str | None = None,
         agent_specs: list[dict[str, str | None]] | None = None,
+        agent_id: str | None = None,
     ) -> dict:
         """Run quickstart non-interactively with auto-detection.
 
@@ -4319,12 +4326,13 @@ class ConfigBuilder:
         Args:
             output_dir: Directory for config and .env files
             output_path: Optional exact config file path (overrides output_dir/config.yaml)
-            num_agents: Number of agents (default 3)
+            num_agents: Number of agents (default 1)
             backend_override: Force specific backend for all agents
             model_override: Force specific model for all agents
             use_docker: True/False to force, None to auto-detect
             context_path: Optional path to add as context
             agent_specs: Optional explicit per-agent backend/model specs
+            agent_id: Optional explicit id for single-agent configs
 
         Returns:
             Dict with keys: success, config_path, env_template_path, backend,
@@ -4347,6 +4355,7 @@ class ConfigBuilder:
             "messages": [],
             "manual_steps": [],
         }
+        resolved_agent_id = (agent_id or "").strip() or None
         project_dir = resolve_headless_quickstart_project_dir(
             output_dir,
             output_path=output_path,
@@ -4373,6 +4382,11 @@ class ConfigBuilder:
 
         resolved_agent_specs: list[dict[str, str | None]] = []
         if agent_specs:
+            if resolved_agent_id:
+                result["manual_steps"].append(
+                    "Use id=<agent_id> inside each --quickstart-agent spec instead of --config-agent-id.",
+                )
+                return result
             missing_keys: list[str] = []
             for index, raw_spec in enumerate(agent_specs):
                 backend = str(raw_spec.get("backend") or raw_spec.get("type") or "").strip()
@@ -4514,6 +4528,7 @@ class ConfigBuilder:
                     model=result["model"],
                     use_docker=use_docker,
                     context_path=context_path,
+                    agent_id=resolved_agent_id,
                 )
             result["config_path"] = config_path
             result["messages"].append("Config generated successfully")
