@@ -162,6 +162,27 @@ class RoundBudgetGuardHook(PatternHook):
         on_unknown_cost: Literal["allow", "deny"] = "allow",
         matcher: str = "*",
     ) -> None:
+        """Initialize the budget guard hook.
+
+        Args:
+            session_budget: Maximum cumulative cost in USD for the entire
+                session. None disables session-level enforcement.
+            round_budget: Maximum cost in USD per orchestration round.
+                None disables round-level enforcement.
+            on_exceed: Action when budget is exceeded. "block" denies the
+                tool call, "warn" allows but logs, "terminate" denies with
+                a terminate_round flag in metadata.
+            warning_thresholds: Utilization fractions at which progressive
+                warnings fire. Values must be in (0, 1.0]. Defaults to
+                [0.50, 0.75, 0.90]. Invalid values are silently filtered.
+            on_unknown_cost: Behavior when cost data is unavailable in the
+                hook context. "allow" proceeds, "deny" blocks.
+            matcher: Glob pattern for tool name matching. Defaults to "*".
+
+        Raises:
+            ValueError: If session_budget or round_budget is negative or
+                non-finite.
+        """
         if session_budget is not None and (not math.isfinite(session_budget) or session_budget < 0):
             raise ValueError(f"session_budget must be finite >= 0, got {session_budget}")
         if round_budget is not None and (not math.isfinite(round_budget) or round_budget < 0):

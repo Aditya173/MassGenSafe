@@ -840,7 +840,7 @@ class TestThreadSafety:
                 barrier.wait()
                 for i in range(100):
                     state.sync_cumulative(float(i))
-            except Exception as e:
+            except (RuntimeError, ValueError, threading.BrokenBarrierError) as e:
                 errors.append(e)
 
         threads = [threading.Thread(target=worker, args=(t,)) for t in range(num_threads)]
