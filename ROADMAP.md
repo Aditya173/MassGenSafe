@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.66
+**Current Version:** v0.1.67
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** March 20, 2026
+**Last Updated:** March 23, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,26 +42,27 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.67** | 03/23/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
-| **v0.1.68** | 03/25/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
-| **v0.1.69** | 03/27/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
+| **v0.1.68** | 03/25/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
+| **v0.1.69** | 03/27/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
+| **v0.1.70** | 03/30/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.66 - Step Mode (Completed)
+## ✅ v0.1.67 - Modernized WebUI (Completed)
 
-**Released:** March 20, 2026 | PRs: [#1011](https://github.com/massgen/MassGen/pull/1011), [#1010](https://github.com/massgen/MassGen/pull/1010)
+**Released:** March 23, 2026 | PRs: [#1016](https://github.com/massgen/MassGen/pull/1016), [#1013](https://github.com/massgen/MassGen/pull/1013)
 
 ### Features
-- **Step Mode**: New `--step` CLI flag runs a single agent for one iteration then exits — building block for external orchestrators like massgen-refinery
-- **massgen-refinery Step Mode**: The massgen-refinery Claude Code plugin now supports step mode
-- **Codex Windows Fixes**: UTF-8 encoding for file writes and console text sanitization
+- **Modernized WebUI**: Complete UI redesign with inline final answers, keyboard shortcuts, and Zustand state management
+- **RoundBudgetGuardHook**: Per-round cost enforcement with configurable warning thresholds
+- **Unified Pre-Collab Phases**: Personas, evaluation criteria, and prompt improvement run in parallel
+- **Regression Guard**: Blind A/B verification subagent before submitting revisions
 
 ---
 
-## 📋 v0.1.67 - Cloud Modal MVP
+## 📋 v0.1.68 - Cloud Modal MVP
 
 ### Features
 
@@ -77,7 +78,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.68 - OpenAI Audio API
+## 📋 v0.1.69 - OpenAI Audio API
 
 ### Features
 
@@ -93,7 +94,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.69 - Image/Video Edit Capabilities
+## 📋 v0.1.70 - Image/Video Edit Capabilities
 
 ### Features
 

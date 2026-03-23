@@ -1,10 +1,10 @@
-# MassGen v0.1.67 Roadmap
+# MassGen v0.1.68 Roadmap
 
-**Target Release:** March 23, 2026
+**Target Release:** March 25, 2026
 
 ## Overview
 
-Version 0.1.67 focuses on running MassGen as a cloud job on Modal.
+Version 0.1.68 focuses on running MassGen as a cloud job on Modal.
 
 ---
 
@@ -27,5 +27,5 @@ Version 0.1.67 focuses on running MassGen as a cloud job on Modal.
 
 ## Related Tracks
 
-- **v0.1.66**: Step Mode — `--step` CLI for external orchestrators, Codex Windows fixes ([#1011](https://github.com/massgen/MassGen/pull/1011), [#1010](https://github.com/massgen/MassGen/pull/1010))
-- **v0.1.68**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))
+- **v0.1.67**: Modernized WebUI — WebUI, Budget Guard, pre-collab, regression guard ([#1016](https://github.com/massgen/MassGen/pull/1016), [#1013](https://github.com/massgen/MassGen/pull/1013))
+- **v0.1.69**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))
