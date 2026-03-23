@@ -196,6 +196,11 @@ When adding new YAML parameters, update **both**:
 - `massgen/backend/base.py` -> `get_base_excluded_config_params()`
 - `massgen/api_params_handler/_api_params_handler_base.py` -> `get_base_excluded_config_params()`
 
+When adding new **coordination** YAML parameters (under `orchestrator.coordination`), update **all three**:
+- `massgen/agent_config.py` -> `CoordinationConfig` dataclass field
+- `massgen/cli.py` -> `_parse_coordination_config()` (must explicitly map the key or it silently defaults to `False`)
+- `massgen/agent_config.py` -> `to_dict()` if the field needs to serialize back
+
 ## Workflow Guidelines
 
 1. **TDD is the default.** Every non-trivial task starts with tests. See the [TDD section above](#test-driven-development-tdd) for the full contract. Do not skip this -- if you find yourself writing production code before tests, stop and reverse course.

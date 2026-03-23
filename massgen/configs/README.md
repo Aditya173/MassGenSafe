@@ -227,20 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.66 - Latest
-**New Features:** Step Mode
+### v0.1.67 - Latest
+**New Features:** Modernized WebUI
 
 **Key Features:**
-- **Step Mode**: New `--step` CLI flag runs one agent for one iteration then exits — building block for external orchestrators
-- **massgen-refinery Step Mode**: The Claude Code plugin now supports step mode
-- **Codex Windows Fixes**: UTF-8 encoding for file writes and console text sanitization
+- **Modernized WebUI**: Complete UI redesign with inline final answers, keyboard shortcuts, and Zustand state management
+- **RoundBudgetGuardHook**: Per-round cost enforcement with configurable warning thresholds
+- **Unified Pre-Collab**: Personas, evaluation criteria, and prompt improvement run in parallel
+- **Regression Guard**: Blind A/B verification subagent before submitting revisions
 
 **Try It:**
 ```bash
-pip install massgen==0.1.66
-# Run one step of a configured agent
-uv run massgen --step --config your_config.yaml --session-dir ./my_session "Your task"
+pip install massgen==0.1.67
+# Try the modernized WebUI
+uv run massgen --web
 ```
+
+### v0.1.66
+**New Features:** Step Mode
+
+**Key Features:**
+- **Step Mode**: New `--step` CLI flag runs one agent for one iteration then exits
+- **massgen-refinery Step Mode**: Claude Code plugin now supports step mode
 
 ### v0.1.65
 **New Features:** MassGen Refinery Plugin

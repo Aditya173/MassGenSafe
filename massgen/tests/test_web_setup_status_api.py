@@ -36,6 +36,32 @@ def test_setup_status_prefers_project_config(monkeypatch, tmp_path) -> None:
     assert payload["config_path"] == str(project_config)
 
 
+def test_create_app_loads_persisted_webui_sessions_without_name_error() -> None:
+    """Web UI startup should not crash while loading persisted WebUI sessions."""
+    completed_session = {
+        "source": "webui",
+        "session_id": "session-1",
+        "description": "Persisted question",
+        "config_path": "/tmp/config.yaml",
+        "end_time": "2026-03-22T14:00:00Z",
+    }
+
+    with patch("massgen.session.SessionRegistry") as mock_registry:
+        mock_registry.return_value.list_sessions.return_value = [completed_session]
+
+        app = create_app()
+
+    assert app is not None
+
+
+def test_create_app_handles_persisted_session_load_failures_without_name_error() -> None:
+    """Web UI startup should continue even if persisted sessions cannot be loaded."""
+    with patch("massgen.session.SessionRegistry", side_effect=RuntimeError("boom")):
+        app = create_app()
+
+    assert app is not None
+
+
 def test_providers_endpoint_prioritizes_agent_frameworks_and_marks_them() -> None:
     """Quickstart providers API should surface framework backends first with framework metadata."""
     app = create_app()

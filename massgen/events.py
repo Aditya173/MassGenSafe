@@ -139,6 +139,7 @@ class EventType:
     ANSWER_LOCKED = "answer_locked"
 
     # Pre-collaboration subagent lifecycle
+    PRE_COLLAB_BATCH_ANNOUNCED = "pre_collab_batch_announced"
     PRE_COLLAB_STARTED = "pre_collab_started"
     PRE_COLLAB_COMPLETED = "pre_collab_completed"
 

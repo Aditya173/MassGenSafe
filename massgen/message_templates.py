@@ -163,7 +163,7 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
 
         for agent_id, summary in agent_summaries.items():
             # Use versioned label (agent1.2) if available, otherwise base anonymous ID (agent1)
-            anon_id = (answer_label_mapping or {}).get(agent_id) or agent_mapping.get(agent_id, f"agent_{agent_id}")
+            anon_id = (answer_label_mapping or {}).get(agent_id) or agent_mapping.get(agent_id, agent_id)
             changedoc = (agent_changedocs or {}).get(agent_id)
             if changedoc:
                 lines.append(f"<{anon_id}> {summary}\n<changedoc>\n{changedoc}\n</changedoc> <end of {anon_id}>")

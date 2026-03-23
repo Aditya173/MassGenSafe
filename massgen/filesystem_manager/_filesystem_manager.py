@@ -457,16 +457,22 @@ class FilesystemManager:
                 suppressed_repo_paths = []
                 for ctx_path_config in context_paths:
                     ctx_path = ctx_path_config.get("path", "")
+                    permission = ctx_path_config.get("permission", "read")
                     git_dir = os.path.join(ctx_path, ".git")
-                    if ctx_path and os.path.isdir(git_dir):
+                    if ctx_path and os.path.isdir(git_dir) and permission != "read":
+                        # Only suppress writable git repo paths (they use worktree
+                        # isolation). Read-only context paths (e.g., parent workspace
+                        # mounted for subagents) must stay mounted in Docker so the
+                        # agent can access deliverable files.
                         suppressed_repo_paths.append(ctx_path)
                         extra_mount_paths.append((git_dir, git_dir, "rw"))
                         logger.info(
                             f"[FilesystemManager] write_mode: mounting .git/ dir for worktree refs: {git_dir}",
                         )
                     else:
-                        # Preserve non-git context paths (e.g., log/session directories)
-                        # so agents can still read external artifacts in Docker.
+                        # Preserve read-only context paths and non-git paths (e.g.,
+                        # log/session directories, parent workspaces) so agents can
+                        # still read external artifacts in Docker.
                         preserved_context_paths.append(ctx_path_config)
                 context_paths = preserved_context_paths
                 logger.info(
@@ -2333,6 +2339,11 @@ class FilesystemManager:
             _safe_rmtree(self.agent_temporary_workspace)
         self.agent_temporary_workspace.mkdir(parents=True, exist_ok=True)
 
+        # Framework metadata dirs to exclude from temp workspace copies.
+        # These contain agent IDs in filenames/content and backend-identifying
+        # artifacts — agents don't need them for evaluating others' work.
+        _snapshot_exclude_dirs = {".massgen", ".codex", ".gemini", ".claude", ".git"}
+
         # Copy all snapshots using anonymous IDs
         for agent_id, snapshot_path in all_snapshots.items():
             if snapshot_path.exists() and snapshot_path.is_dir():
@@ -2350,11 +2361,17 @@ class FilesystemManager:
                         dirs_exist_ok=True,
                         symlinks=True,
                         ignore_dangling_symlinks=True,
+                        ignore=shutil.ignore_patterns(*_snapshot_exclude_dirs),
                     )
                     self._normalize_media_call_ledger_paths(
                         source_snapshot_root=snapshot_path,
                         temp_snapshot_root=dest_dir,
                     )
+
+                    # Scrub remaining agent IDs from framework metadata files
+                    from ._path_rewriter import scrub_agent_ids_in_snapshot
+
+                    scrub_agent_ids_in_snapshot(dest_dir, agent_mapping)
 
         return self.agent_temporary_workspace
 

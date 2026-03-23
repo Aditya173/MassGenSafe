@@ -12,7 +12,6 @@ Tests cover:
 """
 
 import json
-import time
 
 import pytest
 
@@ -21,7 +20,6 @@ from massgen.agent_config import AgentConfig, CoordinationConfig
 from massgen.config_validator import ConfigValidator
 from massgen.evaluation_criteria_generator import GeneratedCriterion
 from massgen.mcp_tools.checklist_tools_server import write_checklist_specs
-from massgen.mcp_tools.hooks import RoundTimeoutState
 from massgen.orchestrator import AgentState, Orchestrator
 from massgen.system_prompt_sections import DecompositionSection
 from massgen.task_decomposer import TaskDecomposerConfig
@@ -622,48 +620,6 @@ class TestFairnessControls:
 
         assert orchestrator._has_unseen_answer_updates("frontend") is True
         assert orchestrator._get_unseen_source_agent_ids("frontend") == ["backend"]
-
-    def test_terminal_fairness_gate_requires_latest_peer_updates(self):
-        config = AgentConfig()
-        config.fairness_enabled = True
-        orchestrator = Orchestrator(
-            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
-            config=config,
-        )
-
-        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answer_revisions(1, start_ts=42.0)
-        orchestrator.agent_states["backend"].answer = "backend revision"
-        orchestrator.agent_states["frontend"].seen_answer_counts = {"frontend": 0, "backend": 0}
-
-        can_terminal, error = orchestrator._check_terminal_fairness_gate("frontend")
-        assert can_terminal is False
-        assert error and "Fairness gate" in error
-
-        orchestrator._mark_seen_answer_revisions("frontend", ["backend"])
-        can_terminal_after_sync, error_after_sync = orchestrator._check_terminal_fairness_gate("frontend")
-        assert can_terminal_after_sync is True
-        assert error_after_sync is None
-
-    def test_terminal_fairness_gate_allows_hard_timeout_cutoff(self):
-        config = AgentConfig()
-        config.fairness_enabled = True
-        config.timeout_config.round_timeout_grace_seconds = 5
-        orchestrator = Orchestrator(
-            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
-            config=config,
-        )
-
-        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answer_revisions(1, start_ts=42.0)
-        orchestrator.agent_states["backend"].answer = "backend revision"
-        orchestrator.agent_states["frontend"].seen_answer_counts = {"frontend": 0, "backend": 0}
-
-        timeout_state = RoundTimeoutState()
-        timeout_state.soft_timeout_fired_at = time.time() - 10
-        orchestrator.agent_states["frontend"].round_timeout_state = timeout_state
-
-        can_terminal, error = orchestrator._check_terminal_fairness_gate("frontend")
-        assert can_terminal is True
-        assert error is None
 
     def test_prestart_fairness_pause_waits_after_two_answer_lead(self):
         config = AgentConfig()

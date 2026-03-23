@@ -3475,7 +3475,7 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
     Centralizes the parsing logic used by run_question_with_history,
     run_single_question, and run_textual_interactive_mode.
     """
-    from .agent_config import CoordinationConfig
+    from .agent_config import CoordinationConfig, PromptImproverConfig
     from .evaluation_criteria_generator import EvaluationCriteriaGeneratorConfig
     from .persona_generator import PersonaGeneratorConfig
     from .subagent.models import SubagentOrchestratorConfig
@@ -3502,6 +3502,15 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
             persist_across_turns=ec_cfg.get("persist_across_turns", False),
             min_criteria=ec_cfg.get("min_criteria", 4),
             max_criteria=ec_cfg.get("max_criteria", 10),
+        )
+
+    # Parse prompt_improver config if present
+    prompt_improver_config = PromptImproverConfig()
+    if "prompt_improver" in coord_cfg:
+        pi_cfg = coord_cfg["prompt_improver"]
+        prompt_improver_config = PromptImproverConfig(
+            enabled=pi_cfg.get("enabled", False),
+            persist_across_turns=pi_cfg.get("persist_across_turns", False),
         )
 
     # Parse task_decomposer config if present
@@ -3549,6 +3558,7 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
         persona_generator=persona_generator_config,
         evaluation_criteria_generator=eval_criteria_config,
+        prompt_improver=prompt_improver_config,
         pre_collab_voting_threshold=coord_cfg.get("pre_collab_voting_threshold"),
         enable_subagents=coord_cfg.get("enable_subagents", False),
         subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
@@ -3571,6 +3581,7 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         round_evaluator_refine=coord_cfg.get("round_evaluator_refine", False),
         round_evaluator_transformation_pressure=coord_cfg.get("round_evaluator_transformation_pressure", "balanced"),
         enable_execution_trace_analyzer=coord_cfg.get("enable_execution_trace_analyzer", False),
+        enable_evaluator_personas=coord_cfg.get("enable_evaluator_personas", False),
         enable_quality_rethink_on_iteration=coord_cfg.get("enable_quality_rethink_on_iteration", False),
         enable_novelty_on_iteration=coord_cfg.get("enable_novelty_on_iteration", False),
         novelty_injection=coord_cfg.get("novelty_injection", "none"),
@@ -3578,6 +3589,10 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         checklist_criteria_preset=coord_cfg.get("checklist_criteria_preset"),
         checklist_criteria_inline=coord_cfg.get("checklist_criteria_inline"),
         resume_from_log=coord_cfg.get("resume_from_log"),
+        checkpoint_enabled=coord_cfg.get("checkpoint_enabled", False),
+        checkpoint_mode=coord_cfg.get("checkpoint_mode", "conversation"),
+        checkpoint_guidance=coord_cfg.get("checkpoint_guidance", ""),
+        checkpoint_gated_patterns=coord_cfg.get("checkpoint_gated_patterns", []),
     )
 
 
@@ -3947,6 +3962,17 @@ async def run_question_with_history(
     pre_populated_workspaces = kwargs.pop("pre_populated_workspaces", None)
     if pre_populated_workspaces:
         orchestrator._pre_populated_workspaces = pre_populated_workspaces
+
+    # Detect main_agent for checkpoint coordination mode
+    # MCP injection is handled by orchestrator._init_checkpoint_tool() in __init__
+    raw_agents_for_checkpoint = kwargs.get("agents_config", [])
+    if isinstance(raw_agents_for_checkpoint, list):
+        for agent_data in raw_agents_for_checkpoint:
+            if isinstance(agent_data, dict) and agent_data.get("main_agent") is True:
+                main_agent_id = agent_data.get("id")
+                if main_agent_id and main_agent_id in agents:
+                    orchestrator.set_main_agent(main_agent_id)
+                break
 
     # Parse per-agent subtask assignments for decomposition mode
     if orchestrator_config.coordination_mode == "decomposition":
@@ -10060,10 +10086,19 @@ async def main(args):
                     vote_reason=action_data.get("vote_reason"),
                     seen_steps=seen_steps,
                     duration_seconds=_step_duration,
+                    workspace_source=action_data.get("workspace_path"),
+                    stale_workspace_paths=action_data.get("stale_workspace_paths"),
                 )
 
+                # Save post-coordination artifacts (final/, coordination_events.json, etc.)
+                from massgen.logger_config import get_log_session_dir
+
+                log_session_dir = get_log_session_dir()
+                if log_session_dir:
+                    orchestrator.finalize_step_mode(log_session_dir)
+
                 _automation_print(f"ACTION: {action_data['action']}")
-                _automation_print(f"STATUS: {Path(args.session_dir).resolve() / 'last_action.json'}")
+                _automation_print(f"STATUS: {Path(args.session_dir).resolve() / 'agents' / real_agent_id / 'last_action.json'}")
             else:
                 print("❌ Step mode: agent did not produce an answer or vote", file=sys.stderr)
                 sys.exit(2)
@@ -11472,7 +11507,10 @@ def _cli_main_continued(args):
 
                 print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/?v=2"
+                # Ensure v=2 param is present on auto_url too
+                if auto_url and "v=2" not in browser_url:
+                    browser_url += "&v=2"
 
                 def open_browser():
                     import time
@@ -11634,7 +11672,7 @@ def _cli_main_continued(args):
 
             print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web Quickstart...{RESET}")
             print(
-                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}/setup?temporary=1{RESET}",
+                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}/?v=2&temporary=1&wizard=open{RESET}",
             )
             print(
                 f"{BRIGHT_YELLOW}   This temporary setup session will close automatically when complete{RESET}\n",
@@ -11717,11 +11755,14 @@ def _cli_main_continued(args):
                 # Remove trailing slash to avoid double slashes
                 browser_url = browser_url.rstrip("/")
 
-                # Check for --setup or --quickstart flags to open specific pages
+                # Default to v2 UI; --quickstart opens the wizard overlay,
+                # --setup opens the setup overlay in v2.
                 if getattr(args, "setup", False):
-                    browser_url += "/setup"
+                    browser_url += "/?v=2&setup=open"
                 elif getattr(args, "quickstart", False):
-                    browser_url += "/?wizard=open"
+                    browser_url += "/?v=2&wizard=open"
+                else:
+                    browser_url += "/?v=2"
 
                 def open_browser():
                     import time
@@ -11875,7 +11916,9 @@ def _cli_main_continued(args):
 
                         print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/?v=2"
+                        if auto_url and "v=2" not in browser_url:
+                            browser_url += "&v=2"
 
                         def open_browser():
                             import time
@@ -12073,7 +12116,9 @@ def _cli_main_continued(args):
 
                                 print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-                                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+                                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/?v=2"
+                                if auto_url and "v=2" not in browser_url:
+                                    browser_url += "&v=2"
 
                                 def open_browser():
                                     import time

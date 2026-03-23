@@ -1656,7 +1656,75 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path, injection_d
         description=propose_improvements.__doc__,
     )(propose_improvements)
 
-    logger.info("Registered submit_checklist + propose_improvements MCP tools")
+    # --- set_evaluator_personas tool ---
+    # Always register; gate on enable_evaluator_personas at call time (re-reads
+    # specs) because for Codex the specs file may not exist yet at server startup.
+    async def set_evaluator_personas(personas: list) -> str:
+        current = _read_specs(specs_path)
+        state = current.get("state", {})
+
+        if not bool(state.get("enable_evaluator_personas", False)):
+            return json.dumps({"error": "set_evaluator_personas is not enabled in this configuration"})
+
+        team_size = int(state.get("evaluator_team_size", 0) or 0)
+
+        # Codex sometimes sends JSON strings; normalise
+        if isinstance(personas, str):
+            try:
+                personas = json.loads(personas)
+            except (json.JSONDecodeError, TypeError):
+                return json.dumps({"error": "personas must be a JSON array"})
+        if not isinstance(personas, list):
+            return json.dumps({"error": "personas must be a JSON array"})
+
+        if team_size > 0 and len(personas) != team_size:
+            return json.dumps(
+                {
+                    "error": f"Expected {team_size} persona(s) to match evaluator team size, got {len(personas)}",
+                },
+            )
+        for i, p in enumerate(personas):
+            if not isinstance(p, dict):
+                return json.dumps({"error": f"Persona at index {i} must be an object"})
+            if not str(p.get("label", "")).strip():
+                return json.dumps({"error": f"Persona at index {i} has empty label"})
+            if not str(p.get("instructions", "")).strip():
+                return json.dumps({"error": f"Persona at index {i} has empty instructions"})
+
+        # Write back to specs so orchestrator can read
+        state["pending_evaluator_personas"] = [{"label": str(p["label"]).strip(), "instructions": str(p["instructions"]).strip()} for p in personas]
+        current["state"] = state
+        try:
+            with open(specs_path, "w") as f:
+                json.dump(current, f, indent=2, default=str)
+        except Exception as exc:
+            return json.dumps({"error": f"Failed to write personas: {exc}"})
+
+        labels = [p["label"] for p in state["pending_evaluator_personas"]]
+        return json.dumps(
+            {
+                "status": "accepted",
+                "message": f"Evaluator personas set: {', '.join(labels)}. " "These will be applied to the next round evaluator run.",
+            },
+        )
+
+    set_evaluator_personas.__doc__ = (
+        "Configure distinct evaluation lenses for round evaluator subagents. "
+        "Call before new_answer to shape how evaluators critique your next submission. "
+        "Each persona needs 'label' (short name) and 'instructions' (critique focus). "
+        "Count must match evaluator team size."
+    )
+    set_personas_sig = inspect.Signature(
+        [inspect.Parameter("personas", inspect.Parameter.POSITIONAL_OR_KEYWORD)],
+    )
+    set_evaluator_personas.__signature__ = set_personas_sig
+
+    mcp.tool(
+        name="set_evaluator_personas",
+        description=set_evaluator_personas.__doc__,
+    )(set_evaluator_personas)
+
+    logger.info("Registered submit_checklist + propose_improvements + set_evaluator_personas MCP tools")
 
 
 # ---------- spec file I/O ----------

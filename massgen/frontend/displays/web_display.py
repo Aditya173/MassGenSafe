@@ -57,9 +57,13 @@ class WebDisplay(BaseDisplay):
         self._vote_targets: dict[str, str] = {}  # agent_id -> voted_for
         self._selected_agent: str | None = None
         self._final_answer: str | None = None
+        self._current_phase: str = "idle"
 
         # Timeline events for visualization (answers, votes, final with context sources)
         self._timeline_events: list[dict[str, Any]] = []
+
+        # Full event history for session replay (v2 message store)
+        self._event_history: list[dict[str, Any]] = []
 
         # Track file workspace changes per agent
         self._agent_files: dict[str, list[dict[str, Any]]] = {agent_id: [] for agent_id in agent_ids}
@@ -70,8 +74,14 @@ class WebDisplay(BaseDisplay):
         # Log session directory (set by _setup_agent_output_files, used by server API)
         self.log_session_dir: Path | None = None
 
+        # Event emitter listener reference (for cleanup)
+        self._event_listener: Any | None = None
+
         # Setup agent output files (same as terminal displays)
         self._setup_agent_output_files()
+
+        # Register as EventEmitter listener to forward structured events
+        self._register_event_listener()
 
     def _next_sequence(self) -> int:
         """Get next sequence number for event ordering."""
@@ -96,6 +106,9 @@ class WebDisplay(BaseDisplay):
             **data,
         }
 
+        # Store in event history for session replay
+        self._event_history.append(payload)
+
         # If broadcast function is set, use it
         if self._broadcast is not None:
             try:
@@ -107,6 +120,35 @@ class WebDisplay(BaseDisplay):
         else:
             # Queue for later consumption (testing/standalone mode)
             self._event_queue.put_nowait(payload)
+
+    def _register_event_listener(self) -> None:
+        """Register as a listener on the EventEmitter to forward structured events."""
+        try:
+            from massgen.logger_config import get_event_emitter
+
+            emitter = get_event_emitter()
+            if emitter:
+                self._event_listener = self._on_structured_event
+                emitter.add_listener(self._event_listener)
+        except Exception:
+            pass
+
+    def _on_structured_event(self, event: Any) -> None:
+        """Forward a structured MassGenEvent over WebSocket."""
+        if self._closed:
+            return
+        try:
+            self._emit(
+                "structured_event",
+                {
+                    "event_type": event.event_type,
+                    "agent_id": event.agent_id,
+                    "round_number": event.round_number,
+                    "data": event.data,
+                },
+            )
+        except Exception:
+            pass
 
     def _setup_agent_output_files(self) -> None:
         """Setup individual txt files for each agent in the log directory."""
@@ -295,6 +337,56 @@ class WebDisplay(BaseDisplay):
                 "agent_id": agent_id,
                 "tool_call_id": tool_call_id,
                 "hook_info": hook_info,
+            },
+        )
+
+    def notify_subagent_spawn_started(
+        self,
+        agent_id: str,
+        tool_name: str,
+        args: dict[str, Any],
+        call_id: str,
+    ) -> None:
+        """Notify that subagent spawning has started.
+
+        Called when spawn_subagents tool is invoked, before blocking execution.
+        """
+        subagent_ids = args.get("subagent_ids", [])
+        task = args.get("task", args.get("question", ""))
+        self._emit(
+            "subagent_spawn",
+            {
+                "agent_id": agent_id,
+                "tool_name": tool_name,
+                "call_id": call_id,
+                "subagent_ids": subagent_ids,
+                "task": str(task)[:200] if task else "",
+            },
+        )
+
+    def notify_runtime_subagent_started(
+        self,
+        agent_id: str,
+        subagent_id: str,
+        task: str,
+        timeout_seconds: int = 300,
+        call_id: str | None = None,
+        status_callback: Any = None,
+        log_path: str | None = None,
+    ) -> None:
+        """Notify that a runtime subagent has started.
+
+        Called for orchestrator-owned subagents (personas, criteria, evaluators).
+        """
+        self._emit(
+            "subagent_started",
+            {
+                "agent_id": agent_id,
+                "subagent_id": subagent_id,
+                "task": task[:200] if task else "",
+                "timeout_seconds": timeout_seconds,
+                "call_id": call_id,
+                "log_path": log_path,
             },
         )
 
@@ -513,6 +605,19 @@ class WebDisplay(BaseDisplay):
                 "voter_id": voter_id,
                 "target_id": target_id,
                 "reason": reason,
+            },
+        )
+
+    def notify_phase(self, phase: str) -> None:
+        """Send the current coordination phase directly to web clients."""
+        self._current_phase = phase
+        self._emit(
+            "structured_event",
+            {
+                "event_type": "phase_change",
+                "agent_id": None,
+                "round_number": 0,
+                "data": {"phase": phase},
             },
         )
 
@@ -788,6 +893,7 @@ class WebDisplay(BaseDisplay):
             "vote_targets": dict(self._vote_targets),
             "selected_agent": self._selected_agent,
             "final_answer": self._final_answer,
+            "current_phase": self._current_phase,
             "orchestrator_events": list(self.orchestrator_events),
             "theme": self.theme,
         }

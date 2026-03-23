@@ -43,8 +43,9 @@ def _run_step(session_dir: Path, question: str, config: Path = STEP_CONFIG) -> d
             f"massgen --step exited with code {result.returncode}\n" f"STDOUT:\n{result.stdout[-2000:]}\n" f"STDERR:\n{result.stderr[-2000:]}",
         )
 
-    last_action_file = session_dir / "last_action.json"
-    assert last_action_file.exists(), f"last_action.json not created. stdout: {result.stdout[-500:]}"
+    # Read per-agent last_action.json (agent_id from config, default: agent_a)
+    last_action_file = session_dir / "agents" / "agent_a" / "last_action.json"
+    assert last_action_file.exists(), f"agents/agent_a/last_action.json not created. stdout: {result.stdout[-500:]}"
     return json.loads(last_action_file.read_text())
 
 
@@ -170,11 +171,13 @@ def test_step_mode_output_structure(tmp_path: Path) -> None:
 
     action = _run_step(session_dir, "Say exactly: structure test")
 
-    # last_action.json at session root
-    last_action = json.loads((session_dir / "last_action.json").read_text())
+    # Per-agent last_action.json (no global file)
+    agent_id = action["agent_id"]
+    last_action = json.loads((session_dir / "agents" / agent_id / "last_action.json").read_text())
     assert last_action["action"] == "new_answer"
     assert "timestamp" in last_action
     assert "duration_seconds" in last_action
+    assert not (session_dir / "last_action.json").exists()
 
     # agents/{id}/001/answer.json
     agent_id = action["agent_id"]

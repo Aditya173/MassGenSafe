@@ -863,6 +863,8 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                 state=self._checklist_state,
                 output_path=specs_path,
             )
+            # Store path so orchestrator can sync state back (e.g. evaluator personas)
+            self._checklist_specs_path = specs_path
             checklist_mcp = build_checklist_config(specs_path, hook_dir=self.get_hook_dir())
             # Replace any previous checklist entry
             self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_checklist")]
@@ -1603,7 +1605,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                     return []
 
                 # Non-workflow: emit tool_complete
-                result_str = str(result) if not isinstance(result, str) else result
+                result_str = self._stringify_mcp_result(result)
                 is_error = bool(item.get("error"))
                 if is_error:
                     result_str = f"[Error]: {item.get('error', '')}"
@@ -2122,6 +2124,40 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             return extract_workflow_tool_call(parsed)
         except (json.JSONDecodeError, TypeError):
             return None
+
+    @staticmethod
+    def _stringify_mcp_result(result: Any) -> str:
+        """Normalize Codex MCP results into a frontend-friendly string payload.
+
+        Codex commonly wraps MCP output in ``{"content": [{"type": "text",
+        "text": "..."}], ...}``. For WebUI consumers, the inner text is the
+        useful payload. For other structured objects, prefer JSON serialization
+        over Python repr so clients can parse planning/custom-tool responses.
+        """
+        if isinstance(result, str):
+            return result
+
+        if isinstance(result, dict):
+            content_list = result.get("content", [])
+            if isinstance(content_list, list):
+                for item in content_list:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text = item.get("text")
+                        if isinstance(text, str) and text:
+                            return text
+
+            try:
+                return json.dumps(result, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return str(result)
+
+        if isinstance(result, list):
+            try:
+                return json.dumps(result, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return str(result)
+
+        return str(result)
 
     def get_disallowed_tools(self, config: dict[str, Any]) -> list[str]:
         """Return Codex native tools to disable.

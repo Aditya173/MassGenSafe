@@ -939,7 +939,9 @@ Generate evaluation criteria now for the task above."""
                 agents=simplified,
                 coordination=coordination,
             )
-            parent_context_paths = self._build_subagent_parent_context_paths(
+            from massgen.precollab_utils import build_subagent_parent_context_paths
+
+            parent_context_paths = build_subagent_parent_context_paths(
                 parent_workspace=parent_workspace,
                 agent_configs=agent_configs,
             )
@@ -1030,51 +1032,6 @@ Generate evaluation criteria now for the task above."""
             self.last_generation_source = "fallback"
             return get_default_criteria(has_changedoc=has_changedoc)
 
-    @staticmethod
-    def _build_subagent_parent_context_paths(
-        parent_workspace: str,
-        agent_configs: list[dict[str, Any]],
-    ) -> list[dict[str, str]]:
-        """Build read-only context paths for pre-collab criteria subagents."""
-        base_workspace = Path(parent_workspace).resolve()
-        context_paths: list[dict[str, str]] = []
-        seen: set[str] = set()
-
-        def _add_path(raw_path: str | None) -> None:
-            if not raw_path:
-                return
-            try:
-                path_obj = Path(raw_path)
-                resolved = path_obj.resolve() if path_obj.is_absolute() else (base_workspace / path_obj).resolve()
-            except Exception:
-                return
-
-            path_str = str(resolved)
-            if path_str in seen:
-                return
-            seen.add(path_str)
-            context_paths.append({"path": path_str, "permission": "read"})
-
-        _add_path(str(base_workspace))
-
-        for config in agent_configs:
-            if not isinstance(config, dict):
-                continue
-            backend = config.get("backend", {})
-            if not isinstance(backend, dict):
-                continue
-            inherited_paths = backend.get("context_paths", [])
-            if not isinstance(inherited_paths, list):
-                continue
-            for entry in inherited_paths:
-                if isinstance(entry, str):
-                    _add_path(entry)
-                elif isinstance(entry, dict):
-                    raw_path = entry.get("path")
-                    _add_path(str(raw_path).strip() if raw_path else None)
-
-        return context_paths
-
     def _find_criteria_json(
         self,
         log_directory: str,
@@ -1082,49 +1039,26 @@ Generate evaluation criteria now for the task above."""
         max_criteria: int,
     ) -> list[GeneratedCriterion] | None:
         """Search for criteria.json in subagent logs."""
-        log_dir = Path(log_directory)
-        criteria_gen_dir = log_dir / "subagents" / "criteria_generation"
+        from massgen.precollab_utils import find_precollab_artifact
 
-        if not criteria_gen_dir.exists():
+        criteria_file = find_precollab_artifact(
+            log_directory,
+            "criteria_generation",
+            "criteria.json",
+        )
+        if criteria_file is None:
             return None
 
-        search_patterns = [
-            "full_logs/final/agent_*/workspace/criteria.json",
-            "full_logs/agent_*/*/*/criteria.json",
-            "workspace/snapshots/agent_*/criteria.json",
-            "workspace/agent_*/criteria.json",
-            "workspace/temp/agent_*/agent*/criteria.json",
-        ]
-
-        found_files: list[Path] = []
-        for pattern in search_patterns:
-            found_files.extend(criteria_gen_dir.glob(pattern))
-
-        if not found_files:
-            return None
-
-        def _safe_mtime(p: Path) -> float:
-            try:
-                return p.stat().st_mtime
-            except (FileNotFoundError, OSError):
-                return 0
-
-        found_files = sorted(found_files, key=_safe_mtime, reverse=True)
-
-        for criteria_file in found_files:
-            if not criteria_file.exists():
-                continue
-            try:
-                content = criteria_file.read_text()
-                criteria = _parse_criteria_response(
-                    content,
-                    min_criteria,
-                    max_criteria,
-                )
-                if criteria:
-                    return criteria
-            except Exception as e:
-                logger.debug(f"Failed to parse {criteria_file}: {e}")
-                continue
+        try:
+            content = criteria_file.read_text()
+            criteria = _parse_criteria_response(
+                content,
+                min_criteria,
+                max_criteria,
+            )
+            if criteria:
+                return criteria
+        except Exception as e:
+            logger.debug(f"Failed to parse {criteria_file}: {e}")
 
         return None

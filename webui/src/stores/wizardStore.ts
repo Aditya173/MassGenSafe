@@ -33,9 +33,16 @@ export interface ProviderCapabilities {
   supports_web_search: boolean;
   supports_code_execution: boolean;
   supports_mcp: boolean;
+  supports_reasoning: boolean;
   builtin_tools: string[];
   filesystem_support: string;
   all_capabilities: string[];
+}
+
+export interface ReasoningProfile {
+  choices: [string, string][];  // [label, effort_value]
+  default_effort: string;
+  description: string;
 }
 
 export interface AgentConfig {

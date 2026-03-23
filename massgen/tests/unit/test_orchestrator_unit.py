@@ -79,7 +79,8 @@ async def test_call_subagent_mcp_tool_async_uses_background_client_structured_co
         "operation": "spawn_subagents",
         "results": [{"subagent_id": "round_eval"}],
     }
-    assert captured["tool_name"] == "mcp__subagent_agent_a__spawn_subagents"
+    expected_server = orchestrator._subagent_server_name(agent_id)
+    assert captured["tool_name"] == f"mcp__{expected_server}__spawn_subagents"
     assert captured["arguments"] == {"tasks": [{"subagent_id": "round_eval", "task": "critique"}]}
 
 
@@ -135,13 +136,15 @@ async def test_call_subagent_mcp_tool_async_reconnects_stale_background_client_o
         "results": [{"subagent_id": "round_eval"}],
     }
     flaky_client.reconnect.assert_awaited_once_with(max_retries=1)
+    expected_server = orchestrator._subagent_server_name(agent_id)
+    expected_tool = f"mcp__{expected_server}__spawn_subagents"
     assert captured_calls == [
         (
-            "mcp__subagent_agent_a__spawn_subagents",
+            expected_tool,
             {"tasks": [{"subagent_id": "round_eval", "task": "critique"}]},
         ),
         (
-            "mcp__subagent_agent_a__spawn_subagents",
+            expected_tool,
             {"tasks": [{"subagent_id": "round_eval", "task": "critique"}]},
         ),
     ]

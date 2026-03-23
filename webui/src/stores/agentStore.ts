@@ -24,6 +24,7 @@ import { useWorkspaceStore } from './workspaceStore';
 
 interface AgentStore extends SessionState {
   // Actions
+  beginLaunch: (question: string) => void;
   initSession: (sessionId: string, question: string, agents: string[], theme: string, agentModels?: Record<string, string>) => void;
   updateAgentContent: (agentId: string, content: string, contentType: string) => void;
   updateAgentStatus: (agentId: string, status: AgentStatus) => void;
@@ -121,6 +122,22 @@ const createAgentState = (id: string, modelName?: string): AgentState => {
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
   ...initialState,
+
+  beginLaunch: (question) => {
+    set({
+      ...initialState,
+      question,
+      initStatus: {
+        message: 'Submitting prompt...',
+        step: 'request',
+        progress: 3,
+      },
+      conversationHistory: [
+        { role: 'user', content: question, turn: 1 },
+      ],
+      turnNumber: 1,
+    });
+  },
 
   initSession: (sessionId, question, agents, theme, agentModels) => {
     const agentStates: Record<string, AgentState> = {};

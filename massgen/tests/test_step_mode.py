@@ -255,14 +255,16 @@ class TestStepModeOutput:
         assert data["answer"] == "My new answer"
         assert "timestamp" in data
 
-        # Check last_action.json
-        last_action = session_dir / "last_action.json"
+        # Check per-agent last_action.json
+        last_action = session_dir / "agents" / "agent_a" / "last_action.json"
         assert last_action.exists()
         action_data = json.loads(last_action.read_text())
         assert action_data["action"] == "new_answer"
         assert action_data["agent_id"] == "agent_a"
         assert action_data["answer_text"] == "My new answer"
         assert action_data["duration_seconds"] == 45.2
+        # No global last_action.json (avoids race in parallel runs)
+        assert not (session_dir / "last_action.json").exists()
 
     def test_save_vote_output(self, tmp_path: Path) -> None:
         """Saving a vote creates vote.json with seen_steps."""
@@ -339,6 +341,111 @@ class TestStepModeOutput:
 
         answer_file = session_dir / "agents" / "agent_x" / "001" / "answer.json"
         assert answer_file.exists()
+
+    def test_save_copies_workspace(self, tmp_path: Path) -> None:
+        """save_step_mode_output copies workspace when workspace_source provided."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "index.html").write_text("<html>hello</html>")
+        (ws / "style.css").write_text("body {}")
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="My answer",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=10.0,
+            workspace_source=str(ws),
+        )
+
+        ws_dest = step_dir / "workspace"
+        assert ws_dest.is_dir()
+        assert (ws_dest / "index.html").read_text() == "<html>hello</html>"
+        assert (ws_dest / "style.css").read_text() == "body {}"
+
+    def test_save_replaces_stale_workspace_paths_in_answer_text(self, tmp_path: Path) -> None:
+        """Stale workspace paths in answer_text are replaced with session dir paths."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "index.html").write_text("<html>test</html>")
+
+        stale_path = str(ws)
+        answer_text = f"I created index.html at {stale_path}/index.html\nWorkspace: {stale_path}"
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text=answer_text,
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=10.0,
+            workspace_source=stale_path,
+        )
+
+        saved = json.loads((step_dir / "answer.json").read_text())
+        session_ws = str(step_dir / "workspace")
+        assert stale_path not in saved["answer"]
+        assert session_ws in saved["answer"]
+
+    def test_save_then_load_workspace_roundtrip(self, tmp_path: Path) -> None:
+        """Workspace saved by save_step_mode_output is loadable by load_session_dir_inputs."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "index.html").write_text("<html>test</html>")
+
+        session_dir = tmp_path / "session"
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="My answer",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=5.0,
+            workspace_source=str(ws),
+        )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        assert inputs.virtual_agents["agent_a"].latest_workspace is not None
+        assert (Path(inputs.virtual_agents["agent_a"].latest_workspace) / "index.html").exists()
+
+    def test_save_workspace_path_in_last_action(self, tmp_path: Path) -> None:
+        """last_action.json includes workspace_path when workspace is copied."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "app.js").write_text("console.log('hi')")
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Built an app",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=15.0,
+            workspace_source=str(ws),
+        )
+
+        last_action = json.loads((session_dir / "agents" / "agent_a" / "last_action.json").read_text())
+        assert last_action["workspace_path"] == str(step_dir / "workspace")
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +664,56 @@ class TestStepModeAnswerVisibility:
         assert "agent_b" in snapshot
         assert snapshot["agent_b"] == "Answer from B"
 
+    def test_snapshot_includes_own_prior_answer(self, tmp_path: Path) -> None:
+        """Real agent's prior answer from session dir is visible before it submits a new one.
+
+        In step mode, the agent starts fresh each step and should see ALL prior
+        answers (including its own) anonymized. This is the whole point of step
+        mode — the agent evaluates all work from scratch.
+        """
+        session_dir = tmp_path / "session"
+        orch = _make_step_mode_orchestrator(
+            session_dir,
+            real_agent_id="agent_a",
+            virtual_answers={"agent_a": [(1, "My prior answer from round 1")]},
+        )
+
+        # Before the agent submits anything, it should see its own prior answer
+        snapshot = orch._get_current_answers_snapshot()
+        assert "agent_a" in snapshot
+        assert snapshot["agent_a"] == "My prior answer from round 1"
+
+    def test_snapshot_prefers_new_answer_over_prior(self, tmp_path: Path) -> None:
+        """When real agent submits a new answer, it replaces the prior session dir answer."""
+        session_dir = tmp_path / "session"
+        orch = _make_step_mode_orchestrator(
+            session_dir,
+            real_agent_id="agent_a",
+            virtual_answers={"agent_a": [(1, "Old answer from session")]},
+        )
+
+        # Simulate the real agent submitting a new answer
+        orch.agent_states["agent_a"].answer = "Fresh answer from this step"
+
+        snapshot = orch._get_current_answers_snapshot()
+        assert snapshot["agent_a"] == "Fresh answer from this step"
+
+    def test_own_prior_answer_preloaded_in_coordination_tracker(self, tmp_path: Path) -> None:
+        """Real agent's own prior answer is in coordination_tracker for anonymization."""
+        session_dir = tmp_path / "session"
+        orch = _make_step_mode_orchestrator(
+            session_dir,
+            real_agent_id="agent_a",
+            virtual_answers={
+                "agent_a": [(1, "My prior answer")],
+                "agent_b": [(1, "Peer answer")],
+            },
+        )
+
+        # Both should be in the tracker
+        assert "agent_a" in orch.coordination_tracker.answers_by_agent
+        assert "agent_b" in orch.coordination_tracker.answers_by_agent
+
     def test_snapshot_prefers_real_agent_answer(self, tmp_path: Path) -> None:
         """Real agent's answer takes precedence if same ID appears in session dir."""
         session_dir = tmp_path / "session"
@@ -629,3 +786,1196 @@ class TestStepModeAnswerVisibility:
 
         snapshot = orch._get_current_answers_snapshot()
         assert snapshot["agent_a"] == "Revised draft"
+
+
+# ---------------------------------------------------------------------------
+# A0.8: State machine — multi-agent round transitions
+# ---------------------------------------------------------------------------
+
+
+class TestStepModeStateMachine:
+    """End-to-end state machine tests simulating multi-agent step mode rounds.
+
+    State machine:
+      Round 1: all agents answer (no prior context)
+      Round 2: agents see all answers → vote or submit new answer
+      Stale vote: new answer invalidates prior votes
+      Consensus: majority of non-stale votes for same target
+    """
+
+    def test_round1_all_agents_answer(self, tmp_path: Path) -> None:
+        """Round 1: three agents produce initial answers, no votes yet."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+        for agent_id in ("agent_a", "agent_b", "agent_c"):
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=agent_id,
+                action="new_answer",
+                answer_text=f"Answer from {agent_id}",
+                vote_target=None,
+                vote_reason=None,
+                seen_steps=None,
+                duration_seconds=30.0,
+            )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        assert len(inputs.virtual_agents) == 3
+        for agent_id in ("agent_a", "agent_b", "agent_c"):
+            va = inputs.virtual_agents[agent_id]
+            assert va.latest_answer == f"Answer from {agent_id}"
+            assert va.latest_step == 1
+            assert va.latest_answer_step == 1
+
+    def test_round2_all_agents_vote_consensus(self, tmp_path: Path) -> None:
+        """Round 2: all agents vote, majority agrees → consensus."""
+        from massgen.step_mode import is_vote_stale, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+        # Round 1: all answer
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=aid,
+                action="new_answer",
+                answer_text=f"Answer {aid}",
+                vote_target=None,
+                vote_reason=None,
+                seen_steps=None,
+                duration_seconds=30.0,
+            )
+        # Round 2: all vote for agent_b (consensus)
+        seen = {"agent_a": 1, "agent_b": 1, "agent_c": 1}
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=aid,
+                action="vote",
+                answer_text=None,
+                vote_target="agent_b",
+                vote_reason="Best answer",
+                seen_steps=seen,
+                duration_seconds=10.0,
+            )
+
+        # All votes are fresh — no new answers since voting
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            assert is_vote_stale(str(session_dir), aid, 2) is False
+
+    def test_answer_driven_restart_stales_votes(self, tmp_path: Path) -> None:
+        """New answer after votes makes those votes stale."""
+        from massgen.step_mode import is_vote_stale, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+        # Round 1: all answer
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=aid,
+                action="new_answer",
+                answer_text=f"Answer {aid}",
+                vote_target=None,
+                vote_reason=None,
+                seen_steps=None,
+                duration_seconds=30.0,
+            )
+        # Round 2: agent_a and agent_b vote, agent_c submits NEW answer
+        seen = {"agent_a": 1, "agent_b": 1, "agent_c": 1}
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="vote",
+            answer_text=None,
+            vote_target="agent_b",
+            vote_reason="Good",
+            seen_steps=seen,
+            duration_seconds=10.0,
+        )
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_b",
+            action="vote",
+            answer_text=None,
+            vote_target="agent_a",
+            vote_reason="Better",
+            seen_steps=seen,
+            duration_seconds=10.0,
+        )
+        # agent_c submits new answer instead of voting
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_c",
+            action="new_answer",
+            answer_text="Revised answer from C",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+        )
+
+        # agent_a and agent_b votes are now stale (they saw agent_c at step 1, now step 2)
+        assert is_vote_stale(str(session_dir), "agent_a", 2) is True
+        assert is_vote_stale(str(session_dir), "agent_b", 2) is True
+
+    def test_split_votes_no_consensus(self, tmp_path: Path) -> None:
+        """All agents vote for different targets → no majority."""
+        from massgen.step_mode import (
+            is_vote_stale,
+            load_session_dir_inputs,
+            save_step_mode_output,
+        )
+
+        session_dir = tmp_path / "session"
+        # Round 1
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=aid,
+                action="new_answer",
+                answer_text=f"Answer {aid}",
+                vote_target=None,
+                vote_reason=None,
+                seen_steps=None,
+                duration_seconds=30.0,
+            )
+        # Round 2: each votes for a different agent
+        seen = {"agent_a": 1, "agent_b": 1, "agent_c": 1}
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="vote",
+            answer_text=None,
+            vote_target="agent_b",
+            vote_reason="B is best",
+            seen_steps=seen,
+            duration_seconds=10.0,
+        )
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_b",
+            action="vote",
+            answer_text=None,
+            vote_target="agent_c",
+            vote_reason="C is best",
+            seen_steps=seen,
+            duration_seconds=10.0,
+        )
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_c",
+            action="vote",
+            answer_text=None,
+            vote_target="agent_a",
+            vote_reason="A is best",
+            seen_steps=seen,
+            duration_seconds=10.0,
+        )
+
+        # All votes are fresh (no new answers)
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            assert is_vote_stale(str(session_dir), aid, 2) is False
+
+        # But no majority — each target has exactly 1 vote
+        inputs = load_session_dir_inputs(str(session_dir))
+        vote_counts: dict[str, int] = {}
+        for va_id, va_state in inputs.virtual_agents.items():
+            for step in va_state.steps:
+                target = step.data.get("target")
+                if step.action == "vote" and target:
+                    vote_counts[target] = vote_counts.get(target, 0) + 1
+        assert max(vote_counts.values()) == 1  # No majority
+
+    def test_per_agent_last_action(self, tmp_path: Path) -> None:
+        """Per-agent last_action.json files are written for parallel safety."""
+        from massgen.step_mode import save_step_mode_output
+
+        session_dir = tmp_path / "session"
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Answer A",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+        )
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_b",
+            action="new_answer",
+            answer_text="Answer B",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=25.0,
+        )
+
+        # Per-agent action files exist and have correct agent
+        action_a = json.loads((session_dir / "agents" / "agent_a" / "last_action.json").read_text())
+        action_b = json.loads((session_dir / "agents" / "agent_b" / "last_action.json").read_text())
+        assert action_a["agent_id"] == "agent_a"
+        assert action_b["agent_id"] == "agent_b"
+        assert action_a["answer_text"] == "Answer A"
+        assert action_b["answer_text"] == "Answer B"
+
+    def test_round2_agent_sees_all_prior_answers(self, tmp_path: Path) -> None:
+        """In round 2, the real agent sees all round 1 answers (including its own)."""
+        session_dir = tmp_path / "session"
+        # Round 1: all 3 agents answer
+        _write_answer(session_dir, "agent_a", 1, "A round 1 answer")
+        _write_answer(session_dir, "agent_b", 1, "B round 1 answer")
+        _write_answer(session_dir, "agent_c", 1, "C round 1 answer")
+
+        # Round 2: agent_a is the real agent
+        orch = _make_step_mode_orchestrator(
+            session_dir,
+            real_agent_id="agent_a",
+        )
+
+        snapshot = orch._get_current_answers_snapshot()
+        assert len(snapshot) == 3
+        assert snapshot["agent_a"] == "A round 1 answer"
+        assert snapshot["agent_b"] == "B round 1 answer"
+        assert snapshot["agent_c"] == "C round 1 answer"
+
+    def test_round2_new_answer_replaces_prior_in_snapshot(self, tmp_path: Path) -> None:
+        """When real agent submits new answer, it replaces prior in snapshot."""
+        session_dir = tmp_path / "session"
+        _write_answer(session_dir, "agent_a", 1, "A round 1")
+        _write_answer(session_dir, "agent_b", 1, "B round 1")
+
+        orch = _make_step_mode_orchestrator(session_dir, real_agent_id="agent_a")
+
+        # Before submitting: sees own prior
+        assert orch._get_current_answers_snapshot()["agent_a"] == "A round 1"
+
+        # Agent submits new answer
+        orch.agent_states["agent_a"].answer = "A round 2 revised"
+
+        # After submitting: new answer takes precedence
+        snapshot = orch._get_current_answers_snapshot()
+        assert snapshot["agent_a"] == "A round 2 revised"
+        assert snapshot["agent_b"] == "B round 1"
+
+    def test_workspace_roundtrip_multi_agent(self, tmp_path: Path) -> None:
+        """Workspaces persist and paths are replaced for multiple agents."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+        for aid in ("agent_a", "agent_b"):
+            ws = tmp_path / f"ws_{aid}"
+            ws.mkdir()
+            (ws / "index.html").write_text(f"<html>{aid}</html>")
+
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=aid,
+                action="new_answer",
+                answer_text=f"Built site at {ws}/index.html",
+                vote_target=None,
+                vote_reason=None,
+                seen_steps=None,
+                duration_seconds=30.0,
+                workspace_source=str(ws),
+            )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        for aid in ("agent_a", "agent_b"):
+            va = inputs.virtual_agents[aid]
+            assert va.latest_workspace is not None
+            assert (Path(va.latest_workspace) / "index.html").exists()
+            assert (Path(va.latest_workspace) / "index.html").read_text() == f"<html>{aid}</html>"
+            # Stale path replaced
+            assert f"ws_{aid}" not in (va.latest_answer or "")
+
+
+# ---------------------------------------------------------------------------
+# A0.9: Temp workspace chain — orchestrator workspace path resolution
+# ---------------------------------------------------------------------------
+
+
+class TestStepModeWorkspaceResolution:
+    """Tests for the orchestrator-level workspace path resolution in step mode.
+
+    When an agent submits an answer, the orchestrator must resolve the correct
+    workspace path to pass to save_step_mode_output(). The chain is:
+
+        agent cwd → save_snapshot() copies to snapshot_storage → clear_workspace()
+        → step mode reads snapshot_storage (not empty cwd) → session dir copy
+
+    These tests verify the _step_action_data["workspace_path"] is set correctly
+    under various filesystem_manager configurations.
+    """
+
+    def test_workspace_path_from_snapshot_storage(self, tmp_path: Path) -> None:
+        """When snapshot_storage exists with content, it is preferred over cwd."""
+        from unittest.mock import Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        # Setup snapshot_storage with content (simulates post-save_snapshot state)
+        snapshot_dir = tmp_path / "snapshots" / "agent_x"
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / "index.html").write_text("<html>from snapshot</html>")
+
+        # Setup empty cwd (simulates post-clear_workspace state)
+        cwd_dir = tmp_path / "workspace" / "agent_x"
+        cwd_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_fm = Mock()
+        mock_fm.snapshot_storage = snapshot_dir
+        mock_fm.cwd = cwd_dir
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+
+        orch = Orchestrator(
+            agents={"agent_x": mock_agent},
+            step_mode=step_config,
+        )
+
+        workspace_path = orch._resolve_step_mode_workspace("agent_x")
+
+        assert workspace_path == str(snapshot_dir)
+        assert (Path(workspace_path) / "index.html").exists()
+
+    def test_workspace_path_falls_back_to_cwd(self, tmp_path: Path) -> None:
+        """When snapshot_storage is None, cwd with content is used as fallback."""
+        from unittest.mock import Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        cwd_dir = tmp_path / "workspace" / "agent_x"
+        cwd_dir.mkdir(parents=True)
+        (cwd_dir / "app.js").write_text("console.log('hi')")
+
+        mock_agent = Mock()
+        mock_fm = Mock()
+        mock_fm.snapshot_storage = None
+        mock_fm.cwd = cwd_dir
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+
+        orch = Orchestrator(
+            agents={"agent_x": mock_agent},
+            step_mode=step_config,
+        )
+
+        workspace_path = orch._resolve_step_mode_workspace("agent_x")
+
+        assert workspace_path == str(cwd_dir)
+        assert (Path(workspace_path) / "app.js").exists()
+
+    def test_workspace_path_none_without_filesystem_manager(self, tmp_path: Path) -> None:
+        """When agent has no filesystem_manager, workspace_path is None."""
+        from unittest.mock import Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_agent.backend.filesystem_manager = None
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+
+        orch = Orchestrator(
+            agents={"agent_x": mock_agent},
+            step_mode=step_config,
+        )
+
+        workspace_path = orch._resolve_step_mode_workspace("agent_x")
+
+        assert workspace_path is None
+
+    def test_workspace_path_none_when_snapshot_storage_empty(self, tmp_path: Path) -> None:
+        """When snapshot_storage exists but is empty, workspace_path is None.
+
+        setup_orchestration_paths always creates the snapshot_storage directory,
+        so it exists even when the agent produced no files. An empty directory
+        should not be treated as a workspace — external orchestrators rely on
+        workspace_path being None to mean 'no files produced'.
+        """
+        from unittest.mock import Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        # Empty snapshot storage (setup_orchestration_paths created it, agent made no files)
+        snapshot_dir = tmp_path / "snapshots" / "agent_x"
+        snapshot_dir.mkdir(parents=True)
+
+        # cwd is also empty (clear_workspace ran)
+        cwd_dir = tmp_path / "workspace" / "agent_x"
+        cwd_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_fm = Mock()
+        mock_fm.snapshot_storage = snapshot_dir
+        mock_fm.cwd = cwd_dir
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+
+        orch = Orchestrator(
+            agents={"agent_x": mock_agent},
+            step_mode=step_config,
+        )
+
+        # Simulate the orchestrator workspace resolution logic
+        orch._step_complete = True
+        workspace_path = orch._resolve_step_mode_workspace("agent_x")
+
+        # Empty snapshot_storage should NOT be reported as a workspace
+        assert workspace_path is None
+
+
+class TestStepModeWorkspaceEndToEnd:
+    """End-to-end tests: workspace save → session dir → reload.
+
+    Verifies the full chain from a simulated agent workspace through
+    save_step_mode_output to load_session_dir_inputs.
+    """
+
+    def test_nested_directory_structure_preserved(self, tmp_path: Path) -> None:
+        """Nested directories in workspace are preserved through save/load."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        (ws / "src" / "components").mkdir(parents=True)
+        (ws / "src" / "components" / "App.tsx").write_text("export const App = () => {}")
+        (ws / "src" / "index.ts").write_text("import { App } from './components/App'")
+        (ws / "public").mkdir()
+        (ws / "public" / "index.html").write_text("<html><body></body></html>")
+
+        session_dir = tmp_path / "session"
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Built a React app",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=60.0,
+            workspace_source=str(ws),
+        )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        ws_path = Path(inputs.virtual_agents["agent_a"].latest_workspace)
+        assert (ws_path / "src" / "components" / "App.tsx").exists()
+        assert (ws_path / "src" / "index.ts").exists()
+        assert (ws_path / "public" / "index.html").exists()
+
+    def test_workspace_persists_across_multiple_steps(self, tmp_path: Path) -> None:
+        """Each step gets its own workspace copy; earlier steps are not overwritten."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+
+        # Step 1: initial workspace
+        ws1 = tmp_path / "ws1"
+        ws1.mkdir()
+        (ws1 / "index.html").write_text("<html>v1</html>")
+
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Version 1",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+            workspace_source=str(ws1),
+        )
+
+        # Step 2: updated workspace
+        ws2 = tmp_path / "ws2"
+        ws2.mkdir()
+        (ws2 / "index.html").write_text("<html>v2</html>")
+        (ws2 / "style.css").write_text("body { color: red; }")
+
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Version 2",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+            workspace_source=str(ws2),
+        )
+
+        # Step 1 workspace is untouched
+        ws1_saved = session_dir / "agents" / "agent_a" / "001" / "workspace"
+        assert (ws1_saved / "index.html").read_text() == "<html>v1</html>"
+        assert not (ws1_saved / "style.css").exists()
+
+        # Step 2 workspace has updated content
+        ws2_saved = session_dir / "agents" / "agent_a" / "002" / "workspace"
+        assert (ws2_saved / "index.html").read_text() == "<html>v2</html>"
+        assert (ws2_saved / "style.css").read_text() == "body { color: red; }"
+
+        # load_session_dir_inputs returns the latest workspace (step 2)
+        inputs = load_session_dir_inputs(str(session_dir))
+        assert inputs.virtual_agents["agent_a"].latest_workspace == str(ws2_saved)
+
+    def test_vote_step_has_no_workspace(self, tmp_path: Path) -> None:
+        """Vote steps don't produce workspace directories."""
+        from massgen.step_mode import save_step_mode_output
+
+        session_dir = tmp_path / "session"
+
+        # Step 1: answer with workspace
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "app.py").write_text("print('hello')")
+
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="My app",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+            workspace_source=str(ws),
+        )
+
+        # Step 2: vote (no workspace_source)
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="vote",
+            answer_text=None,
+            vote_target="agent_b",
+            vote_reason="Better",
+            seen_steps={"agent_a": 1, "agent_b": 1},
+            duration_seconds=10.0,
+        )
+
+        # Vote step directory should NOT have a workspace
+        vote_step = session_dir / "agents" / "agent_a" / "002"
+        assert not (vote_step / "workspace").exists()
+        # But step 1 workspace still exists
+        assert (session_dir / "agents" / "agent_a" / "001" / "workspace" / "app.py").exists()
+
+    def test_latest_workspace_tracks_answer_not_vote(self, tmp_path: Path) -> None:
+        """latest_workspace points to the most recent answer's workspace, ignoring votes."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+
+        # Step 1: answer with workspace
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "main.py").write_text("# main")
+
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Created main.py",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+            workspace_source=str(ws),
+        )
+
+        # Steps 2-3: votes (no workspace)
+        for i in range(2):
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id="agent_a",
+                action="vote",
+                answer_text=None,
+                vote_target="agent_b",
+                vote_reason=f"Vote {i+1}",
+                seen_steps={"agent_a": 1, "agent_b": 1},
+                duration_seconds=10.0,
+            )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        va = inputs.virtual_agents["agent_a"]
+        # latest_workspace should still point to step 1's workspace
+        assert va.latest_workspace is not None
+        assert (Path(va.latest_workspace) / "main.py").exists()
+        assert va.latest_step == 3  # step count includes votes
+        assert va.latest_answer_step == 1  # answer step is still 1
+
+    def test_no_workspace_source_means_no_workspace_dir(self, tmp_path: Path) -> None:
+        """When no workspace_source is provided, no workspace/ directory is created."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Text-only answer, no files produced",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=20.0,
+            workspace_source=None,
+        )
+
+        step_dir = session_dir / "agents" / "agent_a" / "001"
+        assert (step_dir / "answer.json").exists()
+        assert not (step_dir / "workspace").exists()
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        assert inputs.virtual_agents["agent_a"].latest_workspace is None
+
+    def test_workspace_with_binary_files(self, tmp_path: Path) -> None:
+        """Binary files in workspace are preserved through save/load."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        # Write a small "binary" file (PNG header)
+        png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        (ws / "logo.png").write_bytes(png_header)
+        (ws / "index.html").write_text("<html><img src='logo.png'></html>")
+
+        session_dir = tmp_path / "session"
+        save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Built a page with a logo",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=30.0,
+            workspace_source=str(ws),
+        )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+        ws_path = Path(inputs.virtual_agents["agent_a"].latest_workspace)
+        assert (ws_path / "logo.png").read_bytes() == png_header
+        assert (ws_path / "index.html").exists()
+
+    def test_workspace_symlinks_copied_as_symlinks(self, tmp_path: Path) -> None:
+        """Symlinks in workspace are preserved (copytree with symlinks=True)."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "real_file.txt").write_text("real content")
+        (ws / "link_file.txt").symlink_to(ws / "real_file.txt")
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_a",
+            action="new_answer",
+            answer_text="Has symlinks",
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=10.0,
+            workspace_source=str(ws),
+        )
+
+        ws_dest = step_dir / "workspace"
+        assert (ws_dest / "real_file.txt").read_text() == "real content"
+        assert (ws_dest / "link_file.txt").is_symlink()
+
+    def test_multiple_agents_independent_workspaces(self, tmp_path: Path) -> None:
+        """Different agents' workspaces don't interfere with each other."""
+        from massgen.step_mode import load_session_dir_inputs, save_step_mode_output
+
+        session_dir = tmp_path / "session"
+
+        agents_files = {
+            "agent_a": {"app.py": "print('A')", "README.md": "Agent A"},
+            "agent_b": {"server.js": "const app = express()", "package.json": "{}"},
+            "agent_c": {"main.go": "package main", "go.mod": "module test"},
+        }
+
+        for aid, files in agents_files.items():
+            ws = tmp_path / f"ws_{aid}"
+            ws.mkdir()
+            for name, content in files.items():
+                (ws / name).write_text(content)
+
+            save_step_mode_output(
+                session_dir=str(session_dir),
+                agent_id=aid,
+                action="new_answer",
+                answer_text=f"Answer from {aid}",
+                vote_target=None,
+                vote_reason=None,
+                seen_steps=None,
+                duration_seconds=30.0,
+                workspace_source=str(ws),
+            )
+
+        inputs = load_session_dir_inputs(str(session_dir))
+
+        for aid, files in agents_files.items():
+            va = inputs.virtual_agents[aid]
+            assert va.latest_workspace is not None
+            ws_path = Path(va.latest_workspace)
+            # Each agent has exactly its own files
+            for name, content in files.items():
+                assert (ws_path / name).read_text() == content
+            # And NOT other agents' files
+            for other_aid, other_files in agents_files.items():
+                if other_aid != aid:
+                    for other_name in other_files:
+                        assert not (ws_path / other_name).exists()
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: agent_agent_a double prefix in anonymous labels
+# ---------------------------------------------------------------------------
+
+
+class TestAgentNamingFallback:
+    """Tests for the fallback label construction when agent_mapping misses a key."""
+
+    def test_message_template_fallback_no_double_prefix(self) -> None:
+        """Fallback for agent_id='agent_a' should produce 'agent_a', not 'agent_agent_a'."""
+        from massgen.message_templates import MessageTemplates
+
+        mt = MessageTemplates()
+        # agent_mapping deliberately missing 'agent_a' to trigger fallback
+        result = mt.format_current_answers_with_summaries(
+            agent_summaries={"agent_a": "My answer text"},
+            agent_mapping={"agent_b": "agent2"},  # agent_a NOT in mapping
+        )
+        # Fallback should use raw agent_id, not f"agent_{agent_id}"
+        assert "agent_agent_a" not in result
+        assert "<agent_a>" in result
+
+    def test_normalize_workspace_paths_fallback_no_double_prefix(self, tmp_path: Path) -> None:
+        """_normalize_workspace_paths_in_answers fallback should not double-prefix agent IDs."""
+        from unittest.mock import Mock, patch
+
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        # Create an orchestrator with an agent whose ID starts with 'agent_'
+        mock_agent = Mock()
+        mock_fm = Mock()
+        mock_fm.get_current_workspace.return_value = tmp_path / "workspace"
+        mock_fm.agent_temporary_workspace = tmp_path / "temp_ws"
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        orch = Orchestrator(agents={"agent_a": mock_agent})
+
+        # Mock the coordination tracker to NOT have the agent in mapping
+        with patch.object(orch.coordination_tracker, "get_reverse_agent_mapping", return_value={}):
+            result = orch._normalize_workspace_paths_in_answers(
+                {"agent_a": f"Files at {tmp_path}/workspace/index.html"},
+                viewing_agent_id="agent_a",
+            )
+
+        # The fallback should use "agent_a", not "agent_agent_a"
+        assert "agent_agent_a" not in result.get("agent_a", "")
+
+
+# ---------------------------------------------------------------------------
+# Bug 1: Stale workspace paths in answer text
+# ---------------------------------------------------------------------------
+
+
+class TestStaleWorkspacePaths:
+    """Tests for replacing ALL stale workspace paths (cwd, temp workspace, snapshot_storage)."""
+
+    def test_stale_cwd_path_replaced(self, tmp_path: Path) -> None:
+        """When answer text references the agent's original cwd, it gets replaced."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "snapshot_storage" / "agent_x"
+        ws.mkdir(parents=True)
+        (ws / "index.html").write_text("<html>test</html>")
+
+        # The agent's answer references its original cwd, NOT the snapshot storage
+        original_cwd = str(tmp_path / ".massgen" / "workspaces" / "workspace_80473a78")
+        answer_text = f"I created the file at {original_cwd}/index.html"
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_x",
+            action="new_answer",
+            answer_text=answer_text,
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=10.0,
+            workspace_source=str(ws),
+            stale_workspace_paths=[original_cwd],
+        )
+
+        saved = json.loads((step_dir / "answer.json").read_text())
+        session_ws = str(step_dir / "workspace")
+        # Original cwd path should be replaced
+        assert original_cwd not in saved["answer"]
+        assert session_ws in saved["answer"]
+
+    def test_multiple_stale_paths_all_replaced(self, tmp_path: Path) -> None:
+        """All stale paths (cwd, temp workspace, snapshot_storage) are replaced."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "snapshot_storage"
+        ws.mkdir(parents=True)
+        (ws / "file.txt").write_text("content")
+
+        cwd_path = str(tmp_path / "workspaces" / "workspace_abc123")
+        temp_ws_path = str(tmp_path / "temp_workspaces" / "agent_x")
+
+        answer_text = f"Created at {cwd_path}/file.txt\n" f"Also accessible at {temp_ws_path}/file.txt\n" f"Snapshot at {ws}/file.txt"
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_x",
+            action="new_answer",
+            answer_text=answer_text,
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=10.0,
+            workspace_source=str(ws),
+            stale_workspace_paths=[cwd_path, temp_ws_path],
+        )
+
+        saved = json.loads((step_dir / "answer.json").read_text())
+        session_ws = str(step_dir / "workspace")
+        assert cwd_path not in saved["answer"]
+        assert temp_ws_path not in saved["answer"]
+        # workspace_source is also replaced (existing behavior)
+        assert str(ws) not in saved["answer"]
+        assert session_ws in saved["answer"]
+
+    def test_stale_paths_none_preserves_existing_behavior(self, tmp_path: Path) -> None:
+        """When stale_workspace_paths is None, only workspace_source is replaced (backwards compat)."""
+        from massgen.step_mode import save_step_mode_output
+
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "file.txt").write_text("content")
+
+        answer_text = f"File at {ws}/file.txt"
+
+        session_dir = tmp_path / "session"
+        step_dir = save_step_mode_output(
+            session_dir=str(session_dir),
+            agent_id="agent_x",
+            action="new_answer",
+            answer_text=answer_text,
+            vote_target=None,
+            vote_reason=None,
+            seen_steps=None,
+            duration_seconds=10.0,
+            workspace_source=str(ws),
+            # stale_workspace_paths not provided — default None
+        )
+
+        saved = json.loads((step_dir / "answer.json").read_text())
+        session_ws = str(step_dir / "workspace")
+        assert str(ws) not in saved["answer"]
+        assert session_ws in saved["answer"]
+
+    def test_orchestrator_captures_stale_paths(self, tmp_path: Path) -> None:
+        """Orchestrator step mode block captures stale paths from filesystem manager."""
+        from unittest.mock import Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        # Setup filesystem manager paths
+        snapshot_dir = tmp_path / "snapshots" / "agent_x"
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / "index.html").write_text("<html>test</html>")
+
+        cwd_dir = tmp_path / "workspaces" / "workspace_abc"
+        cwd_dir.mkdir(parents=True)
+
+        temp_ws_dir = tmp_path / "temp_workspaces" / "agent_x"
+        temp_ws_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_fm = Mock()
+        mock_fm.snapshot_storage = snapshot_dir
+        mock_fm.cwd = str(cwd_dir)
+        mock_fm.agent_temporary_workspace = temp_ws_dir
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+
+        # Simulate the step mode workspace resolution + stale path capture
+        stale_paths = orch._resolve_step_mode_stale_paths("agent_x")
+
+        assert str(cwd_dir) in stale_paths
+        assert str(temp_ws_dir) in stale_paths
+        # snapshot_storage itself is the workspace_source, not a stale path
+
+
+# ---------------------------------------------------------------------------
+# Bug 3: Virtual agent workspaces not copied to temp workspace
+# ---------------------------------------------------------------------------
+
+
+class TestVirtualAgentWorkspaceCopying:
+    """Tests for including virtual agent workspaces in _copy_all_snapshots_to_temp_workspace."""
+
+    def test_virtual_agent_workspace_included_in_snapshots(self, tmp_path: Path) -> None:
+        """In step mode, virtual agent workspaces are included alongside real agent snapshots."""
+        from unittest.mock import AsyncMock, Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        # Create a virtual agent with a workspace
+        _write_answer(session_dir, "agent_a", 1, "Virtual answer")
+        va_ws = _write_workspace(session_dir, "agent_a", 1, {"index.html": "<html>virtual</html>"})
+
+        # Create real agent with filesystem manager
+        mock_agent = Mock()
+        mock_fm = Mock()
+        snapshot_base = tmp_path / "snapshots"
+        snapshot_base.mkdir(parents=True)
+        mock_fm.copy_snapshots_to_temp_workspace = AsyncMock(return_value=tmp_path / "temp_ws")
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+        orch._snapshot_storage = str(snapshot_base)
+
+        import asyncio
+
+        asyncio.run(
+            orch._copy_all_snapshots_to_temp_workspace("agent_x"),
+        )
+
+        # Verify copy_snapshots_to_temp_workspace was called with virtual agent workspaces
+        call_args = mock_fm.copy_snapshots_to_temp_workspace.call_args
+        all_snapshots = call_args[0][0]  # First positional arg
+        # Virtual agent's workspace should be in the snapshots
+        assert "agent_a" in all_snapshots
+        assert str(all_snapshots["agent_a"]) == str(va_ws)
+
+
+# ---------------------------------------------------------------------------
+# Bug 4: Post-coordination artifacts in step mode
+# ---------------------------------------------------------------------------
+
+
+class TestStepModePostCoordinationArtifacts:
+    """Tests for step mode post-coordination log artifacts (final/, status.json, etc.)."""
+
+    def test_finalize_step_mode_saves_final_snapshot(self, tmp_path: Path) -> None:
+        """finalize_step_mode creates final/{agent_id}/answer.txt."""
+        from unittest.mock import Mock
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        # Setup log session dir
+        log_dir = tmp_path / "logs" / "session_123"
+        log_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_fm = Mock()
+        mock_fm.snapshot_storage = None
+        mock_fm.cwd = None
+        mock_fm.agent_temporary_workspace = None
+        mock_agent.backend.filesystem_manager = mock_fm
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+
+        # Set the step action data as if the agent submitted an answer
+        orch._step_action_data = {
+            "action": "new_answer",
+            "agent_id": "agent_x",
+            "answer_text": "My final answer",
+            "workspace_path": None,
+        }
+
+        orch.finalize_step_mode(log_dir)
+
+        # Check final/agent_x/answer.txt
+        final_answer = log_dir / "final" / "agent_x" / "answer.txt"
+        assert final_answer.exists()
+        assert final_answer.read_text() == "My final answer"
+
+    def test_finalize_step_mode_saves_coordination_events(self, tmp_path: Path) -> None:
+        """finalize_step_mode creates coordination_events.json."""
+        from unittest.mock import Mock, patch
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        log_dir = tmp_path / "logs" / "session_456"
+        log_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_agent.backend.filesystem_manager = None
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+        orch._step_action_data = {
+            "action": "new_answer",
+            "agent_id": "agent_x",
+            "answer_text": "Test answer",
+        }
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=log_dir):
+            orch.finalize_step_mode(log_dir)
+
+        # coordination_events.json should exist
+        assert (log_dir / "coordination_events.json").exists()
+
+    def test_finalize_step_mode_sets_final_answer_in_tracker(self, tmp_path: Path) -> None:
+        """finalize_step_mode calls set_final_answer on coordination_tracker."""
+        from unittest.mock import Mock, patch
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        log_dir = tmp_path / "logs" / "session_789"
+        log_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_agent.backend.filesystem_manager = None
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+        orch._step_action_data = {
+            "action": "new_answer",
+            "agent_id": "agent_x",
+            "answer_text": "Final answer text",
+        }
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=log_dir):
+            orch.finalize_step_mode(log_dir)
+
+        # Verify set_final_answer was called on coordination tracker
+        assert "agent_x" in orch.coordination_tracker.final_answers
+        assert orch.coordination_tracker.final_answers["agent_x"].content == "Final answer text"
+
+    def test_finalize_step_mode_copies_workspace_to_final(self, tmp_path: Path) -> None:
+        """finalize_step_mode copies workspace to final/{agent_id}/workspace/."""
+        from unittest.mock import Mock, patch
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        log_dir = tmp_path / "logs" / "session_ws"
+        log_dir.mkdir(parents=True)
+
+        # Create a workspace source
+        ws = tmp_path / "workspace_src"
+        ws.mkdir()
+        (ws / "index.html").write_text("<html>final</html>")
+
+        mock_agent = Mock()
+        mock_agent.backend.filesystem_manager = None
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+        orch._step_action_data = {
+            "action": "new_answer",
+            "agent_id": "agent_x",
+            "answer_text": "Built a site",
+            "workspace_path": str(ws),
+        }
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=log_dir):
+            orch.finalize_step_mode(log_dir)
+
+        final_ws = log_dir / "final" / "agent_x" / "workspace"
+        assert final_ws.is_dir()
+        assert (final_ws / "index.html").read_text() == "<html>final</html>"
+
+    def test_finalize_step_mode_vote_no_final_dir(self, tmp_path: Path) -> None:
+        """finalize_step_mode with a vote action doesn't create final/ with answer."""
+        from unittest.mock import Mock, patch
+
+        from massgen.agent_config import StepModeConfig
+        from massgen.orchestrator import Orchestrator
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+
+        log_dir = tmp_path / "logs" / "session_vote"
+        log_dir.mkdir(parents=True)
+
+        mock_agent = Mock()
+        mock_agent.backend.filesystem_manager = None
+        mock_agent.backend.backend_params = {}
+
+        step_config = StepModeConfig(enabled=True, session_dir=str(session_dir))
+        orch = Orchestrator(agents={"agent_x": mock_agent}, step_mode=step_config)
+        orch._step_action_data = {
+            "action": "vote",
+            "agent_id": "agent_x",
+            "vote_target": "agent_a",
+            "vote_reason": "Better",
+        }
+
+        with patch("massgen.orchestrator.get_log_session_dir", return_value=log_dir):
+            orch.finalize_step_mode(log_dir)
+
+        # No final answer file for vote-only actions
+        assert not (log_dir / "final" / "agent_x" / "answer.txt").exists()
+        # But coordination_events.json should still exist
+        assert (log_dir / "coordination_events.json").exists()

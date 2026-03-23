@@ -9,16 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.67 (March 23, 2026)** - Modernized WebUI
+Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zustand state management. RoundBudgetGuardHook for per-round cost control. Unified parallel pre-collab phases. Regression guard for safe iterations.
+
 **v0.1.66 (March 20, 2026)** - Step Mode
 New `--step` CLI mode for external orchestrators to run one agent for one step then exit. Powers massgen-refinery plugin step mode. Codex Windows UTF-8 fixes and console text sanitization.
 
 **v0.1.65 (March 18, 2026)** - MassGen Refinery Plugin
 Standalone MCP servers (quality, workflow, media) bring MassGen's checklist-based evaluation and multi-round refinement to Claude Code through the massgen-refinery plugin. Single-agent refinement working; multi-agent experimental.
 
-**v0.1.64 (March 16, 2026)** - Gemini CLI Backend
-Gemini CLI as a first-class backend with session persistence, MCP tools, and Docker support. WebSocket streaming for OpenAI Response API. Execution trace analyzer subagent. Copilot Docker mode. Response API duplicate fix.
-
 ---
+
+## [0.1.67] - 2026-03-23
+
+### Added
+- **Modernized WebUI** ([#1016](https://github.com/massgen/MassGen/pull/1016)): Complete UI redesign with inline final answers, keyboard shortcuts, and Zustand state management (message, mode, tile, agent, theme stores)
+- **RoundBudgetGuardHook** ([#1013](https://github.com/massgen/MassGen/pull/1013)): Per-round cost enforcement with configurable warning thresholds (50%, 75%, 90%) and graceful termination on budget overrun
+- **Unified Pre-Collab Phases** ([#1016](https://github.com/massgen/MassGen/pull/1016)): Persona generation, evaluation criteria, and prompt improvement now run in parallel with unified TUI batch display
+- **Regression Guard** ([#1016](https://github.com/massgen/MassGen/pull/1016)): Blind A/B verification subagent before submitting revisions to catch silent regressions
+
+### Technical Details
+- **Major Focus**: Modernized WebUI and quality improvements
+- **PRs Merged**: [#1016](https://github.com/massgen/MassGen/pull/1016), [#1013](https://github.com/massgen/MassGen/pull/1013)
+- **Contributors**: @ncrispino, @amabito, @HenryQi and the MassGen team
 
 ## [0.1.66] - 2026-03-20
 

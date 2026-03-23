@@ -31,7 +31,10 @@ export type WSEventType =
   | 'preparation_status'
   | 'keepalive'
   | 'timeout_status'
-  | 'hook_execution';
+  | 'hook_execution'
+  | 'checkpoint_started'
+  | 'checkpoint_completed'
+  | 'checkpoint_action_executed';
 
 // Base WebSocket message
 export interface WSMessage {
@@ -194,6 +197,7 @@ export interface HookExecutionInfo {
   reason?: string;
   execution_time_ms?: number;
   injection_preview?: string;
+  injection_content?: string;
 }
 
 export interface HookExecutionEvent extends WSMessage {
@@ -201,6 +205,32 @@ export interface HookExecutionEvent extends WSMessage {
   agent_id: string;
   tool_call_id?: string;
   hook_info: HookExecutionInfo;
+}
+
+// Checkpoint coordination events
+export interface CheckpointStartedEvent extends WSMessage {
+  type: 'checkpoint_started';
+  checkpoint_number: number;
+  task: string;
+  context?: string;
+  expected_actions?: { tool: string; description: string }[];
+}
+
+export interface CheckpointCompletedEvent extends WSMessage {
+  type: 'checkpoint_completed';
+  checkpoint_number: number;
+  consensus: string;
+  workspace_changes: { file: string; change: string }[];
+  action_results: { tool: string; executed: boolean; result?: unknown }[];
+}
+
+export interface CheckpointActionExecutedEvent extends WSMessage {
+  type: 'checkpoint_action_executed';
+  checkpoint_number: number;
+  tool: string;
+  success: boolean;
+  result?: unknown;
+  error?: string;
 }
 
 // Vote results structure
@@ -389,6 +419,11 @@ export interface SessionInfo {
   question?: string;
   status?: 'active' | 'completed';
   completed_at?: number;
+  config?: string;
+  config_path?: string;
+  models?: string[];
+  start_time?: string;
+  log_dir?: string;
 }
 
 // ============================================================================

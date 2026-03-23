@@ -1055,7 +1055,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
             logger.info(f"[Copilot] Creating session for {agent_id} with MCP servers: {mcp_names}")
 
             try:
-                session = await self.client.create_session(session_config)
+                session = await self.client.create_session(**session_config)
                 self.sessions[agent_id] = session
                 self._session_signatures[agent_id] = session_signature
                 logger.info(f"[Copilot] Session created successfully for {agent_id}")
@@ -1099,7 +1099,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                 send_timeout_seconds = 60.0
             try:
                 await asyncio.wait_for(
-                    session.send({"prompt": prompt}),
+                    session.send(prompt),
                     timeout=send_timeout_seconds,
                 )
             except TimeoutError:

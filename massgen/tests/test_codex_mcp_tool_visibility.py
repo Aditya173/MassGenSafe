@@ -422,6 +422,77 @@ class TestCodexParseItemMcpNoStreamChunkDuplication:
         assert len(calls) == 1, f"Expected 1 emit_tool_complete call, got {len(calls)}"
         assert calls[0][1]["tool_name"] == "massgen_custom_tools/custom_tool__read_media"
 
+    def test_mcp_tool_completed_serializes_dict_result_as_json(self, backend, monkeypatch):
+        """Structured tool_complete payloads should stay JSON-parseable for WebUI planning panels."""
+        from massgen.backend import codex as codex_mod
+
+        calls = []
+
+        class FakeEmitter:
+            def emit_tool_complete(self, **kwargs):
+                calls.append(("tool_complete", kwargs))
+
+        monkeypatch.setattr(codex_mod, "get_event_emitter", lambda: FakeEmitter())
+        backend._tool_start_times["item_plan"] = 1000.0
+        backend._tool_id_to_name["item_plan"] = "planning_agent_a/create_task_plan"
+
+        item = {
+            "id": "item_plan",
+            "type": "mcp_tool_call",
+            "server": "planning_agent_a",
+            "tool": "create_task_plan",
+            "result": {
+                "success": True,
+                "tasks": [
+                    {
+                        "id": "task-1",
+                        "description": "Inspect event flow",
+                        "status": "in_progress",
+                    },
+                ],
+            },
+        }
+
+        backend._parse_item("mcp_tool_call", item, is_completed=True)
+
+        assert len(calls) == 1, f"Expected 1 emit_tool_complete call, got {len(calls)}"
+        assert calls[0][1]["result"] == ('{"success": true, "tasks": [{"id": "task-1", "description": ' '"Inspect event flow", "status": "in_progress"}]}')
+
+    def test_mcp_tool_completed_unwraps_text_content_from_codex_result(self, backend, monkeypatch):
+        """Codex MCP wrappers should emit the inner text payload so WebUI can parse planning results."""
+        from massgen.backend import codex as codex_mod
+
+        calls = []
+
+        class FakeEmitter:
+            def emit_tool_complete(self, **kwargs):
+                calls.append(("tool_complete", kwargs))
+
+        monkeypatch.setattr(codex_mod, "get_event_emitter", lambda: FakeEmitter())
+        backend._tool_start_times["item_plan_wrapped"] = 1000.0
+        backend._tool_id_to_name["item_plan_wrapped"] = "planning_agent_a/create_task_plan"
+
+        item = {
+            "id": "item_plan_wrapped",
+            "type": "mcp_tool_call",
+            "server": "planning_agent_a",
+            "tool": "create_task_plan",
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": ('{"success": true, "tasks": [{"id": "task-1", ' '"description": "Inspect event flow", "status": "in_progress"}]}'),
+                    },
+                ],
+                "structured_content": None,
+            },
+        }
+
+        backend._parse_item("mcp_tool_call", item, is_completed=True)
+
+        assert len(calls) == 1, f"Expected 1 emit_tool_complete call, got {len(calls)}"
+        assert calls[0][1]["result"] == ('{"success": true, "tasks": [{"id": "task-1", "description": ' '"Inspect event flow", "status": "in_progress"}]}')
+
     @pytest.mark.asyncio
     async def test_wait_start_signals_interrupt_when_runtime_payload_available(self, backend, monkeypatch):
         """If runtime input was queued before wait became active, wait start should still signal interrupt."""

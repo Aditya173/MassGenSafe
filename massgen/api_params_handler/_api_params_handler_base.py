@@ -161,6 +161,12 @@ class APIParamsHandlerBase(ABC):
             "allow_midstream_peer_updates_before_checklist_submit",
             "max_checklist_calls_per_round",
             "checklist_first_answer",
+            # Checkpoint coordination (handled by orchestrator, not passed to API)
+            "main_agent",
+            "checkpoint_enabled",
+            "checkpoint_mode",
+            "checkpoint_guidance",
+            "checkpoint_gated_patterns",
         }
 
     def build_base_api_params(

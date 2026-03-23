@@ -206,6 +206,7 @@ class SystemMessageBuilder:
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
         builder_enabled: bool = True,
+        regression_guard_enabled: bool = False,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -319,6 +320,7 @@ class SystemMessageBuilder:
                     item_verify_by=item_verify_by,
                     has_existing_answers=bool(answers) or answers_used > 0,
                     builder_enabled=builder_enabled,
+                    regression_guard_enabled=regression_guard_enabled,
                     improvements_cfg=improvements_cfg,
                     round_evaluator_before_checklist=getattr(
                         getattr(self.config, "coordination_config", None),
@@ -336,6 +338,11 @@ class SystemMessageBuilder:
                         "balanced",
                     ),
                     specialized_subagents_available=bool(enable_subagents),
+                    enable_evaluator_personas=getattr(
+                        getattr(self.config, "coordination_config", None),
+                        "enable_evaluator_personas",
+                        False,
+                    ),
                 ),
             )
 

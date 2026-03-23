@@ -59,6 +59,14 @@ class EventType(str, Enum):
     BROADCAST_TIMEOUT = "broadcast_timeout"
     HUMAN_BROADCAST_RESPONSE = "human_broadcast_response"
 
+    # Checkpoint coordination events
+    CHECKPOINT_CALLED = "checkpoint_called"
+    CHECKPOINT_AGENTS_ACTIVATED = "checkpoint_agents_activated"
+    CHECKPOINT_CONSENSUS_REACHED = "checkpoint_consensus_reached"
+    CHECKPOINT_ACTION_EXECUTED = "checkpoint_action_executed"
+    CHECKPOINT_ACTION_FAILED = "checkpoint_action_failed"
+    CHECKPOINT_COMPLETED = "checkpoint_completed"
+
 
 ACTION_TO_EVENT = {
     ActionType.ERROR: EventType.AGENT_ERROR,
@@ -272,6 +280,13 @@ class CoordinationTracker:
         if the agent_id was not registered at session initialization.
         """
         return self._path_tokens.get(agent_id, secrets.token_hex(4))
+
+    def regenerate_path_tokens(self) -> None:
+        """Regenerate anonymous path tokens for all agents.
+
+        Call at round start so tokens can't be correlated across rounds.
+        """
+        self._path_tokens = {agent_id: secrets.token_hex(4) for agent_id in self._path_tokens}
 
     def _get_agent_number(self, agent_id: str) -> int | None:
         """Get the 1-based number for an agent (1, 2, 3, etc.).

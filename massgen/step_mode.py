@@ -170,6 +170,7 @@ def save_step_mode_output(
     duration_seconds: float,
     cost: dict[str, Any] | None = None,
     workspace_source: str | None = None,
+    stale_workspace_paths: list[str] | None = None,
 ) -> Path:
     """Write step mode output to the session directory.
 
@@ -188,6 +189,10 @@ def save_step_mode_output(
         duration_seconds: How long this step took.
         cost: Token usage and cost info.
         workspace_source: Path to workspace to copy (if action is "new_answer").
+        stale_workspace_paths: Additional paths that may appear in answer_text
+            (e.g., agent cwd, temp workspace) that should be replaced with the
+            session dir workspace path. These are paths the agent referenced during
+            execution that won't exist when the session is loaded later.
 
     Returns:
         Path to the created step directory.
@@ -205,14 +210,8 @@ def save_step_mode_output(
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
+    ws_dest_str = None
     if action == "new_answer":
-        answer_data = {
-            "agent_id": agent_id,
-            "answer": answer_text or "",
-            "timestamp": timestamp,
-        }
-        (step_dir / "answer.json").write_text(json.dumps(answer_data, indent=2))
-
         # Copy workspace if provided
         if workspace_source:
             import shutil
@@ -220,6 +219,34 @@ def save_step_mode_output(
             ws_dest = step_dir / "workspace"
             if Path(workspace_source).is_dir():
                 shutil.copytree(workspace_source, ws_dest, symlinks=True, dirs_exist_ok=True)
+                ws_dest_str = str(ws_dest)
+
+                # Replace stale paths inside copied workspace files
+                from massgen.filesystem_manager import replace_stale_paths_in_workspace
+
+                file_replacements: dict[str, str] = {workspace_source: ws_dest_str}
+                if stale_workspace_paths:
+                    for sp in stale_workspace_paths:
+                        if sp:
+                            file_replacements[sp] = ws_dest_str
+                replace_stale_paths_in_workspace(ws_dest, file_replacements)
+
+                # Replace stale workspace paths in answer text
+                if answer_text:
+                    # Replace additional stale paths (cwd, temp workspace, etc.)
+                    if stale_workspace_paths:
+                        for stale_path in stale_workspace_paths:
+                            if stale_path:
+                                answer_text = answer_text.replace(stale_path, ws_dest_str)
+                    # Replace workspace_source path (snapshot_storage)
+                    answer_text = answer_text.replace(workspace_source, ws_dest_str)
+
+        answer_data = {
+            "agent_id": agent_id,
+            "answer": answer_text or "",
+            "timestamp": timestamp,
+        }
+        (step_dir / "answer.json").write_text(json.dumps(answer_data, indent=2))
 
     elif action == "vote":
         vote_data = {
@@ -231,7 +258,7 @@ def save_step_mode_output(
         }
         (step_dir / "vote.json").write_text(json.dumps(vote_data, indent=2))
 
-    # Write last_action.json at session root
+    # Write action metadata
     last_action = {
         "agent_id": agent_id,
         "action": action,
@@ -242,8 +269,11 @@ def save_step_mode_output(
         "step_number": next_step,
         "duration_seconds": duration_seconds,
         "cost": cost or {},
+        "workspace_path": ws_dest_str,
     }
-    (session_path / "last_action.json").write_text(json.dumps(last_action, indent=2))
+    # Per-agent action file only — no global last_action.json to avoid
+    # race conditions when multiple agents run in parallel
+    (agent_dir / "last_action.json").write_text(json.dumps(last_action, indent=2))
 
     return step_dir
 

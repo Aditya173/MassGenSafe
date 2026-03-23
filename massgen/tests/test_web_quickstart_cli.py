@@ -2,9 +2,11 @@
 
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from massgen.backend.capabilities import get_all_backend_types
+from massgen.frontend.displays.web_display import WebDisplay
 from massgen.frontend.web.server import create_app
 
 
@@ -169,3 +171,28 @@ def test_quickstart_cancel_endpoint_stops_temporary_server():
     assert temporary_session["status"] == "cancelled"
     assert temporary_session["config_path"] is None
     assert temporary_session["server"].should_exit is True
+
+
+@pytest.mark.asyncio
+async def test_web_display_notify_phase_emits_structured_phase_change_event():
+    """Web clients should receive phase changes even without relying on the shared event emitter."""
+    display = WebDisplay(agent_ids=["agent_a"], session_id="session-1")
+
+    display.notify_phase("coordinating")
+
+    event = await display._event_queue.get()
+
+    assert event["type"] == "structured_event"
+    assert event["event_type"] == "phase_change"
+    assert event["data"] == {"phase": "coordinating"}
+
+
+def test_web_display_state_snapshot_includes_current_phase():
+    """Late-joining WebUI clients should recover the current mode bar phase."""
+    display = WebDisplay(agent_ids=["agent_a"], session_id="session-1")
+
+    display.notify_phase("coordinating")
+
+    snapshot = display.get_state_snapshot()
+
+    assert snapshot["current_phase"] == "coordinating"
