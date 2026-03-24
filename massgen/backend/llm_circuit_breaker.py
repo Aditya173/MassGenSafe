@@ -9,7 +9,7 @@ handling of HTTP 429 responses based on Retry-After header analysis.
   STOP -- Retry-After present and > threshold: open CB immediately (quota exhaustion)
   CAP  -- No Retry-After: concurrency limit signal, backoff + retry (hard failure)
 
-Interface mirrors MCPCircuitBreaker: should_block(), record_failure(), record_success().
+Public interface: should_block(), record_failure(), record_success() (single-endpoint).
 """
 
 from __future__ import annotations
@@ -58,10 +58,7 @@ class CircuitState(enum.Enum):
 
 @dataclass
 class LLMCircuitBreakerConfig:
-    """Configuration for the LLM circuit breaker.
-
-    Mirrors MCPCircuitBreaker config shape with LLM-specific additions.
-    """
+    """Configuration for the LLM circuit breaker."""
 
     enabled: bool = False  # opt-in, default preserves existing behavior
     max_failures: int = 5
@@ -137,7 +134,13 @@ def extract_retry_after(exc: Exception) -> float | None:
     if headers is None:
         return None
 
-    raw = headers.get("retry-after")
+    # Case-insensitive lookup: SDK may return "Retry-After" or "retry-after"
+    raw = None
+    if hasattr(headers, "get"):
+        for key in ("retry-after", "Retry-After"):
+            raw = headers.get(key)
+            if raw is not None:
+                break
     if raw is None:
         return None
 
@@ -175,10 +178,12 @@ class LLMCircuitBreaker:
 
     Thread-safe via a lock. State machine: CLOSED -> OPEN -> HALF_OPEN -> CLOSED.
 
-    Interface mirrors MCPCircuitBreaker:
+    Public interface (similar to MCPCircuitBreaker but single-endpoint):
       - should_block()    -- check if requests should be blocked
       - record_failure()  -- record a failed API call
       - record_success()  -- record a successful API call
+
+    Unlike MCPCircuitBreaker, this class tracks a single endpoint (no server_name key).
     """
 
     def __init__(
@@ -196,7 +201,7 @@ class LLMCircuitBreaker:
         self._last_failure_time = 0.0
         self._half_open_probe_active = False
 
-    # -- Public interface (mirrors MCPCircuitBreaker) -----------------------
+    # -- Public interface ---------------------------------------------------
 
     @property
     def state(self) -> CircuitState:
@@ -380,7 +385,10 @@ class LLMCircuitBreaker:
 
                     if action == RateLimitAction.WAIT:
                         # Short wait -- retry without counting as failure
-                        wait_seconds = retry_after or 1.0
+                        if attempt >= max_retries:
+                            # Last attempt exhausted; do not sleep, just raise
+                            raise
+                        wait_seconds = retry_after if retry_after is not None else 1.0
                         self._log(
                             "429 WAIT: retrying after Retry-After",
                             retry_after=wait_seconds,
@@ -436,6 +444,7 @@ class LLMCircuitBreaker:
                 # --- Non-retryable error ---
                 raise
 
+        # Defensive fallback -- all loop paths should return or raise above.
         if last_exc:
             raise last_exc
         raise RuntimeError("call_with_retry ended without result or exception")

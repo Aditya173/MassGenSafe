@@ -102,6 +102,11 @@ class TestExtractRetryAfter:
         exc = _make_api_error(429, retry_after=30.0)
         assert extract_retry_after(exc) == 30.0
 
+    def test_from_capitalized_header(self):
+        exc = _make_api_error(429)
+        exc.response.headers = {"Retry-After": "45"}
+        assert extract_retry_after(exc) == 45.0
+
     def test_none_when_no_header(self):
         exc = _make_api_error(429)
         assert extract_retry_after(exc) is None
@@ -320,6 +325,26 @@ class TestCallWithRetry429Wait:
         assert call_count == 2
         # Failure counter should NOT have increased for WAIT
         assert cb.failure_count == 0
+
+    @pytest.mark.asyncio
+    async def test_wait_with_zero_retry_after_sleeps_zero(self):
+        """Retry-After: 0 should sleep 0s, not 1s (0.0 is falsy but valid)."""
+        cb = LLMCircuitBreaker(config=_enabled_config())
+        call_count = 0
+
+        async def api_call():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise _make_api_error(429, retry_after=0.0)
+            return "ok"
+
+        with patch("massgen.backend.llm_circuit_breaker.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            result = await cb.call_with_retry(api_call)
+
+        assert result == "ok"
+        mock_sleep.assert_called_once_with(0.0)
 
     @pytest.mark.asyncio
     async def test_wait_uses_retry_after_value(self):
@@ -663,6 +688,64 @@ class TestEdgeCases:
         assert cb.state == CircuitState.OPEN
         # Exactly 2 calls: 2 failures open CB, 3rd attempt blocked by should_block()
         assert call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Round 3 review findings
+# ---------------------------------------------------------------------------
+
+
+class TestRound3Findings:
+    @pytest.mark.asyncio
+    async def test_cb_opens_on_last_attempt_raises_original_error(self):
+        """CB opens exactly at last attempt -- raises original error, not CircuitBreakerOpenError."""
+        cb = LLMCircuitBreaker(config=_enabled_config(max_failures=3))
+
+        async def api_call():
+            raise _make_api_error(500)
+
+        with patch("massgen.backend.llm_circuit_breaker.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            with pytest.raises(Exception, match="500") as exc_info:
+                await cb.call_with_retry(api_call, max_retries=3)
+
+        # Should be the original 500 error, not CircuitBreakerOpenError
+        assert not isinstance(exc_info.value, CircuitBreakerOpenError)
+        assert cb.state == CircuitState.OPEN
+
+    @pytest.mark.asyncio
+    async def test_429_wait_exhausts_max_retries(self):
+        """429 WAIT that never succeeds eventually raises after max_retries."""
+        cb = LLMCircuitBreaker(config=_enabled_config())
+
+        async def api_call():
+            raise _make_api_error(429, retry_after=0.1)
+
+        with patch("massgen.backend.llm_circuit_breaker.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            with pytest.raises(Exception, match="429"):
+                await cb.call_with_retry(api_call, max_retries=3)
+
+        # WAIT does not increment failure counter
+        assert cb.failure_count == 0
+        # CB stays CLOSED (WAIT is soft failure)
+        assert cb.state == CircuitState.CLOSED
+
+    @pytest.mark.asyncio
+    async def test_429_wait_last_attempt_no_sleep(self):
+        """On last attempt, 429 WAIT should raise immediately without sleeping."""
+        cb = LLMCircuitBreaker(config=_enabled_config())
+
+        async def api_call():
+            raise _make_api_error(429, retry_after=10.0)
+
+        with patch("massgen.backend.llm_circuit_breaker.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            with pytest.raises(Exception, match="429"):
+                await cb.call_with_retry(api_call, max_retries=1)
+
+        # max_retries=1: single attempt, immediately raises, no sleep
+        mock_sleep.assert_not_called()
 
 
 class TestRepr:
