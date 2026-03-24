@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..logger_config import log_backend_activity, logger
+from ..logger_config import log_backend_activity
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +301,10 @@ class LLMCircuitBreaker:
             self._half_open_probe_active = False
 
             if prev_state != CircuitState.CLOSED:
-                self._log("Circuit breaker closed after success", previous_state=prev_state.value)
+                self._log(
+                    "Circuit breaker closed after success",
+                    previous_state=prev_state.value,
+                )
 
     def force_open(self, reason: str = "") -> None:
         """Force the circuit to OPEN state (e.g. on 429 STOP)."""
@@ -453,7 +456,9 @@ class LLMCircuitBreaker:
 
     def _log(self, message: str, **details: Any) -> None:
         """Log via structured backend activity logger."""
-        log_details: dict[str, Any] = {k: v for k, v in details.items() if v is not None}
+        log_details: dict[str, Any] = {
+            k: v for k, v in details.items() if v is not None
+        }
         log_backend_activity(
             self.backend_name,
             message,
