@@ -1,4 +1,4 @@
-# MassGen v0.1.67 Release Announcement
+# MassGen v0.1.68 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.67 — Modernized WebUI! 🚀 Complete WebUI redesign with inline final answers, keyboard shortcuts, and modernized component architecture. Plus: RoundBudgetGuardHook for per-round cost control, unified parallel pre-collab phases, and regression guard for safe iterations.
+We're excited to release MassGen v0.1.68 — Checkpoint Mode! 🚀 New checkpoint coordination mode lets a main agent plan solo then delegate execution to the full multi-agent team via the `checkpoint()` tool. Plus: LLM API circuit breaker for 429 rate limit handling, WebUI checkpoint support, and LiteLLM supply chain fix.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.67
+pip install massgen==0.1.68
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.67
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.68
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,29 +29,29 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.67 — Modernized WebUI! 🚀 Complete WebUI redesign with inline final answers, keyboard shortcuts, and modernized component architecture. Plus: RoundBudgetGuardHook for per-round cost control, unified parallel pre-collab phases, and regression guard for safe iterations.
+We're excited to release MassGen v0.1.68 — Checkpoint Mode! 🚀 New checkpoint coordination mode lets a main agent plan solo then delegate execution to the full multi-agent team via the `checkpoint()` tool. Plus: LLM API circuit breaker for 429 rate limit handling, WebUI checkpoint support, and LiteLLM supply chain fix.
 
 **Key Improvement:**
 
-🖥️ **Modernized WebUI** - Complete UI redesign:
-- Inline final answers replace modal overlays for smoother workflow
-- Responsive keyboard shortcuts for efficient navigation
-- Modernized React component architecture with Zustand state management
+🔀 **Checkpoint Mode** - Delegator pattern for multi-agent coordination:
+- Main agent plans and gathers context solo, then calls `checkpoint()` to delegate to the team
+- Fresh agent instances with clean backends execute the task collaboratively
+- After team consensus, main agent resumes with results and deliverable files
+- WebUI support for checkpoint mode display
 
 **Plus:**
-- 💰 **RoundBudgetGuardHook** — per-round cost enforcement prevents unexpected API bill overruns with configurable warning thresholds
-- 🎭 **Unified pre-collab phases** — personas, evaluation criteria, and prompt improvement now run in parallel for faster task setup
-- 🛡️ **Regression guard** — blind A/B verification subagent before submitting revisions ensures improvements are real
+- ⚡ **LLM API circuit breaker** — automatic 429 rate limit handling with circuit breaker pattern for Claude backend
+- 🔒 **LiteLLM supply chain fix** — pinned litellm<=1.82.6 and committed uv.lock to prevent dependency attacks
 
 **Getting Started:**
 
 ```bash
-pip install massgen==0.1.67
-# Try the modernized WebUI
+pip install massgen==0.1.68
+# Try checkpoint mode
 uv run massgen --web
 ```
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.67
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.68
 
 Feature highlights:
 

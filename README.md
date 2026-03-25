@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.67 Features](#-latest-features-v0167)
+- [v0.1.68 Features](#-latest-features-v0168)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.67)](#recent-achievements-v0167)
-- [Previous Achievements (v0.0.3 - v0.1.66)](#previous-achievements-v003---v0166)
+- [Recent Achievements (v0.1.68)](#recent-achievements-v0168)
+- [Previous Achievements (v0.0.3 - v0.1.67)](#previous-achievements-v003---v0167)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.68 Roadmap](#v0168-roadmap)
+- [v0.1.69 Roadmap](#v0169-roadmap)
 </details>
 
 <details open>
@@ -155,19 +155,19 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.67)
+## 🆕 Latest Features (v0.1.68)
 
-**🎉 Released: March 23, 2026**
+**🎉 Released: March 25, 2026**
 
-**What's New in v0.1.67:**
-- **🖥️ Modernized WebUI** - Complete UI redesign with inline final answers, keyboard shortcuts, and Zustand state management.
-- **💰 RoundBudgetGuardHook** - Per-round cost enforcement prevents unexpected API bill overruns.
-- **🎭 Unified Pre-Collab** - Personas, evaluation criteria, and prompt improvement run in parallel.
+**What's New in v0.1.68:**
+- **🔀 Checkpoint Mode** - Main agent plans solo then delegates to the team via `checkpoint()` tool with fresh agent instances.
+- **🖥️ WebUI Checkpoint Support** - Checkpoint mode display integrated into the modernized WebUI.
+- **🔒 LiteLLM Fix** - Supply chain protection with pinned dependency and committed lock file.
 
-**Try v0.1.67 Features:**
+**Try v0.1.68 Features:**
 ```bash
-pip install massgen==0.1.67
-# Try the modernized WebUI
+pip install massgen==0.1.68
+# Try checkpoint mode
 uv run massgen --web
 ```
 
@@ -1240,17 +1240,18 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.67)
+### Recent Achievements (v0.1.68)
 
-**🎉 Released: March 23, 2026**
+**🎉 Released: March 25, 2026**
 
-#### Modernized WebUI & Quality
-- **Modernized WebUI** ([#1016](https://github.com/massgen/MassGen/pull/1016)): Complete UI redesign with inline final answers, keyboard shortcuts, and Zustand state management
-- **RoundBudgetGuardHook** ([#1013](https://github.com/massgen/MassGen/pull/1013)): Per-round cost enforcement with configurable warning thresholds
-- **Unified Pre-Collab** ([#1016](https://github.com/massgen/MassGen/pull/1016)): Personas, evaluation criteria, and prompt improvement run in parallel
-- **Regression Guard** ([#1016](https://github.com/massgen/MassGen/pull/1016)): Blind A/B verification subagent before submitting revisions
+#### Checkpoint Mode
+- **Checkpoint Coordination Mode** ([#1028](https://github.com/massgen/MassGen/pull/1028)): Delegator pattern — main agent plans solo then delegates to team via `checkpoint()` tool with fresh agent instances
+- **WebUI Checkpoint Support** ([#1028](https://github.com/massgen/MassGen/pull/1028)): Checkpoint mode display in the modernized WebUI
+- **LiteLLM Supply Chain Fix** ([#1025](https://github.com/massgen/MassGen/pull/1025)): Pinned litellm<=1.82.6 and committed uv.lock
 
-### Previous Achievements (v0.0.3 - v0.1.66)
+### Previous Achievements (v0.0.3 - v0.1.67)
+
+✅ **Modernized WebUI (v0.1.67)**: Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zustand state management. RoundBudgetGuardHook for per-round cost control. Unified parallel pre-collab phases. Regression guard.
 
 ✅ **Step Mode (v0.1.66)**: New `--step` CLI mode for external orchestrators. Powers massgen-refinery plugin step mode. Codex Windows UTF-8 fixes and console text sanitization.
 
@@ -1529,9 +1530,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.68 Roadmap
+### v0.1.69 Roadmap
 
-Version 0.1.68 focuses on cloud execution:
+Version 0.1.69 focuses on cloud execution:
 
 #### Planned Features
 - **Cloud Modal MVP** ([#982](https://github.com/massgen/MassGen/issues/982)): Run MassGen as a cloud job on Modal

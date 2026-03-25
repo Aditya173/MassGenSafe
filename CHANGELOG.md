@@ -9,16 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.68 (March 25, 2026)** - Checkpoint Mode
+New checkpoint coordination mode with delegator pattern — main agent plans solo then delegates to team via `checkpoint()` tool. LLM API circuit breaker for 429 handling. WebUI checkpoint support. LiteLLM supply chain fix.
+
 **v0.1.67 (March 23, 2026)** - Modernized WebUI
 Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zustand state management. RoundBudgetGuardHook for per-round cost control. Unified parallel pre-collab phases. Regression guard for safe iterations.
 
 **v0.1.66 (March 20, 2026)** - Step Mode
 New `--step` CLI mode for external orchestrators to run one agent for one step then exit. Powers massgen-refinery plugin step mode. Codex Windows UTF-8 fixes and console text sanitization.
 
-**v0.1.65 (March 18, 2026)** - MassGen Refinery Plugin
-Standalone MCP servers (quality, workflow, media) bring MassGen's checklist-based evaluation and multi-round refinement to Claude Code through the massgen-refinery plugin. Single-agent refinement working; multi-agent experimental.
-
 ---
+
+## [0.1.68] - 2026-03-25
+
+### Added
+- **Checkpoint Coordination Mode** ([#1028](https://github.com/massgen/MassGen/pull/1028)): New delegator pattern — main agent plans solo then calls `checkpoint()` to delegate execution to fresh agent instances with clean backends and cloned workspaces
+- **WebUI Checkpoint Support** ([#1028](https://github.com/massgen/MassGen/pull/1028)): Checkpoint mode display integrated into the modernized WebUI
+- **LLM API Circuit Breaker** ([#1024](https://github.com/massgen/MassGen/pull/1024)): Automatic 429 rate limit handling with circuit breaker pattern for Claude backend
+
+### Fixed
+- **LiteLLM Supply Chain Fix** ([#1025](https://github.com/massgen/MassGen/pull/1025)): Pinned litellm<=1.82.6 and committed uv.lock to prevent dependency attacks
+
+### Technical Details
+- **Major Focus**: Checkpoint Mode — delegator pattern for multi-agent coordination
+- **PRs Merged**: [#1028](https://github.com/massgen/MassGen/pull/1028), [#1025](https://github.com/massgen/MassGen/pull/1025), [#1024](https://github.com/massgen/MassGen/pull/1024)
+- **Contributors**: @ncrispino, @amabito, @HenryQi and the MassGen team
 
 ## [0.1.67] - 2026-03-23
 

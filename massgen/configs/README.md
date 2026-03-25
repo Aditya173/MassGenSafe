@@ -227,21 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.67 - Latest
-**New Features:** Modernized WebUI
+### v0.1.68 - Latest
+**New Features:** Checkpoint Mode
 
 **Key Features:**
-- **Modernized WebUI**: Complete UI redesign with inline final answers, keyboard shortcuts, and Zustand state management
-- **RoundBudgetGuardHook**: Per-round cost enforcement with configurable warning thresholds
-- **Unified Pre-Collab**: Personas, evaluation criteria, and prompt improvement run in parallel
-- **Regression Guard**: Blind A/B verification subagent before submitting revisions
+- **Checkpoint Coordination Mode**: Delegator pattern — main agent plans solo then delegates to team via `checkpoint()` tool
+- **WebUI Checkpoint Support**: Checkpoint mode display in the modernized WebUI
+- **LiteLLM Supply Chain Fix**: Pinned litellm<=1.82.6 and committed uv.lock
 
 **Try It:**
 ```bash
-pip install massgen==0.1.67
-# Try the modernized WebUI
+pip install massgen==0.1.68
+# Try checkpoint mode
 uv run massgen --web
 ```
+
+### v0.1.67
+**New Features:** Modernized WebUI
+
+**Key Features:**
+- **Modernized WebUI**: Complete UI redesign with inline final answers and keyboard shortcuts
+- **RoundBudgetGuardHook**: Per-round cost enforcement with configurable warning thresholds
+- **Unified Pre-Collab**: Personas, evaluation criteria, and prompt improvement run in parallel
 
 ### v0.1.66
 **New Features:** Step Mode

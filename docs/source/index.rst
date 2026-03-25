@@ -200,6 +200,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.68 (March 25, 2026)** - Checkpoint Mode
+
+New checkpoint coordination mode with delegator pattern — main agent plans solo then delegates to team via ``checkpoint()`` tool. WebUI checkpoint support. LiteLLM supply chain fix.
+
 **v0.1.67 (March 23, 2026)** - Modernized WebUI
 
 Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zustand state management. RoundBudgetGuardHook for per-round cost control. Unified parallel pre-collab phases. Regression guard for safe iterations.
@@ -207,10 +211,6 @@ Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zusta
 **v0.1.66 (March 20, 2026)** - Step Mode
 
 New ``--step`` CLI mode for external orchestrators to run one agent for one step then exit. Powers massgen-refinery plugin step mode. Codex Windows UTF-8 fixes and console text sanitization.
-
-**v0.1.65 (March 18, 2026)** - MassGen Refinery Plugin
-
-Standalone MCP servers (quality, workflow, media) bring MassGen's checklist-based evaluation and multi-round refinement to Claude Code through the massgen-refinery plugin. Single-agent refinement working; multi-agent experimental.
 
 :doc:`Full changelog → <changelog>`
 
