@@ -11,7 +11,8 @@
 #   --mode MODE          general (default), evaluate, plan, spec
 #   --cwd-context CTX    ro (default), rw, off
 #   --quick              Skip refinement (one-shot, no voting)
-#   --web                Enable WebUI (adds --web --no-browser)
+#   --web                Enable WebUI (default: on)
+#   --no-web             Disable WebUI
 #   --web-port PORT      WebUI port (default: 8000)
 #   --criteria FILE      Custom criteria JSON file
 #   --config FILE        Override config path
@@ -25,7 +26,7 @@ set -euo pipefail
 MODE="general"
 CWD_CTX="ro"
 QUICK=false
-WEB=false
+WEB=true
 WEB_PORT=8000
 CRITERIA=""
 CONFIG=""
@@ -37,6 +38,7 @@ while [[ $# -gt 0 ]]; do
         --cwd-context) CWD_CTX="$2"; shift 2 ;;
         --quick)       QUICK=true; shift ;;
         --web)         WEB=true; shift ;;
+        --no-web)      WEB=false; shift ;;
         --web-port)    WEB_PORT="$2"; shift 2 ;;
         --criteria)    CRITERIA="$2"; shift 2 ;;
         --config)      CONFIG="$2"; shift 2 ;;
@@ -74,7 +76,8 @@ if $QUICK; then CMD+=(--quick); fi
 if $WEB; then CMD+=(--web --no-browser --web-port "$WEB_PORT"); fi
 if [[ -n "$CRITERIA" ]]; then CMD+=(--eval-criteria "$CRITERIA"); fi
 if [[ -n "$CONFIG" ]]; then CMD+=(--config "$CONFIG"); fi
-CMD+=("${EXTRA_ARGS[@]}")
+# Append extra args (guard against unbound empty array with set -u)
+if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then CMD+=("${EXTRA_ARGS[@]}"); fi
 
 # Prompt last
 CMD+=("$PROMPT")

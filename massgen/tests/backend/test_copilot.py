@@ -62,7 +62,7 @@ async def test_stream_with_tools_create_session(copilot_backend):
     copilot_backend.client.start = AsyncMock()
     created_session_config: dict = {}
 
-    async def create_session(**config):
+    async def create_session(config):
         created_session_config.update(config)
         return mock_session
 
@@ -214,7 +214,7 @@ async def test_stream_with_tools_adds_default_permission_hooks_for_direct_filesy
     mock_session = _make_session()
     mock_session.send = AsyncMock(side_effect=RuntimeError("stop after session creation"))
 
-    async def create_session(**config):
+    async def create_session(config):
         created_session_config.update(config)
         return mock_session
 

@@ -6941,11 +6941,12 @@ Your answer:"""
                         self._generated_evaluation_criteria = [
                             GeneratedCriterion(
                                 id=c.get("id", f"E{i + 1}"),
-                                text=c["text"],
+                                text=c.get("text") or c.get("description") or c.get("name", ""),
                                 category=c.get("category", "should"),
                                 verify_by=c.get("verify_by") or None,
                             )
                             for i, c in enumerate(criteria_data)
+                            if c.get("text") or c.get("description") or c.get("name")
                         ]
                         self._evaluation_criteria_generated = True
                         logger.info(

@@ -47,8 +47,20 @@ The defaults are good. Let MassGen handle the rest.
 ### 2. Write Criteria
 
 **Always write evaluation criteria** tailored to the task. Save to a temp
-file and pass via `--eval-criteria`. See `references/criteria_guide.md` for
-format — tiers are `must`, `should`, `could`. Aim for 4-7 criteria.
+file and pass via `--eval-criteria`. Aim for 4-7 criteria.
+
+**Required JSON format** — each criterion needs a `text` field and `category`:
+
+```json
+[
+  {"text": "Aspect: what to look for.", "category": "must"},
+  {"text": "Aspect: what to assess.", "category": "should"},
+  {"text": "Aspect: bonus quality.", "category": "could"}
+]
+```
+
+Or wrapped: `{"criteria": [...]}`. See `references/criteria_guide.md` for
+full guidance on writing effective criteria.
 
 For evaluate/plan/spec modes, you can use `--checklist-criteria-preset`
 instead of writing custom criteria (presets: `evaluation`, `planning`, `spec`).
@@ -75,18 +87,17 @@ agents discover issues independently.
 
 ### 5. Run
 
+Always use the wrapper script:
+
 ```bash
-# Via wrapper script
 bash "$SKILL_DIR/scripts/massgen_run.sh" \
   --mode general --cwd-context off \
   --criteria /tmp/massgen_criteria.json \
   "Create an SVG of a butterfly mixed with a panda"
-
-# Or directly
-uv run massgen --automation \
-  --eval-criteria /tmp/massgen_criteria.json \
-  "Create an SVG of a butterfly mixed with a panda"
 ```
+
+The wrapper includes `--web --no-browser` by default so the user can watch
+progress at http://localhost:8000/. **Tell the user about this URL.**
 
 Run in the background. MassGen prints these for tracking:
 - `LOG_DIR: <path>` — full run data

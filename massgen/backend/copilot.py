@@ -767,6 +767,14 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
             def _make_handler(name: str, q: asyncio.Queue):
                 async def handler(invocation):
+                    # SDK may pass invocation as JSON string or dict
+                    if isinstance(invocation, str):
+                        try:
+                            invocation = json.loads(invocation)
+                        except (json.JSONDecodeError, TypeError):
+                            invocation = {}
+                    if not isinstance(invocation, dict):
+                        invocation = {}
                     args = invocation.get("arguments", {})
                     call_id = invocation.get("tool_call_id", f"call-{uuid.uuid4()}")
                     q.put_nowait(("workflow_tool", name, args, call_id))
@@ -1055,7 +1063,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
             logger.info(f"[Copilot] Creating session for {agent_id} with MCP servers: {mcp_names}")
 
             try:
-                session = await self.client.create_session(**session_config)
+                session = await self.client.create_session(session_config)
                 self.sessions[agent_id] = session
                 self._session_signatures[agent_id] = session_signature
                 logger.info(f"[Copilot] Session created successfully for {agent_id}")

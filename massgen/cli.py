@@ -3957,7 +3957,15 @@ async def run_question_with_history(
         if raw_criteria:
             from .evaluation_criteria_generator import GeneratedCriterion
 
-            generated_evaluation_criteria = [GeneratedCriterion(id=c["id"], text=c["text"], category=c["category"]) for c in raw_criteria]
+            generated_evaluation_criteria = [
+                GeneratedCriterion(
+                    id=c.get("id", f"E{i + 1}"),
+                    text=c.get("text") or c.get("description") or c.get("name", ""),
+                    category=c.get("category", "should"),
+                )
+                for i, c in enumerate(raw_criteria)
+                if c.get("text") or c.get("description") or c.get("name")
+            ]
             logger.info("[CLI] Reusing persisted evaluation criteria from previous turn")
 
     orchestrator = Orchestrator(
@@ -7268,7 +7276,15 @@ async def run_textual_interactive_mode(
                 if raw_criteria:
                     from .evaluation_criteria_generator import GeneratedCriterion
 
-                    generated_evaluation_criteria = [GeneratedCriterion(id=c["id"], text=c["text"], category=c["category"]) for c in raw_criteria]
+                    generated_evaluation_criteria = [
+                        GeneratedCriterion(
+                            id=c.get("id", f"E{i + 1}"),
+                            text=c.get("text") or c.get("description") or c.get("name", ""),
+                            category=c.get("category", "should"),
+                        )
+                        for i, c in enumerate(raw_criteria)
+                        if c.get("text") or c.get("description") or c.get("name")
+                    ]
                     logger.info("[Textual] Reusing persisted evaluation criteria from previous turn")
 
             # Create orchestrator with multi-turn state
@@ -11109,7 +11125,10 @@ Environment Variables:
         "--eval-criteria",
         type=str,
         metavar="FILE",
-        help="Path to JSON file with evaluation criteria. " "Each entry: {text, category (must/should/could), verify_by?}. " "Injected as checklist_criteria_inline in coordination config.",
+        help="Path to JSON file with evaluation criteria. "
+        "Each entry: {text, category (must/should/could), verify_by?}. "
+        "Also accepts 'description' or 'name' as aliases for 'text'. "
+        "Injected as checklist_criteria_inline in coordination config.",
     )
     parser.add_argument(
         "--checklist-criteria-preset",
@@ -11334,6 +11353,21 @@ def _load_eval_criteria(file_path: str) -> list[dict]:
     if not isinstance(criteria_data, list):
         print(f'{BRIGHT_RED}Error: --eval-criteria must be a JSON array or {{"criteria": [...]}}{RESET}')
         sys.exit(EXIT_CONFIG_ERROR)
+
+    # Validate each criterion has a text field (or common alias)
+    for i, item in enumerate(criteria_data):
+        if not isinstance(item, dict):
+            print(f"{BRIGHT_RED}Error: --eval-criteria item {i + 1} must be a JSON object, got {type(item).__name__}{RESET}")
+            sys.exit(EXIT_CONFIG_ERROR)
+        has_text = item.get("text") or item.get("description") or item.get("name")
+        if not has_text:
+            print(
+                f"{BRIGHT_RED}Error: --eval-criteria item {i + 1} missing 'text' field.\n"
+                f'  Expected: {{"text": "...", "category": "must|should|could"}}\n'
+                f"  Got keys: {list(item.keys())}{RESET}",
+            )
+            sys.exit(EXIT_CONFIG_ERROR)
+
     return criteria_data
 
 
@@ -11572,10 +11606,7 @@ def _cli_main_continued(args):
 
                 print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/?v=2"
-                # Ensure v=2 param is present on auto_url too
-                if auto_url and "v=2" not in browser_url:
-                    browser_url += "&v=2"
+                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/"
 
                 def open_browser():
                     import time
@@ -11737,7 +11768,7 @@ def _cli_main_continued(args):
 
             print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web Quickstart...{RESET}")
             print(
-                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}/?v=2&temporary=1&wizard=open{RESET}",
+                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}/?temporary=1&wizard=open{RESET}",
             )
             print(
                 f"{BRIGHT_YELLOW}   This temporary setup session will close automatically when complete{RESET}\n",
@@ -11791,23 +11822,23 @@ def _cli_main_continued(args):
                     f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}",
                 )
 
-            # Build auto-launch URL — always use v=2.
+            # Build auto-launch URL. V2 is the default UI (no param needed).
             # The frontend auto-starts coordination when both prompt= and config=
             # are in the URL (see App.tsx useEffect at line ~226).
             import urllib.parse
 
             base_url = f"http://{args.web_host}:{args.web_port}/"
-            url_params = ["v=2"]
+            url_params = []
             if question:
                 url_params.append(f"prompt={urllib.parse.quote(question)}")
             if config_path:
                 url_params.append(f"config={urllib.parse.quote(config_path)}")
-            auto_url = f"{base_url}?{'&'.join(url_params)}"
+            auto_url = f"{base_url}?{'&'.join(url_params)}" if url_params else base_url
             # Print a short URL for the terminal (no giant prompt)
-            short_url_params = ["v=2"]
+            short_url_params = []
             if config_path:
                 short_url_params.append(f"config={urllib.parse.quote(config_path)}")
-            short_url = f"{base_url}?{'&'.join(short_url_params)}"
+            short_url = f"{base_url}?{'&'.join(short_url_params)}" if short_url_params else base_url
             print(f"{BRIGHT_GREEN}   UI: {short_url}{RESET}")
 
             if automation_mode:
@@ -11825,12 +11856,12 @@ def _cli_main_continued(args):
             # Auto-open browser (unless --no-browser or automation mode)
             no_browser = getattr(args, "no_browser", False)
             if not no_browser and not automation_mode:
-                # auto_url already has v=2; add overlay params if needed
                 browser_url = auto_url
+                separator = "&" if "?" in browser_url else "?"
                 if getattr(args, "setup", False):
-                    browser_url += "&setup=open"
+                    browser_url += f"{separator}setup=open"
                 elif getattr(args, "quickstart", False):
-                    browser_url += "&wizard=open"
+                    browser_url += f"{separator}wizard=open"
 
                 def open_browser():
                     import time
@@ -11987,9 +12018,7 @@ def _cli_main_continued(args):
 
                         print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/?v=2"
-                        if auto_url and "v=2" not in browser_url:
-                            browser_url += "&v=2"
+                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/"
 
                         def open_browser():
                             import time
@@ -12187,9 +12216,7 @@ def _cli_main_continued(args):
 
                                 print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-                                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/?v=2"
-                                if auto_url and "v=2" not in browser_url:
-                                    browser_url += "&v=2"
+                                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}/"
 
                                 def open_browser():
                                     import time

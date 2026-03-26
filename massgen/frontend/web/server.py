@@ -6487,7 +6487,7 @@ def run_temporary_quickstart_server(
         import time
         import webbrowser
 
-        browser_url = f"http://{host}:{port}/?v=2&temporary=1&wizard=open&skill=1"
+        browser_url = f"http://{host}:{port}/?temporary=1&wizard=open&skill=1"
 
         def open_browser() -> None:
             time.sleep(0.5)

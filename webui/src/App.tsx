@@ -59,7 +59,7 @@ const initialConfig = initialUrlParams.get('config');
 const initialSession = initialUrlParams.get('session');
 const initialWizardOpen = initialUrlParams.get('wizard') === 'open';
 const initialTemporaryQuickstart = initialUrlParams.get('temporary') === '1';
-const useV2UI = initialUrlParams.get('v') === '2';
+const useV2UI = initialUrlParams.get('v') !== '1';
 
 export function App() {
   // Session management - use URL param if provided, otherwise generate random UUID
