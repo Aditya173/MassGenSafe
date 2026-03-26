@@ -130,7 +130,7 @@ async def test_stream_with_tools_create_session(copilot_backend):
     copilot_backend.client.create_session.assert_called_once()
     assert created_session_config["streaming"] is True
     assert callable(created_session_config["on_permission_request"])
-    mock_session.send.assert_called_with("[user]: Hello")
+    mock_session.send.assert_called_with({"prompt": "[user]: Hello"})
 
 
 async def _consume_generator(gen):
@@ -182,7 +182,7 @@ async def test_stream_with_tools_reuses_existing_session(copilot_backend):
 
     # Session was reused — create_session should NOT have been called
     copilot_backend.client.create_session.assert_not_called()
-    mock_session.send.assert_called_with("[user]: Again")
+    mock_session.send.assert_called_with({"prompt": "[user]: Again"})
 
 
 @pytest.mark.asyncio

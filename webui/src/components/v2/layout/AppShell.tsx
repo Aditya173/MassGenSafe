@@ -17,6 +17,7 @@ import { ModeConfigBar } from './ModeConfigBar';
 import { V2QuickstartWizard } from './V2QuickstartWizard';
 import { V2SetupOverlay } from './V2SetupOverlay';
 import { LaunchIndicator } from './LaunchIndicator';
+import { PromptBanner } from '../tiles/PromptBanner';
 
 interface AppShellProps {
   wsStatus: ConnectionStatus;
@@ -189,6 +190,9 @@ export function AppShell({
 
       {/* Main area */}
       <div className="flex flex-1 flex-col min-w-0">
+        {/* Prompt banner — shows the question sent to agents */}
+        <PromptBanner />
+
         {/* Crossfade the launch sequence into the tile view instead of hard-swapping */}
         <div className="relative flex-1 min-h-0">
           <div

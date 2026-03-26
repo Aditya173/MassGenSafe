@@ -55,6 +55,9 @@ if [[ -z "$PROMPT" ]]; then
     exit 1
 fi
 
+# Clear CLAUDECODE so claude_code backend agents can spawn nested sessions
+unset CLAUDECODE
+
 CMD=(uv run massgen --automation --no-parse-at-references)
 
 # CWD context
