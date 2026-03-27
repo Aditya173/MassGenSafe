@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.69 (March 27, 2026)** - WebUI Automation & Skill Mode
-WebUI automation now auto-starts without browser interaction. CLI flags (`--eval-criteria`, `--checklist-criteria-preset`, `--orchestrator-timeout`) work with `--web`. MassGen skill runs directly in WebUI. Gemini CLI provider support. Flexible evaluation criteria field names.
+**v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
+WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework, Workspace Browser expansion, and flexible evaluation criteria field names.
 
 **v0.1.68 (March 25, 2026)** - Checkpoint Mode
 New checkpoint coordination mode with delegator pattern — main agent plans solo then delegates to team via `checkpoint()` tool. LLM API circuit breaker for 429 handling. WebUI checkpoint support. LiteLLM supply chain fix.
@@ -24,14 +24,12 @@ Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zusta
 
 ### Added
 - **WebUI Automation Auto-Start** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Automation mode now auto-starts coordination runs without browser interaction — open the URL at any point to monitor progress, even mid-run
-- **CLI Flags with `--web`** ([#1032](https://github.com/massgen/MassGen/pull/1032)): `--eval-criteria`, `--checklist-criteria-preset`, and `--orchestrator-timeout` now fully supported when combined with `--web`
-- **MassGen Skill in WebUI** ([#1032](https://github.com/massgen/MassGen/pull/1032)): MassGen skill runs are now launchable directly from the WebUI with automatic session tracking and live monitoring
-- **Gemini CLI Provider** ([#1032](https://github.com/massgen/MassGen/pull/1032)): New `gemini_cli` backend provider support
+- **MassGen Skill Redesign** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Increased usability and integration with the WebUI; skill runs launchable directly from the WebUI with live session tracking
+- **Quickstart Wizard Rework** ([#1032](https://github.com/massgen/MassGen/pull/1032)): New WelcomeStep, SkillsStep, ApiKeyStep redesign, DockerStep expansion, and SetupModeStep restructure for smoother onboarding
+- **Workspace Browser Expansion** ([#1032](https://github.com/massgen/MassGen/pull/1032)): WorkspaceModal and improved workspace connection
 
 ### Changed
 - **Flexible Evaluation Criteria Fields** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Criteria JSON now accepts `description` or `name` as alternatives to `text` field for more flexible criterion authoring
-- **Improved Round View** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Enhanced round visualization in the WebUI with clearer state transitions
-- **Top Banner & UI Polish** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Improved top banner, modal refinements, and frontend quickstart flow
 - **Automatic Config Resolution** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Automation mode auto-resolves config when none is specified (same as CLI without `--web`)
 
 ### Fixed
@@ -45,7 +43,7 @@ Complete WebUI redesign with inline final answers, keyboard shortcuts, and Zusta
 - **Config Setup**: Updated `massgen/skills/massgen/references/config_setup.md` with updated quickstart guidance
 
 ### Technical Details
-- **Major Focus**: WebUI Automation & Skill Mode — seamless integration between the skill workflow and WebUI monitoring
+- **Major Focus**: WebUI Automation & Improved Skill — seamless integration between the skill workflow and WebUI monitoring
 - **PRs Merged**: [#1032](https://github.com/massgen/MassGen/pull/1032)
 - **Contributors**: @ncrispino, @HenryQi and the MassGen team
 

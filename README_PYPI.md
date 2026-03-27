@@ -160,9 +160,9 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 **What's New in v0.1.69:**
 - **🌐 WebUI Automation Auto-Start** - Automation runs begin immediately; open the URL at any point to monitor progress mid-run.
-- **🔧 CLI Flags with `--web`** - `--eval-criteria`, `--checklist-criteria-preset`, `--orchestrator-timeout` now work with `--web`.
-- **🤖 MassGen Skill in WebUI** - Launch skill runs directly from the WebUI with live session tracking.
-- **✨ Gemini CLI Provider** - New `gemini_cli` backend support.
+- **🤖 MassGen Skill Redesign** - Increased usability and integration with the WebUI; skills launch with live session tracking.
+- **🧙 Quickstart Wizard Rework** - New Welcome, Skills, API Key, Docker, and Setup Mode steps for smoother onboarding.
+- **🗂️ Workspace Browser Expansion** - WorkspaceModal and improved workspace connection.
 
 **Try v0.1.69 Features:**
 ```bash
@@ -1244,11 +1244,11 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 **🎉 Released: March 27, 2026**
 
-#### WebUI Automation & Skill Mode
+#### WebUI Automation & Improved Skill
 - **WebUI Automation Auto-Start** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Auto-starts coordination runs without browser interaction — open the URL at any point to monitor progress
-- **CLI Flags with `--web`** ([#1032](https://github.com/massgen/MassGen/pull/1032)): `--eval-criteria`, `--checklist-criteria-preset`, `--orchestrator-timeout` work with `--web`
-- **MassGen Skill in WebUI** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Skill runs launchable directly from WebUI with live tracking
-- **Gemini CLI Provider** ([#1032](https://github.com/massgen/MassGen/pull/1032)): New `gemini_cli` backend support
+- **MassGen Skill Redesign** ([#1032](https://github.com/massgen/MassGen/pull/1032)): Increased usability and integration with the WebUI; skills launch with live session tracking
+- **Quickstart Wizard Rework** ([#1032](https://github.com/massgen/MassGen/pull/1032)): New Welcome, Skills, API Key, Docker, and Setup Mode steps for smoother onboarding
+- **Workspace Browser Expansion** ([#1032](https://github.com/massgen/MassGen/pull/1032)): WorkspaceModal and improved workspace connection
 - **Flexible Criteria Fields** ([#1032](https://github.com/massgen/MassGen/pull/1032)): `description`/`name` accepted as alternatives to `text` in criteria JSON
 
 ### Previous Achievements (v0.0.3 - v0.1.68)

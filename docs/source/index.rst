@@ -200,9 +200,9 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.69 (March 27, 2026)** - WebUI Automation & Skill Mode
+**v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
 
-WebUI automation now auto-starts without browser interaction. CLI flags (``--eval-criteria``, ``--checklist-criteria-preset``, ``--orchestrator-timeout``) work with ``--web``. MassGen skill runs natively in WebUI. Gemini CLI provider support.
+WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework and Workspace Browser expansion.
 
 **v0.1.68 (March 25, 2026)** - Checkpoint Mode
 

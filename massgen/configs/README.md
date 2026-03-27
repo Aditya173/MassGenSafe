@@ -228,13 +228,13 @@ Most configurations use environment variables for API keys:so
 ## Release History & Examples
 
 ### v0.1.69 - Latest
-**New Features:** WebUI Automation & Skill Mode
+**New Features:** WebUI Automation & Improved Skill
 
 **Key Features:**
 - **WebUI Automation Auto-Start**: Automation runs begin immediately — open the URL at any point to monitor progress mid-run
-- **CLI Flags with `--web`**: `--eval-criteria`, `--checklist-criteria-preset`, `--orchestrator-timeout` now work with `--web`
-- **MassGen Skill in WebUI**: Skill runs launchable directly from the WebUI with live session tracking
-- **Gemini CLI Provider**: New `gemini_cli` backend support
+- **MassGen Skill Redesign**: Increased usability and integration with the WebUI; skills launch with live session tracking
+- **Quickstart Wizard Rework**: New Welcome, Skills, API Key, Docker, and Setup Mode steps for smoother onboarding
+- **Workspace Browser Expansion**: WorkspaceModal and improved workspace connection
 - **Flexible Criteria Fields**: `description`/`name` accepted as alternatives to `text` in evaluation criteria JSON
 
 **Try It:**

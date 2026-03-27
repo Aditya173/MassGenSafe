@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.69 — WebUI Automation & Skill Mode! 🚀 The WebUI now auto-starts coordination runs without browser interaction, CLI flags (`--eval-criteria`, `--checklist-criteria-preset`, `--orchestrator-timeout`) work with `--web`, the MassGen skill runs natively in the WebUI, and the new `gemini_cli` provider is supported.
+We're excited to release MassGen v0.1.69 — WebUI Automation & Improved Skill! 🚀 The WebUI now auto-starts coordination runs without browser interaction. Open the URL at any point mid-run to monitor progress. Plus: MassGen skill redesign for increased usability and integration with the WebUI, and broad WebUI improvements.
 
 ## Install
 
@@ -29,7 +29,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.69 — WebUI Automation & Skill Mode! 🚀 The WebUI now auto-starts coordination runs without browser interaction. Open the URL at any point mid-run to monitor progress. Plus: CLI flags work with `--web`, the MassGen skill runs natively in the WebUI, and Gemini CLI provider support.
+We're excited to release MassGen v0.1.69 — WebUI Automation & Improved Skill! 🚀 The WebUI now auto-starts coordination runs without browser interaction. Open the URL at any point mid-run to monitor progress. Plus: MassGen skill redesign for increased usability and integration with the WebUI, and broad WebUI improvements.
 
 **Key Improvements:**
 
@@ -38,18 +38,14 @@ We're excited to release MassGen v0.1.69 — WebUI Automation & Skill Mode! 🚀
 - Open http://localhost:8000 at any point to monitor a live run
 - Web automation correctly auto-ends when a skill completes
 
-🔧 **CLI Flags with `--web`** — Full flag support for web-monitored runs:
-- `--eval-criteria`, `--checklist-criteria-preset`, `--orchestrator-timeout` now work with `--web`
-- Automatic config resolution when no config is specified
-
-🤖 **MassGen Skill in WebUI** — Run the MassGen skill directly from the WebUI:
+🤖 **MassGen Skill Redesign** — Increased usability and integration with the WebUI:
 - Skills launch with live session tracking
 - Monitor skill progress through the full WebUI interface
 
 **Plus:**
-- ✨ **Gemini CLI provider** — New `gemini_cli` backend support
+- 🧙 **Quickstart Wizard rework** — New Welcome, Skills, API Key, Docker, and Setup Mode steps for smoother onboarding
+- 🗂️ **Workspace Browser expansion** — WorkspaceModal and improved workspace connection
 - 📋 **Flexible criteria fields** — `description` or `name` accepted as alternatives to `text` in criteria JSON
-- 🎨 **UI polish** — Improved round view, top banner, modal refinements, and quickstart flow
 
 **Getting Started:**
 

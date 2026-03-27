@@ -50,17 +50,16 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## ✅ v0.1.69 - WebUI Automation & Skill Mode (Completed)
+## ✅ v0.1.69 - WebUI Automation & Improved Skill (Completed)
 
 **Released:** March 27, 2026 | PRs: [#1032](https://github.com/massgen/MassGen/pull/1032)
 
 ### Features
 - **WebUI Automation Auto-Start**: Automation mode now auto-starts runs without browser interaction — open the URL at any point to monitor progress mid-run
-- **CLI Flags with `--web`**: `--eval-criteria`, `--checklist-criteria-preset`, and `--orchestrator-timeout` now work combined with `--web`
-- **MassGen Skill in WebUI**: Skill runs launchable directly from the WebUI with live session tracking
-- **Gemini CLI Provider**: New `gemini_cli` backend support
+- **MassGen Skill Redesign**: Increased usability and integration with the WebUI; skills launch with live session tracking
+- **Quickstart Wizard Rework**: New Welcome, Skills, API Key, Docker, and Setup Mode steps for smoother onboarding
+- **Workspace Browser Expansion**: WorkspaceModal and improved workspace connection
 - **Flexible Criteria Fields**: `description`/`name` accepted as alternatives to `text` in evaluation criteria JSON
-- **UI Polish**: Improved round view, top banner, modal refinements, and frontend quickstart flow
 
 ---
 
