@@ -957,6 +957,15 @@ def create_app(
             )
             manager.tasks[session_id] = task
 
+            # In automation mode, shut down the server when coordination finishes
+            def _shutdown_on_complete(fut):
+                server = getattr(app.state, "uvicorn_server", None)
+                if server is not None:
+                    logger.info("[AutoStart] Coordination finished — shutting down server")
+                    server.should_exit = True
+
+            task.add_done_callback(_shutdown_on_complete)
+
     # =========================================================================
     # API Routes
     # =========================================================================
@@ -6566,12 +6575,18 @@ def run_server(
             module="uvicorn.protocols.websockets",
         )
 
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            log_level="warning",
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host=host,
+                port=port,
+                log_level="warning",
+            ),
         )
+        # Store server on app.state so auto-start coordination can
+        # trigger shutdown when the run finishes (automation should exit).
+        app.state.uvicorn_server = server
+        server.run()
     else:
         uvicorn.run(
             app,

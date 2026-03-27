@@ -24,7 +24,7 @@
 set -euo pipefail
 
 MODE="general"
-CWD_CTX="ro"
+CWD_CTX="off"
 QUICK=false
 WEB=true
 WEB_PORT=8000

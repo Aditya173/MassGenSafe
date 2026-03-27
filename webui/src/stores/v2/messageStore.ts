@@ -594,6 +594,25 @@ export const useMessageStore = create<MessageStoreState & MessageStoreActions>(
               break;
             }
 
+            case 'final_presentation_start': {
+              const current = state.currentRound[agentId] || 0;
+              const roundNum = current + 1;
+              const divider: RoundDividerMessage = {
+                id: `msg-${state._counter}`,
+                type: 'round-divider',
+                agentId,
+                timestamp: se.timestamp,
+                roundNumber: roundNum,
+                label: 'Final Presentation',
+              };
+              set({
+                messages: { ...state.messages, [agentId]: [...existing, divider] },
+                currentRound: { ...state.currentRound, [agentId]: roundNum },
+                _counter: state._counter + 1,
+              });
+              break;
+            }
+
             case 'error': {
               const message = (se.data.message as string) || (se.data.error as string) || 'Unknown error';
               const msg: ErrorMessage = {

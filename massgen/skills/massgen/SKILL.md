@@ -42,7 +42,10 @@ The defaults are good. Let MassGen handle the rest.
 | General task (write, build, research, design) | *(default)* |
 | Review/critique existing work | `--checklist-criteria-preset evaluation` |
 | Plan a feature or project | `--plan` |
+| Plan and auto-execute | `--plan-and-execute` |
 | Write requirements/spec | `--spec` |
+| Execute an existing plan | `--execute-plan <path_or_latest>` |
+| Execute against an existing spec | `--execute-spec <path_or_latest>` |
 
 ### 2. Write Criteria
 
@@ -63,7 +66,8 @@ Or wrapped: `{"criteria": [...]}`. See `references/criteria_guide.md` for
 full guidance on writing effective criteria.
 
 For evaluate/plan/spec modes, you can use `--checklist-criteria-preset`
-instead of writing custom criteria (presets: `evaluation`, `planning`, `spec`).
+instead of writing custom criteria (presets: `evaluation`, `planning`, `spec`,
+`persona`, `decomposition`, `prompt`, `analysis`).
 
 ### 3. Build Prompt
 
@@ -96,8 +100,9 @@ bash "$SKILL_DIR/scripts/massgen_run.sh" \
   "Create an SVG of a butterfly mixed with a panda"
 ```
 
-The wrapper includes `--web --no-browser` by default so the user can watch
-progress at http://localhost:8000/. **Tell the user about this URL.**
+The wrapper includes `--web --no-browser` by default. The run starts
+immediately — the user can open http://localhost:8000/ anytime to monitor
+progress. **Tell the user about this URL.**
 
 Run in the background. MassGen prints these for tracking:
 - `LOG_DIR: <path>` — full run data
@@ -123,11 +128,12 @@ For **spec** mode, `project_spec.json` is in the workspace.
 | Flag | Purpose |
 |------|---------|
 | `--quick` | One-shot, no voting/refinement |
-| `--plan-depth deep` | More granular task decomposition |
-| `--plan-thoroughness thorough` | Deeper strategic reasoning |
-| `--personas methodology` | Distinct agent approaches |
+| `--plan-depth <level>` | Decomposition depth: `dynamic` (default), `shallow`, `medium`, `deep` |
+| `--plan-thoroughness thorough` | Deeper strategic reasoning (default: `standard`) |
+| `--personas <style>` | Agent diversity: `perspective`, `implementation`, `methodology`, or `off` |
 | `--cwd-context ro` | Give agents read access to codebase |
-| `--web --no-browser` | Enable WebUI for watching progress |
+| `--cwd-context rw` | Give agents write access to codebase |
+| `--web --no-browser` | Enable WebUI for watching progress (on by default in wrapper) |
 
 ## Config
 

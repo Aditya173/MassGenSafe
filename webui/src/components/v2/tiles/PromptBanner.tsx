@@ -89,6 +89,9 @@ export function PromptBanner() {
                 </svg>
               </button>
             </div>
+            <RunEnvironmentSection />
+            <EvalCriteriaSection />
+            <ContextPathsSection />
             <ContextPaths logDir={logDir} />
           </div>
         </div>
@@ -353,7 +356,122 @@ function MetricRow({ label, value, extra }: { label: string; value: string; extr
 }
 
 // ============================================================================
-// Context Paths (in prompt expanded overlay)
+// Run Environment (docker/local indicator)
+// ============================================================================
+
+function RunEnvironmentSection() {
+  const dockerEnabled = useStatusStore((s) => s.dockerEnabled);
+  const contextPaths = useStatusStore((s) => s.contextPaths);
+  const evalCriteria = useStatusStore((s) => s.evalCriteria);
+
+  // Only show if there's something useful to display alongside docker status
+  if (!dockerEnabled && contextPaths.length === 0 && evalCriteria.length === 0) return null;
+
+  return (
+    <div className="mt-2 pt-2 border-t border-v2-border-subtle">
+      <div className="flex items-center gap-2 text-[11px]">
+        <span className={cn(
+          'flex items-center gap-1 px-1.5 py-0.5 rounded font-medium',
+          dockerEnabled
+            ? 'bg-green-500/15 text-green-400'
+            : 'bg-v2-surface-raised text-v2-text-muted'
+        )}>
+          {dockerEnabled ? (
+            <>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <rect x="2" y="6" width="12" height="7" rx="1" />
+                <rect x="4" y="8" width="2" height="2" rx="0.3" />
+                <rect x="7" y="8" width="2" height="2" rx="0.3" />
+                <rect x="10" y="8" width="2" height="2" rx="0.3" />
+                <rect x="5.5" y="3" width="5" height="3" rx="0.5" />
+              </svg>
+              Docker (isolated)
+            </>
+          ) : (
+            <>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <rect x="3" y="4" width="10" height="8" rx="1.5" />
+                <path d="M6 12v2M10 12v2M4 14h8" strokeLinecap="round" />
+              </svg>
+              Local
+            </>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Eval Criteria (in prompt expanded overlay)
+// ============================================================================
+
+function EvalCriteriaSection() {
+  const evalCriteria = useStatusStore((s) => s.evalCriteria);
+  if (evalCriteria.length === 0) return null;
+
+  const categoryColor: Record<string, string> = {
+    must: 'bg-red-500/20 text-red-400',
+    should: 'bg-yellow-500/20 text-yellow-400',
+    could: 'bg-blue-500/20 text-blue-400',
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-v2-border-subtle">
+      <div className="text-[10px] text-v2-text-muted uppercase tracking-wider font-medium mb-1.5">
+        Evaluation Criteria
+      </div>
+      <div className="space-y-1">
+        {evalCriteria.map((c) => (
+          <div key={c.id} className="flex items-start gap-2 text-[11px]">
+            <span className={cn(
+              'shrink-0 px-1 py-0.5 rounded text-[9px] font-semibold uppercase leading-none mt-0.5',
+              categoryColor[c.category] || 'bg-v2-surface-raised text-v2-text-muted'
+            )}>
+              {c.id}
+            </span>
+            <span className="text-v2-text-muted leading-snug">{c.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Context Paths (user-provided, in prompt expanded overlay)
+// ============================================================================
+
+function ContextPathsSection() {
+  const contextPaths = useStatusStore((s) => s.contextPaths);
+  if (contextPaths.length === 0) return null;
+
+  return (
+    <div className="mt-2 pt-2 border-t border-v2-border-subtle">
+      <div className="text-[10px] text-v2-text-muted uppercase tracking-wider font-medium mb-1">
+        Context Paths
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+        {contextPaths.map((cp, i) => (
+          <span key={i} className="flex items-center gap-1">
+            <span className={cn(
+              'text-[9px] font-mono px-1 rounded',
+              cp.permission === 'write'
+                ? 'bg-yellow-500/15 text-yellow-400'
+                : 'bg-v2-surface-raised text-v2-text-muted'
+            )}>
+              {cp.permission}
+            </span>
+            <span className="font-mono text-v2-text-muted opacity-80">{shortenPath(cp.path)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Orchestrator Paths (in prompt expanded overlay)
 // ============================================================================
 
 function ContextPaths({ logDir }: { logDir?: string }) {

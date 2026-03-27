@@ -444,6 +444,12 @@ class Orchestrator(ChatAgent):
         self._snapshot_storage: str | None = snapshot_storage
         self._agent_temporary_workspace: str | None = agent_temporary_workspace
 
+        # Per-agent display round counter — increments every time _run_agent_turn
+        # is called, so each agent execution (answer, vote, or final) gets a unique
+        # round number for the UI.  Separate from coordination_tracker.agent_rounds
+        # which only increments on answer-triggered restarts.
+        self._agent_display_round: dict[str, int] = {}
+
         # DSPy paraphrase tracking
         self._agent_paraphrases: dict[str, str] = {}
         self._paraphrase_generation_errors: int = 0
@@ -13515,11 +13521,15 @@ Your answer:"""
         context_labels = self.coordination_tracker.get_agent_context_labels(agent_id)
         round_type = "voting" if answers else "initial_answer"
 
-        # Emit round_start event for TUI display (round banners)
+        # Emit round_start event for UI display (round banners)
+        # Use _agent_display_round (monotonically increasing per agent) so every
+        # execution — answer, vote, or final — gets a unique round number.
+        display_round = self._agent_display_round.get(agent_id, -1) + 1
+        self._agent_display_round[agent_id] = display_round
 
         event_emitter = get_event_emitter()
         if event_emitter:
-            event_emitter.emit_round_start(round_number=current_round, agent_id=agent_id)
+            event_emitter.emit_round_start(round_number=display_round, agent_id=agent_id)
 
         span_attributes = {
             "massgen.agent_id": agent_id,

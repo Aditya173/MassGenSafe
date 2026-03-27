@@ -141,6 +141,11 @@ function ChannelHeader({ agentId, agent, agentOrder }: ChannelHeaderProps) {
   const currentPhase = useMessageStore((s) => s.currentPhase);
   const agentRound = useMessageStore((s) => s.currentRound[agentId] || 0);
 
+  // Winner state
+  const selectedAgent = useAgentStore((s) => s.selectedAgent);
+  const isComplete = useAgentStore((s) => s.isComplete);
+  const isWinner = isComplete && selectedAgent === agentId;
+
   const phaseConfig = currentPhase
     ? PHASE_CONFIG[currentPhase] || { label: currentPhase, color: 'bg-v2-offline' }
     : null;
@@ -149,7 +154,7 @@ function ChannelHeader({ agentId, agent, agentOrder }: ChannelHeaderProps) {
   return (
     <div
       className="flex items-center gap-3 px-4 py-2.5 border-b border-v2-border-subtle bg-v2-surface shrink-0"
-      style={{ borderLeftWidth: '3px', borderLeftColor: agentColor.hex }}
+      style={{ borderLeftWidth: '3px', borderLeftColor: isWinner ? '#eab308' : agentColor.hex }}
     >
       {/* Drag handle */}
       {isDraggable && <TileDragHandle />}
@@ -157,7 +162,7 @@ function ChannelHeader({ agentId, agent, agentOrder }: ChannelHeaderProps) {
       {/* Numbered color badge */}
       <span
         className="flex items-center justify-center w-5 h-5 rounded text-[11px] font-bold text-white shrink-0"
-        style={{ backgroundColor: agentColor.hex }}
+        style={{ backgroundColor: isWinner ? '#eab308' : agentColor.hex }}
       >
         {agentIndex + 1}
       </span>
@@ -176,6 +181,13 @@ function ChannelHeader({ agentId, agent, agentOrder }: ChannelHeaderProps) {
 
       {/* Status */}
       <StatusBadge status={agent.status} />
+
+      {/* Winner badge */}
+      {isWinner && (
+        <span className="flex items-center gap-1 text-[11px] font-semibold text-yellow-400 bg-yellow-500/10 px-1.5 py-0.5 rounded">
+          &#9733; Winner
+        </span>
+      )}
 
       {/* Phase & round — merged from ModeBar */}
       {showPhase && (

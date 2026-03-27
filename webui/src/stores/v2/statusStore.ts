@@ -14,6 +14,17 @@ export interface AgentRoundTiming {
   status: string;
 }
 
+export interface EvalCriterion {
+  id: string;
+  text: string;
+  category: string;  // "must", "should", "could"
+}
+
+export interface ContextPath {
+  path: string;
+  permission: string;  // "read", "write"
+}
+
 interface StatusStoreState {
   /** Total elapsed seconds for the session */
   elapsedSeconds: number;
@@ -25,6 +36,12 @@ interface StatusStoreState {
   totalOutputTokens: number;
   /** Orchestrator config/log paths */
   orchestratorPaths: Record<string, string>;
+  /** Generated evaluation criteria */
+  evalCriteria: EvalCriterion[];
+  /** User-provided context paths */
+  contextPaths: ContextPath[];
+  /** Whether Docker execution mode is enabled */
+  dockerEnabled: boolean;
   /** Current coordination phase */
   phase: string;
   /** Completion percentage (0-100) */
@@ -52,6 +69,9 @@ const initialState: StatusStoreState = {
   totalInputTokens: 0,
   totalOutputTokens: 0,
   orchestratorPaths: {},
+  evalCriteria: [],
+  contextPaths: [],
+  dockerEnabled: false,
   phase: '',
   completionPercentage: 0,
   isPolling: false,
@@ -100,6 +120,9 @@ export const useStatusStore = create<StatusStoreState & StatusStoreActions>(
           totalInputTokens: costs.total_input_tokens || 0,
           totalOutputTokens: costs.total_output_tokens || 0,
           orchestratorPaths: meta.orchestrator_paths || {},
+          evalCriteria: (meta.eval_criteria as EvalCriterion[]) || [],
+          contextPaths: (meta.context_paths as ContextPath[]) || [],
+          dockerEnabled: !!meta.docker_enabled,
           phase: coordination.phase || '',
           completionPercentage: coordination.completion_percentage || 0,
           lastFetchTime: Date.now(),
