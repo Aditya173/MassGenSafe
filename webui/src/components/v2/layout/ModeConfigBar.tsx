@@ -10,6 +10,7 @@ import type {
   AgentConfigOverride,
 } from '../../../stores/v2/modeStore';
 import type { ReasoningEffort } from '../../../stores/wizardStore';
+import { useWizardStore } from '../../../stores/wizardStore';
 
 // ────────────────────────────────────────────────────────────────
 // ToggleButton — compact two-state toggle
@@ -1277,6 +1278,7 @@ export function ModeConfigBar({ configPath }: { configPath?: string } = {}) {
   const needsFirstTimeSetup = useModeStore((s) => s.needsFirstTimeSetup);
   const persistState = useModeStore((s) => s.persistState);
   const configLocked = useModeStore((s) => s.configLocked);
+  const openWizard = useWizardStore((s) => s.openWizard);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1305,9 +1307,40 @@ export function ModeConfigBar({ configPath }: { configPath?: string } = {}) {
       >
         {/* Mode controls — locked when using a config file */}
         <div className={cn(
-          'contents',
-          configLocked && 'opacity-50 pointer-events-none'
+          'relative flex items-center gap-1.5 group/lock',
+          configLocked && 'opacity-50'
         )}>
+          {/* Click-interceptor overlay with tooltip — only rendered when config-locked */}
+          {configLocked && (
+            <>
+              <div
+                className="absolute inset-0 z-10 cursor-not-allowed"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className={cn(
+                'absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-20',
+                'px-3 py-2 rounded-lg shadow-lg',
+                'bg-v2-surface-raised border border-v2-accent/30',
+                'text-xs text-v2-text whitespace-nowrap',
+                'opacity-0 group-hover/lock:opacity-100',
+                'group-hover/lock:pointer-events-auto pointer-events-none',
+                'transition-opacity duration-150'
+              )}>
+                <span className="text-v2-text-secondary">Defined by selected config.</span>
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => openWizard()}
+                  className="text-v2-accent font-medium hover:underline cursor-pointer"
+                >
+                  Open Quickstart
+                </button>
+                {' '}
+                <span className="text-v2-text-secondary">to create a custom config.</span>
+                <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-v2-surface-raised border-b border-r border-v2-accent/30 rotate-45 -mt-1" />
+              </div>
+            </>
+          )}
           {/* Mode dropdown */}
           <DropdownToken<PlanMode>
             label="Mode"

@@ -3,6 +3,7 @@ import { SidebarHeader } from './SidebarHeader';
 import { SessionSection } from './SessionSection';
 import { ChannelSection } from './ChannelSection';
 import { ThreadSection } from './ThreadSection';
+import { ActivitySection } from './ActivitySection';
 import { QuickAccessSection } from './QuickAccessSection';
 import { SidebarFooter } from './SidebarFooter';
 
@@ -26,13 +27,17 @@ export function Sidebar({ collapsed, onToggleCollapse, onSessionChange, onNewSes
       <SidebarHeader collapsed={collapsed} onToggleCollapse={onToggleCollapse} />
 
       <div className="flex-1 overflow-y-auto v2-scrollbar px-2 py-1">
-        <SessionSection collapsed={collapsed} onSessionChange={onSessionChange} onNewSession={onNewSession} onConfigChange={onConfigChange} />
-        <SidebarDivider />
+        {/* Active run content first */}
         <ChannelSection collapsed={collapsed} />
         <SidebarDivider />
         <ThreadSection collapsed={collapsed} />
         <SidebarDivider />
+        <ActivitySection collapsed={collapsed} />
+        <SidebarDivider />
         <QuickAccessSection collapsed={collapsed} />
+        <SidebarDivider />
+        {/* Sessions below — secondary during active runs */}
+        <SessionSection collapsed={collapsed} onSessionChange={onSessionChange} onNewSession={onNewSession} onConfigChange={onConfigChange} />
       </div>
 
       <SidebarFooter collapsed={collapsed} />

@@ -467,14 +467,14 @@ def _append_terminal_verification_memory_task(task_list: list[dict[str, Any]]) -
     verification_task = {
         "id": task_id,
         "description": (
-            "Write/update memory/short_term/verification_latest.md with a replayable verification summary for the "
-            "answer you are about to submit. Use these sections: `## Verification Contract`, "
-            "`## Inputs and Artifacts`, `## Replay Steps`, `## Latest Verification Result`, and "
-            "`## Stale If`. Include environment context (workspace path, artifact under test, tools used), "
-            "exact commands or script paths used to verify (e.g. `python .massgen_scratch/verification/check.py` "
-            "or the npx playwright command), every artifact/output path produced under "
-            ".massgen_scratch/verification/ when relevant, and freshness/staleness conditions. "
-            "Absolute paths are allowed; they are normalized on injection."
+            "Write/update TWO files for next-round continuity "
+            "(see system prompt for full format details):\n"
+            "1. `memory/short_term/verification_latest.md` — replayable verification summary. "
+            "Keep concise. Absolute paths allowed (normalized on injection).\n"
+            "2. `memory/short_term/essential_files_manifest.json` — MUST use this exact schema:\n"
+            '   {"version": 1, "summary": "one-line state", "files": ['
+            '{"path": "relative/path", "why": "reason", "read_whole_file": true, "how_to_read": null}]}\n'
+            "   Include main deliverables, config/spec files, changedoc, and verification-critical files."
         ),
         "depends_on": existing_ids,
         "priority": "medium",

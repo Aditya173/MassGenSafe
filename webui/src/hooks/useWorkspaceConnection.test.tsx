@@ -188,7 +188,95 @@ describe('useWorkspaceConnection', () => {
     expect(sentMessages(socket)).toEqual([
       { action: 'watch_session' },
       { action: 'watch_session' },
+      { action: 'watch_session' },
     ])
+
+    unmount()
+  })
+
+  it('revalidates live workspaces when a new answer arrives', () => {
+    act(() => {
+      useAgentStore.getState().initSession(
+        'session-4',
+        'Build it',
+        ['agent_a'],
+        'dark'
+      )
+      useAgentStore.setState({ isComplete: false })
+    })
+
+    const { unmount } = renderHook(() => useWorkspaceConnection())
+    const socket = MockWebSocket.instances[0]
+
+    expect(socket).toBeDefined()
+
+    act(() => {
+      socket.open()
+    })
+
+    expect(sentMessages(socket)).toEqual([{ action: 'watch_session' }])
+
+    act(() => {
+      useAgentStore.getState().addAnswer({
+        id: 'answer-a-1',
+        agentId: 'agent_a',
+        answerNumber: 1,
+        content: 'First answer',
+        timestamp: 1700000000000,
+        votes: 0,
+        workspacePath: '/tmp/logs/agent_a/20260101/workspace',
+      })
+    })
+
+    expect(sentMessages(socket)).toEqual([
+      { action: 'watch_session' },
+      { action: 'watch_session' },
+    ])
+
+    unmount()
+  })
+
+  it('stores workspace agent metadata from watch_session payloads', () => {
+    act(() => {
+      useAgentStore.setState({ sessionId: 'session-5', isComplete: false })
+    })
+
+    const { unmount } = renderHook(() => useWorkspaceConnection())
+    const socket = MockWebSocket.instances[0]
+
+    expect(socket).toBeDefined()
+
+    act(() => {
+      socket.open()
+    })
+
+    act(() => {
+      socket.receive({
+        type: 'workspace_connected',
+        initial_files: {
+          '/tmp/workspace_674c6c33': [
+            {
+              path: 'deliverables/index.html',
+              size: 123,
+              modified: 1700000000,
+            },
+          ],
+        },
+        workspace_metadata: {
+          '/tmp/workspace_674c6c33': {
+            agent_id: 'agent_a',
+          },
+        },
+      })
+    })
+
+    expect(
+      (
+        useWorkspaceStore.getState().workspaces['/tmp/workspace_674c6c33'] as
+          | { agentId?: string }
+          | undefined
+      )?.agentId
+    ).toBe('agent_a')
 
     unmount()
   })

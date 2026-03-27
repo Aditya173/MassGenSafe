@@ -53,8 +53,13 @@ export function LaunchIndicator({ configName }: LaunchIndicatorProps) {
     : `${workingAgents.length} models are thinking...`;
   const [tipIndex, setTipIndex] = useState(0);
 
-  const progress = initStatus?.progress ?? (isWaitingForFirstResponse ? 92 : 3);
+  const rawProgress = initStatus?.progress ?? (isWaitingForFirstResponse ? 100 : 3);
   const currentStep = initStatus?.step || (isWaitingForFirstResponse ? 'starting' : 'request');
+
+  // High watermark — progress bar never goes backward
+  const progressRef = useRef(0);
+  progressRef.current = Math.max(progressRef.current, rawProgress);
+  const progress = progressRef.current;
   const activeStepIndex = STEP_ORDER.indexOf(currentStep);
   const activityLabel = preparationStatus
     || initStatus?.message
@@ -75,6 +80,13 @@ export function LaunchIndicator({ configName }: LaunchIndicatorProps) {
       prevStepRef.current = currentStep;
     }
   }, [currentStep, completedSteps]);
+
+  // When agents start working, mark all steps including "starting" as completed
+  useEffect(() => {
+    if (isWaitingForFirstResponse && !completedSteps.includes('starting')) {
+      setCompletedSteps(STEP_ORDER.slice());
+    }
+  }, [isWaitingForFirstResponse, completedSteps]);
 
   useEffect(() => {
     if (!isWaitingForFirstResponse || preparationDetail) {

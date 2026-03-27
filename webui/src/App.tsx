@@ -33,6 +33,7 @@ import { useMessageStore } from './stores/v2/messageStore';
 import { useTileStore } from './stores/v2/tileStore';
 import { AppShell } from './components/v2/layout/AppShell';
 import { useModeStore } from './stores/v2/modeStore';
+import { replaySessionEvents } from './utils/sessionReplay';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
   const config: Record<ConnectionStatus, { icon: typeof Wifi; color: string; text: string }> = {
@@ -59,15 +60,18 @@ const initialConfig = initialUrlParams.get('config');
 const initialSession = initialUrlParams.get('session');
 const initialWizardOpen = initialUrlParams.get('wizard') === 'open';
 const initialTemporaryQuickstart = initialUrlParams.get('temporary') === '1';
-const useV2UI = initialUrlParams.get('v') === '2';
+const useV2UI = initialUrlParams.get('v') !== '1';
 
 export function App() {
-  // Session management - use URL param if provided, otherwise generate random UUID
-  const [sessionId, setSessionId] = useState<string>(() => initialSession || crypto.randomUUID());
+  // Session management - use URL param if provided, otherwise resolve from server
+  // Start as null to avoid connecting WebSocket with a wrong random ID before
+  // we've checked for an active automation session.
+  const [sessionId, setSessionId] = useState<string | null>(() => initialSession || null);
   // Initialize from URL params synchronously to avoid race conditions
   const [selectedConfig, setSelectedConfig] = useState<string | null>(initialConfig);
   const [inputQuestion, setInputQuestion] = useState(initialPrompt || '');
   const [followUpQuestion, setFollowUpQuestion] = useState('');
+  const [isQuestionExpanded, setIsQuestionExpanded] = useState(false);
 
   const question = useAgentStore(selectQuestion);
   const isComplete = useAgentStore(selectIsComplete);
@@ -110,7 +114,7 @@ export function App() {
 
   // Sync session ID to debug logger for routing logs to session log_dir
   useEffect(() => {
-    debugLog.setSessionId(sessionId);
+    if (sessionId) debugLog.setSessionId(sessionId);
   }, [sessionId]);
 
   useEffect(() => {
@@ -187,39 +191,75 @@ export function App() {
   });
 
   const { status, startCoordination, continueConversation, cancelCoordination, broadcastMessage, error } = useWebSocket({
-    sessionId,
-    autoConnect: true,
+    sessionId: sessionId || '',
+    autoConnect: !!sessionId,
   });
 
-  // Auto-connect to active running session (for automation mode)
-  // This runs once on mount to find an existing coordination session
-  // Skip if a session was explicitly specified via URL param
+  // Resolve session ID on mount — check for active automation session before
+  // connecting any WebSocket (prevents race condition with wrong session ID).
   const autoConnectAttempted = useRef(false);
   useEffect(() => {
     if (autoConnectAttempted.current) return;
     if (initialSession) {
-      // User explicitly requested a specific session via URL
       console.log('[WebUI] Using session from URL param:', initialSession);
       autoConnectAttempted.current = true;
       return;
     }
     autoConnectAttempted.current = true;
 
-    // Fetch sessions to see if there's an active one to connect to
-    fetch('/api/sessions')
+    // Check for active session, then fall back to generating a new UUID
+    fetch('/api/active-session')
       .then(res => res.json())
-      .then((data: { sessions: Array<{ session_id: string; is_running: boolean; has_display: boolean }> }) => {
-        // Find an active running session with a display (the CLI coordination)
-        const activeSession = data.sessions?.find(s => s.is_running && s.has_display);
-        if (activeSession && activeSession.session_id !== sessionId) {
-          console.log('[WebUI] Auto-connecting to active session:', activeSession.session_id);
-          setSessionId(activeSession.session_id);
+      .then((data: { session_id: string | null }) => {
+        if (data.session_id) {
+          console.log('[WebUI] Auto-connecting to active session:', data.session_id);
+          setSessionId(data.session_id);
+          return;
         }
+        // Check session list
+        return fetch('/api/sessions')
+          .then(res => res.json())
+          .then((data: { sessions: Array<{ session_id: string; is_running: boolean; has_display: boolean }> }) => {
+            const active = data.sessions?.find(s => s.is_running && s.has_display);
+            if (active) {
+              console.log('[WebUI] Auto-connecting to active session:', active.session_id);
+              setSessionId(active.session_id);
+            } else {
+              // No active session — generate a fresh ID for new session
+              setSessionId(crypto.randomUUID());
+            }
+          });
       })
-      .catch(err => {
-        console.warn('[WebUI] Failed to fetch sessions for auto-connect:', err);
+      .catch(() => {
+        // Server unreachable — generate fresh ID anyway
+        setSessionId(crypto.randomUUID());
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When we attach to an existing session, replay its stored event history so
+  // the v2 UI can render the full channel/timeline state immediately instead of
+  // waiting for fresh live events to arrive.
+  const historyReplayRequestRef = useRef(0);
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    const requestId = ++historyReplayRequestRef.current;
+
+    fetch(`/api/sessions/${sessionId}/events`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { events?: Array<Record<string, unknown>> } | null) => {
+        if (historyReplayRequestRef.current !== requestId) {
+          return;
+        }
+        if (!data?.events?.length) {
+          return;
+        }
+        replaySessionEvents(sessionId, data.events);
+      })
+      .catch(() => {});
+  }, [sessionId]);
 
   // Auto-start coordination when connected and URL params are present
   useEffect(() => {
@@ -384,7 +424,7 @@ export function App() {
             <ConnectionIndicator status={status} />
           </div>
           <HeaderControls
-            currentSessionId={sessionId}
+            currentSessionId={sessionId || ''}
             selectedConfig={selectedConfig}
             onConfigChange={handleConfigChange}
             onSessionChange={handleSessionChange}
@@ -398,23 +438,34 @@ export function App() {
         </div>
       </header>
 
-      {/* Question Display */}
+      {/* Question Display — truncated by default, click to expand */}
       {question && (
         <div className="bg-gray-100/30 dark:bg-gray-800/30 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               {/* Conversation history dropdown (floating, doesn't affect layout) */}
               {turnNumber > 1 && (
                 <ConversationHistory
                   onViewResponse={handleViewHistoryResponse}
                 />
               )}
-              <div>
-                <span className="text-gray-500 dark:text-gray-500 text-sm">Question: </span>
-                <span className="text-gray-800 dark:text-gray-200">{question}</span>
+              <div className="min-w-0 flex-1">
+                <button
+                  onClick={() => setIsQuestionExpanded(!isQuestionExpanded)}
+                  className="text-left w-full group"
+                  title={isQuestionExpanded ? 'Click to collapse' : 'Click to expand full question'}
+                >
+                  <span className="text-gray-500 dark:text-gray-500 text-sm">Question: </span>
+                  <span className={`text-gray-800 dark:text-gray-200 text-sm ${isQuestionExpanded ? '' : 'line-clamp-1'}`}>
+                    {question}
+                  </span>
+                  {!isQuestionExpanded && question.length > 120 && (
+                    <span className="text-gray-400 dark:text-gray-500 text-xs ml-1 group-hover:text-blue-400 transition-colors">▸ more</span>
+                  )}
+                </button>
               </div>
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 shrink-0">
               Config: <span className="text-gray-600 dark:text-gray-400">{configName}</span>
             </div>
           </div>

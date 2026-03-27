@@ -8,11 +8,13 @@ Run with: uv run pytest massgen/tests/test_backend_capabilities.py -v
 import pytest
 
 from massgen.backend.capabilities import (
+    AGENT_FRAMEWORK_BACKENDS,
     BACKEND_CAPABILITIES,
     get_all_backend_types,
     get_backends_with_capability,
     get_capabilities,
     has_capability,
+    is_agent_framework_backend,
     validate_backend_config,
 )
 
@@ -336,6 +338,24 @@ class TestSpecificBackends:
         assert "gemini-3-pro-preview" not in caps.models
         if caps.model_release_dates:
             assert "gemini-3-pro-preview" not in caps.model_release_dates
+
+    def test_gemini_cli_is_agent_framework(self):
+        """Gemini CLI should be marked as an agent framework backend."""
+        assert "gemini_cli" in AGENT_FRAMEWORK_BACKENDS
+        assert is_agent_framework_backend("gemini_cli") is True
+
+    def test_all_agent_framework_backends(self):
+        """All agent framework backends should be correctly identified."""
+        expected_frameworks = {"claude_code", "codex", "copilot", "gemini_cli"}
+        assert AGENT_FRAMEWORK_BACKENDS == expected_frameworks
+        for backend in expected_frameworks:
+            assert is_agent_framework_backend(backend) is True
+
+    def test_non_agent_frameworks_not_marked(self):
+        """Regular API backends should NOT be agent frameworks."""
+        non_frameworks = ["openai", "claude", "gemini", "grok"]
+        for backend in non_frameworks:
+            assert is_agent_framework_backend(backend) is False
 
     def test_local_backends_no_api_key(self):
         """Test local backends don't require API keys."""

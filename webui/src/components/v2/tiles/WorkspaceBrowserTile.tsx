@@ -1,33 +1,199 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
-import { ExternalLink, Eye, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, Eye, X } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useWorkspaceStore, type WorkspaceFileInfo } from '../../../stores/workspaceStore';
 import { useAgentStore } from '../../../stores/agentStore';
 import { useTileStore } from '../../../stores/v2/tileStore';
 import { getAgentColor } from '../../../utils/agentColors';
 import { canPreviewFile } from '../../../utils/artifactTypes';
+import {
+  getAgentIdFromWorkspacePath,
+  getAgentWorkspaceLabel,
+  getWorkspaceVersionOptions,
+} from '../../../utils/workspaceBrowser';
 import { InlineArtifactPreview } from '../../InlineArtifactPreview';
 
-export function WorkspaceBrowserTile() {
+interface WorkspaceBrowserTileProps {
+  initialWorkspacePath?: string;
+}
+
+interface AgentWorkspaceOption {
+  agentId: string;
+  versions: Array<{
+    value: string;
+    label: string;
+    kind: 'live' | 'historical';
+  }>;
+}
+
+export function WorkspaceBrowserTile({ initialWorkspacePath }: WorkspaceBrowserTileProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const agentOrder = useAgentStore((s) => s.agentOrder);
+  const answers = useAgentStore((s) => s.answers);
   const addTile = useTileStore((s) => s.addTile);
 
   const workspacePaths = Object.keys(workspaces);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+  const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileInfo | null>(null);
+  const [historicalFilesByPath, setHistoricalFilesByPath] = useState<Record<string, WorkspaceFileInfo[]>>({});
   const lastAutoPreviewKeyRef = useRef<string | null>(null);
 
-  const effectiveWorkspace =
-    workspacePaths.includes(selectedWorkspace) ? selectedWorkspace : workspacePaths[0] || '';
+  const agentWorkspaceOptions = useMemo((): AgentWorkspaceOption[] => {
+    const liveWorkspaceByAgent = new Map<string, string>();
+    const unmatchedWorkspacePaths: string[] = [];
 
-  const files = workspaces[effectiveWorkspace]?.files || [];
+    for (const path of workspacePaths) {
+      const agentId =
+        workspaces[path]?.agentId ||
+        getAgentIdFromWorkspacePath(path, agentOrder, workspacePaths);
+
+      if (!agentId || liveWorkspaceByAgent.has(agentId)) {
+        unmatchedWorkspacePaths.push(path);
+        continue;
+      }
+      liveWorkspaceByAgent.set(agentId, path);
+    }
+
+    const remainingAgentIds = agentOrder.filter(
+      (agentId) => !liveWorkspaceByAgent.has(agentId)
+    );
+    unmatchedWorkspacePaths.forEach((path, index) => {
+      const fallbackAgentId = remainingAgentIds[index];
+      if (fallbackAgentId && !liveWorkspaceByAgent.has(fallbackAgentId)) {
+        liveWorkspaceByAgent.set(fallbackAgentId, path);
+      }
+    });
+
+    if (workspacePaths.length === 1 && agentOrder.length === 1 && !liveWorkspaceByAgent.has(agentOrder[0])) {
+      liveWorkspaceByAgent.set(agentOrder[0], workspacePaths[0]);
+    }
+
+    const orderedAgentIds = [
+      ...agentOrder,
+      ...answers
+        .map((answer) => answer.agentId)
+        .filter((agentId, index, list) => !agentOrder.includes(agentId) && list.indexOf(agentId) === index),
+    ];
+
+    return orderedAgentIds
+      .map((agentId) => ({
+        agentId,
+        versions: getWorkspaceVersionOptions({
+          agentId,
+          answers,
+          liveWorkspacePath: liveWorkspaceByAgent.get(agentId),
+        }),
+      }))
+      .filter((entry) => entry.versions.length > 0);
+  }, [agentOrder, answers, workspacePaths, workspaces]);
+
+  useEffect(() => {
+    if (agentWorkspaceOptions.length === 0) {
+      setSelectedAgentId('');
+      setSelectedWorkspacePath('');
+      return;
+    }
+
+    const preferredAgentId =
+      (initialWorkspacePath
+        ? getAgentIdFromWorkspacePath(initialWorkspacePath, agentOrder, workspacePaths)
+        : null) ||
+      agentWorkspaceOptions.find((entry) =>
+        initialWorkspacePath
+          ? entry.versions.some((option) => option.value === initialWorkspacePath)
+          : false
+      )?.agentId ||
+      agentWorkspaceOptions[0].agentId;
+
+    if (!selectedAgentId || !agentWorkspaceOptions.some((entry) => entry.agentId === selectedAgentId)) {
+      setSelectedAgentId(preferredAgentId);
+    }
+  }, [agentWorkspaceOptions, agentOrder, initialWorkspacePath, selectedAgentId, workspacePaths]);
+
+  const selectedAgentEntry = useMemo(
+    () =>
+      agentWorkspaceOptions.find((entry) => entry.agentId === selectedAgentId) ||
+      agentWorkspaceOptions[0] ||
+      null,
+    [agentWorkspaceOptions, selectedAgentId]
+  );
+
+  useEffect(() => {
+    if (!selectedAgentEntry) {
+      setSelectedWorkspacePath('');
+      return;
+    }
+
+    const availableWorkspacePaths = selectedAgentEntry.versions.map((option) => option.value);
+    const preferredWorkspacePath =
+      initialWorkspacePath && availableWorkspacePaths.includes(initialWorkspacePath)
+        ? initialWorkspacePath
+        : selectedAgentEntry.versions[0]?.value || '';
+
+    if (!selectedWorkspacePath || !availableWorkspacePaths.includes(selectedWorkspacePath)) {
+      setSelectedWorkspacePath(preferredWorkspacePath);
+    }
+  }, [initialWorkspacePath, selectedAgentEntry, selectedWorkspacePath]);
+
+  const effectiveWorkspace =
+    selectedAgentEntry?.versions.find((option) => option.value === selectedWorkspacePath) ||
+    selectedAgentEntry?.versions[0] ||
+    null;
+
+  const effectiveWorkspacePath = effectiveWorkspace?.value || '';
+  const isHistoricalWorkspace = effectiveWorkspace?.kind === 'historical';
+
+  useEffect(() => {
+    if (!isHistoricalWorkspace || !effectiveWorkspacePath || historicalFilesByPath[effectiveWorkspacePath]) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchHistoricalFiles() {
+      try {
+        const response = await fetch(
+          `/api/workspace/browse?path=${encodeURIComponent(effectiveWorkspacePath)}`
+        );
+        if (!response.ok) return;
+
+        const data = await response.json() as {
+          files?: WorkspaceFileInfo[];
+        };
+
+        if (cancelled) return;
+
+        setHistoricalFilesByPath((current) => ({
+          ...current,
+          [effectiveWorkspacePath]: data.files || [],
+        }));
+      } catch {
+        if (!cancelled) {
+          setHistoricalFilesByPath((current) => ({
+            ...current,
+            [effectiveWorkspacePath]: [],
+          }));
+        }
+      }
+    }
+
+    void fetchHistoricalFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveWorkspacePath, historicalFilesByPath, isHistoricalWorkspace]);
+
+  const files = isHistoricalWorkspace
+    ? historicalFilesByPath[effectiveWorkspacePath] || []
+    : workspaces[effectiveWorkspacePath]?.files || [];
 
   // Clear selected file when workspace changes
   useEffect(() => {
     setSelectedFile(null);
-  }, [effectiveWorkspace]);
+  }, [effectiveWorkspacePath]);
 
   useEffect(() => {
     if (selectedFile && !files.some((file) => file.path === selectedFile.path)) {
@@ -41,31 +207,32 @@ export function WorkspaceBrowserTile() {
     const mainPreviewableFile = findMainPreviewableFile(files);
     if (!mainPreviewableFile) return;
 
-    const autoPreviewKey = `${effectiveWorkspace}:${mainPreviewableFile.path}`;
+    const autoPreviewKey = `${effectiveWorkspacePath}:${mainPreviewableFile.path}`;
     if (lastAutoPreviewKeyRef.current === autoPreviewKey) return;
 
     lastAutoPreviewKeyRef.current = autoPreviewKey;
     setSelectedFile(mainPreviewableFile);
-  }, [effectiveWorkspace, files, selectedFile]);
+  }, [effectiveWorkspacePath, files, selectedFile]);
 
   const handleFileClick = (file: WorkspaceFileInfo) => {
     setSelectedFile(file);
   };
 
   const handleOpenInTile = () => {
-    if (!selectedFile) return;
+    if (!selectedFile || !effectiveWorkspacePath) return;
     addTile({
       id: `file-${selectedFile.path}`,
       type: 'file-viewer',
       targetId: selectedFile.path,
       label: selectedFile.path.split('/').pop() || selectedFile.path,
+      workspacePath: effectiveWorkspacePath,
     });
   };
 
   const wsStatus = useWorkspaceStore((s) => s.wsStatus);
   const sessionId = useAgentStore((s) => s.sessionId);
 
-  if (workspacePaths.length === 0) {
+  if (agentWorkspaceOptions.length === 0) {
     const isWaiting = !!sessionId && (wsStatus === 'connecting' || wsStatus === 'connected');
     return (
       <div className="flex flex-col items-center justify-center h-full text-v2-text-muted text-sm gap-2">
@@ -85,19 +252,19 @@ export function WorkspaceBrowserTile() {
 
   return (
     <div className="flex flex-col h-full bg-v2-base">
-      {/* Workspace selector (multi-agent) */}
-      {workspacePaths.length > 1 && (
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-v2-border shrink-0">
-          {workspacePaths.map((path, index) => {
-            const agentId = agentOrder[index];
-            const color = agentId
-              ? getAgentColor(agentId, agentOrder)
-              : undefined;
-            const isSelected = path === effectiveWorkspace;
+      {/* Agent selector + version selector */}
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-v2-border shrink-0 flex-wrap">
+        <div className="flex items-center gap-1">
+          {agentWorkspaceOptions.map((entry) => {
+            const color = getAgentColor(entry.agentId, agentOrder);
+            const isSelected = entry.agentId === selectedAgentEntry?.agentId;
             return (
               <button
-                key={path}
-                onClick={() => setSelectedWorkspace(path)}
+                key={entry.agentId}
+                onClick={() => {
+                  setSelectedAgentId(entry.agentId);
+                  setSelectedWorkspacePath(entry.versions[0]?.value || '');
+                }}
                 className={cn(
                   'px-2 py-1 text-xs rounded transition-colors',
                   isSelected
@@ -114,45 +281,76 @@ export function WorkspaceBrowserTile() {
                   className="inline-block w-2 h-2 rounded-full mr-1.5"
                   style={{ backgroundColor: color?.hex || '#80848E' }}
                 />
-                {agentId || `Workspace ${index + 1}`}
+                {getAgentWorkspaceLabel(entry.agentId, agentOrder)}
               </button>
             );
           })}
         </div>
-      )}
 
-      {/* Main content: file tree (+ optional preview panel) */}
-      {selectedFile ? (
-        <Group orientation="vertical" className="flex-1 min-h-0">
-          <Panel id="file-tree" defaultSize={45} minSize={20}>
-            <div className="h-full overflow-auto v2-scrollbar">
-              <FileTree
-                files={files}
-                onFileClick={handleFileClick}
-                selectedPath={selectedFile.path}
-              />
+        {selectedAgentEntry && (
+          <div className="flex items-center gap-2 ml-auto">
+            <label
+              htmlFor="workspace-version"
+              className="text-xs font-medium text-v2-text-muted uppercase tracking-wide"
+            >
+              Version
+            </label>
+            <div className="relative">
+              <select
+                id="workspace-version"
+                aria-label="Version"
+                value={effectiveWorkspacePath}
+                onChange={(event) => setSelectedWorkspacePath(event.target.value)}
+                className={cn(
+                  'appearance-none rounded border border-v2-border bg-v2-surface',
+                  'px-2.5 py-1 pr-7 text-xs text-v2-text focus:outline-none'
+                )}
+                disabled={selectedAgentEntry.versions.length <= 1}
+              >
+                {selectedAgentEntry.versions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-v2-text-muted" />
             </div>
-          </Panel>
-          <Separator
-            className={cn(
-              'h-[2px] bg-v2-border transition-colors duration-150',
-              'hover:bg-v2-accent'
-            )}
-          />
-          <Panel id="file-preview" defaultSize={55} minSize={25}>
+          </div>
+        )}
+      </div>
+
+      {/* Main content: side-by-side tree (left) + preview (right) */}
+      <Group orientation="horizontal" className="flex-1 min-h-0">
+        <Panel id="file-tree" defaultSize={25} minSize={15}>
+          <div className="h-full overflow-auto v2-scrollbar border-r border-v2-border">
+            <FileTree
+              files={files}
+              onFileClick={handleFileClick}
+              selectedPath={selectedFile?.path || null}
+            />
+          </div>
+        </Panel>
+        <Separator
+          className={cn(
+            'w-[2px] bg-v2-border transition-colors duration-150',
+            'hover:bg-v2-accent'
+          )}
+        />
+        <Panel id="file-preview" defaultSize={75} minSize={40}>
+          {selectedFile ? (
             <FilePreview
               file={selectedFile}
-              workspacePath={effectiveWorkspace}
+              workspacePath={effectiveWorkspacePath}
               onOpenInTile={handleOpenInTile}
               onClose={() => setSelectedFile(null)}
             />
-          </Panel>
-        </Group>
-      ) : (
-        <div className="flex-1 overflow-auto v2-scrollbar">
-          <FileTree files={files} onFileClick={handleFileClick} selectedPath={null} />
-        </div>
-      )}
+          ) : (
+            <div className="flex items-center justify-center h-full text-v2-text-muted text-sm">
+              Select a file to preview
+            </div>
+          )}
+        </Panel>
+      </Group>
     </div>
   );
 }
@@ -194,7 +392,11 @@ function FilePreview({ file, workspacePath, onOpenInTile, onClose }: FilePreview
 
       {/* Content — rendered via InlineArtifactPreview */}
       <div className="flex-1 overflow-auto v2-scrollbar">
-        <InlineArtifactPreview filePath={file.path} workspacePath={workspacePath} />
+        <InlineArtifactPreview
+          filePath={file.path}
+          workspacePath={workspacePath}
+          onFileNotFound={onClose}
+        />
       </div>
     </div>
   );

@@ -1,33 +1,13 @@
-import { useTileStore, type TileType } from '../../../stores/v2/tileStore';
+import { useWorkspaceModalStore } from '../../../stores/v2/workspaceModalStore';
 import { SidebarItem } from './SessionSection';
-
-/** The three workspace tile types — only one can be open at a time */
-const WORKSPACE_TILE_TYPES: TileType[] = ['workspace-browser', 'timeline-view', 'vote-results'];
 
 interface QuickAccessSectionProps {
   collapsed: boolean;
 }
 
 export function QuickAccessSection({ collapsed }: QuickAccessSectionProps) {
-  const tiles = useTileStore((s) => s.tiles);
-  const addTile = useTileStore((s) => s.addTile);
-  const removeTile = useTileStore((s) => s.removeTile);
-
-  // Which workspace tile is currently open (if any)
-  const openWorkspaceTile = tiles.find((t) => WORKSPACE_TILE_TYPES.includes(t.type));
-
-  const toggleTile = (id: string, type: TileType, label: string, targetId: string) => {
-    if (openWorkspaceTile?.type === type) {
-      // Same tile — close it
-      removeTile(openWorkspaceTile.id);
-    } else {
-      // Different tile or none open — remove existing workspace tile first, then add new
-      if (openWorkspaceTile) {
-        removeTile(openWorkspaceTile.id);
-      }
-      addTile({ id, type, targetId, label });
-    }
-  };
+  const activeView = useWorkspaceModalStore((s) => s.activeView);
+  const toggle = useWorkspaceModalStore((s) => s.toggle);
 
   return (
     <div className="py-1">
@@ -44,22 +24,22 @@ export function QuickAccessSection({ collapsed }: QuickAccessSectionProps) {
           collapsed={collapsed}
           icon={<FolderIcon />}
           label="Browse files"
-          active={openWorkspaceTile?.type === 'workspace-browser'}
-          onClick={() => toggleTile('workspace-browser', 'workspace-browser', 'Browse files', 'workspace')}
+          active={activeView === 'files'}
+          onClick={() => toggle('files')}
+        />
+        <SidebarItem
+          collapsed={collapsed}
+          icon={<AnswerVoteIcon />}
+          label="Answers / Votes"
+          active={activeView === 'answers'}
+          onClick={() => toggle('answers')}
         />
         <SidebarItem
           collapsed={collapsed}
           icon={<TimelineIcon />}
           label="Timeline"
-          active={openWorkspaceTile?.type === 'timeline-view'}
-          onClick={() => toggleTile('timeline-view', 'timeline-view', 'Timeline', 'timeline')}
-        />
-        <SidebarItem
-          collapsed={collapsed}
-          icon={<VoteIcon />}
-          label="Vote results"
-          active={openWorkspaceTile?.type === 'vote-results'}
-          onClick={() => toggleTile('vote-results', 'vote-results', 'Vote results', 'votes')}
+          active={activeView === 'timeline'}
+          onClick={() => toggle('timeline')}
         />
       </div>
     </div>
@@ -74,18 +54,18 @@ function FolderIcon() {
   );
 }
 
-function TimelineIcon() {
+function AnswerVoteIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M2 3v10M6 5v6M10 4v8M14 6v4" strokeLinecap="round" />
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="text-yellow-500/60">
+      <path d="M8 1l2.1 4.2L15 6l-3.5 3.4.8 4.8L8 12l-4.3 2.2.8-4.8L1 6l4.9-.8L8 1z" />
     </svg>
   );
 }
 
-function VoteIcon() {
+function TimelineIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M3 12V8M6.5 12V5M10 12V3M13.5 12V7" strokeLinecap="round" />
+      <path d="M2 3v10M6 5v6M10 4v8M14 6v4" strokeLinecap="round" />
     </svg>
   );
 }

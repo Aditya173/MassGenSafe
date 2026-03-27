@@ -21,7 +21,7 @@ import {
   selectApiKeySaveError,
 } from '../../stores/setupStore';
 
-const AGENT_FRAMEWORK_PROVIDER_IDS = new Set(['claude_code', 'codex', 'copilot']);
+const AGENT_FRAMEWORK_PROVIDER_IDS = new Set(['claude_code', 'codex', 'copilot', 'gemini_cli']);
 
 export function ApiKeysSection() {
   const providers = useSetupStore(selectProviders);

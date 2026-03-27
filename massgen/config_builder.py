@@ -56,6 +56,7 @@ QUICKSTART_PROVIDER_PRIORITY = (
     "claude_code",
     "codex",
     "copilot",
+    "gemini_cli",
     "gemini",
 )
 

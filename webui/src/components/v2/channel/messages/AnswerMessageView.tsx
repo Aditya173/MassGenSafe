@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { cn } from '../../../../lib/utils';
 import type { AnswerMessage } from '../../../../stores/v2/messageStore';
+import { useAgentStore } from '../../../../stores/agentStore';
+import { useTileStore } from '../../../../stores/v2/tileStore';
 
 interface AnswerMessageViewProps {
   message: AnswerMessage;
@@ -8,6 +10,29 @@ interface AnswerMessageViewProps {
 
 export function AnswerMessageView({ message }: AnswerMessageViewProps) {
   const [expanded, setExpanded] = useState(false);
+  const answers = useAgentStore((s) => s.answers);
+  const addTile = useTileStore((s) => s.addTile);
+
+  // Find matching answer in agentStore for workspace path
+  const matchingAnswer = answers.find(
+    (a) => a.agentId === message.agentId && a.answerNumber === message.answerNumber
+  );
+  const workspacePath = matchingAnswer?.workspacePath;
+
+  // Use fullContent for expanded view, fall back to contentPreview
+  const displayContent = message.fullContent || message.contentPreview;
+
+  const handleViewWorkspace = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (workspacePath) {
+      addTile({
+        id: `workspace-${message.answerLabel}`,
+        type: 'workspace-browser',
+        targetId: workspacePath,
+        label: `Files · ${message.answerLabel}`,
+      });
+    }
+  };
 
   return (
     <div className="v2-step-group py-1">
@@ -60,9 +85,26 @@ export function AnswerMessageView({ message }: AnswerMessageViewProps) {
           {/* Full content (expanded) */}
           {expanded && (
             <div data-testid="answer-expanded" className="animate-v2-fade-in">
-              <p className="text-sm text-v2-text whitespace-pre-wrap break-words">
-                {message.contentPreview}
-              </p>
+              <div className="text-sm text-v2-text whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto v2-scrollbar">
+                {displayContent}
+              </div>
+
+              {/* Workspace link */}
+              {workspacePath && (
+                <button
+                  onClick={handleViewWorkspace}
+                  className={cn(
+                    'flex items-center gap-1.5 mt-2 px-2 py-1 rounded text-xs',
+                    'text-yellow-400/80 hover:text-yellow-400 hover:bg-yellow-500/10',
+                    'transition-colors duration-150'
+                  )}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5V4.5z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  View workspace files
+                </button>
+              )}
             </div>
           )}
         </div>

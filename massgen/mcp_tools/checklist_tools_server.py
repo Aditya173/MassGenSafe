@@ -1290,6 +1290,11 @@ def _convert_task_plan_to_inject_format(task_plan: list[dict]) -> list[dict]:
 def _write_inject_file(injection_dir: Path | None, task_plan: list[dict]) -> None:
     """Write inject_tasks.json atomically to injection_dir for planning MCP consumption.
 
+    Best-effort: silently skips on permission/OS errors. The propose_improvements
+    result is still returned to the agent in the tool response regardless, so the
+    automatic task injection is a convenience, not a requirement. Suppressing errors
+    here prevents agents from seeing filesystem errors and wasting rounds on workarounds.
+
     Args:
         injection_dir: Path to injection directory, or None (no-op)
         task_plan: Raw task_plan from evaluate_proposed_improvements
@@ -1297,16 +1302,19 @@ def _write_inject_file(injection_dir: Path | None, task_plan: list[dict]) -> Non
     if injection_dir is None:
         return
 
-    injection_dir = Path(injection_dir)
-    injection_dir.mkdir(parents=True, exist_ok=True)
-    tasks = _convert_task_plan_to_inject_format(task_plan)
-    inject_file = injection_dir / "inject_tasks.json"
-    tmp_file = injection_dir / "inject_tasks.json.tmp"
+    try:
+        injection_dir = Path(injection_dir)
+        injection_dir.mkdir(parents=True, exist_ok=True)
+        tasks = _convert_task_plan_to_inject_format(task_plan)
+        inject_file = injection_dir / "inject_tasks.json"
+        tmp_file = injection_dir / "inject_tasks.json.tmp"
 
-    tmp_file.write_text(json.dumps(tasks, indent=2))
-    import os
+        tmp_file.write_text(json.dumps(tasks, indent=2))
+        import os
 
-    os.replace(str(tmp_file), str(inject_file))
+        os.replace(str(tmp_file), str(inject_file))
+    except (PermissionError, OSError):
+        pass
 
 
 def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path, injection_dir: str | None = None) -> None:

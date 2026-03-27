@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -1048,6 +1048,62 @@ async def test_new_answer_triggers_round_end_background_cleanup(mock_orchestrato
         pass
 
     cancel_background_work.assert_awaited_once_with(agent_id)
+
+
+@pytest.mark.asyncio
+async def test_new_answer_sends_snapshot_workspace_path_to_web_display(
+    mock_orchestrator,
+    monkeypatch,
+    tmp_path,
+):
+    """Web display answer events should include the answer snapshot workspace path."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    orchestrator.current_task = "Submit an answer with workspace history."
+    agent_id = "agent_a"
+
+    monkeypatch.setattr("massgen.orchestrator.get_log_session_dir", lambda: tmp_path)
+    orchestrator._save_agent_snapshot = AsyncMock(return_value="snapshot-ts")
+    monkeypatch.setattr(
+        orchestrator,
+        "_cancel_running_background_work_for_agent",
+        AsyncMock(),
+    )
+
+    display = SimpleNamespace(
+        send_new_answer=MagicMock(),
+        record_answer_with_context=MagicMock(),
+    )
+    orchestrator.coordination_ui = SimpleNamespace(display=display)
+
+    call_count = {"count": 0}
+
+    async def fake_stream_agent_execution(
+        aid: str,
+        task: str,
+        answers: dict[str, str],
+        conversation_context: dict[str, object] | None = None,
+        paraphrase: str | None = None,
+    ):
+        _ = (aid, task, answers, conversation_context, paraphrase)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            yield ("result", ("answer", "answer v1"))
+            yield ("done", None)
+            return
+
+        yield ("result", ("vote", {"agent_id": agent_id, "reason": "done"}))
+        yield ("done", None)
+
+    monkeypatch.setattr(orchestrator, "_stream_agent_execution", fake_stream_agent_execution)
+
+    votes: dict[str, dict[str, object]] = {}
+    async for _chunk in orchestrator._stream_coordination_with_agents(votes, {}):
+        pass
+
+    assert display.send_new_answer.call_count == 1
+    assert display.send_new_answer.call_args.kwargs["workspace_path"] == str(
+        tmp_path / agent_id / "snapshot-ts" / "workspace",
+    )
 
 
 @pytest.mark.asyncio

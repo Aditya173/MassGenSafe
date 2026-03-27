@@ -822,6 +822,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             (event as { status: string }).status,
             'detail' in event ? (event as { detail?: string }).detail : undefined
           );
+          // When the server auto-starts a run (e.g. `massgen --web "question"`),
+          // the preparation_status carries the question so the frontend can show
+          // the launch sequence immediately.
+          if ('question' in event && !get().question) {
+            const q = (event as { question: string }).question;
+            set({
+              question: q,
+              initStatus: { message: 'Submitting prompt...', step: 'request', progress: 3 },
+              conversationHistory: [{ role: 'user' as const, content: q, turn: 1 }],
+              turnNumber: 1,
+            });
+          }
         }
         break;
 

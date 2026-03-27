@@ -123,6 +123,9 @@ export interface NewAnswerEvent extends WSMessage {
   answer_id: string;
   answer_number: number;
   content: string;
+  answer_label?: string;
+  workspace_path?: string;
+  submission_round?: number;
 }
 
 export interface FileChangeEvent extends WSMessage {
@@ -500,6 +503,7 @@ export interface WorkspaceConnectedEvent extends WorkspaceWSMessage {
   watched_paths: string[];
   /** Initial file lists keyed by workspace path - sent on connect for instant display */
   initial_files?: Record<string, WorkspaceFileInfo[]>;
+  workspace_metadata?: Record<string, { agent_id?: string }>;
 }
 
 /**
@@ -518,6 +522,7 @@ export interface WorkspaceRefreshEvent extends WorkspaceWSMessage {
   type: 'workspace_refresh';
   workspace_path: string;
   files: WorkspaceFileInfo[];
+  agent_id?: string;
 }
 
 /**

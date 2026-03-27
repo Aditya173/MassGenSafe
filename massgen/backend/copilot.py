@@ -767,8 +767,30 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
 
             def _make_handler(name: str, q: asyncio.Queue):
                 async def handler(invocation):
-                    args = invocation.get("arguments", {})
-                    call_id = invocation.get("tool_call_id", f"call-{uuid.uuid4()}")
+                    # SDK passes a ToolInvocation dataclass (.arguments, .tool_call_id).
+                    # Fallback to dict/string for forward compatibility.
+                    if hasattr(invocation, "arguments"):
+                        args = invocation.arguments or {}
+                        call_id = getattr(invocation, "tool_call_id", None) or f"call-{uuid.uuid4()}"
+                    elif isinstance(invocation, dict):
+                        args = invocation.get("arguments", {})
+                        call_id = invocation.get("tool_call_id", f"call-{uuid.uuid4()}")
+                    elif isinstance(invocation, str):
+                        try:
+                            invocation = json.loads(invocation)
+                        except (json.JSONDecodeError, TypeError):
+                            invocation = {}
+                        args = invocation.get("arguments", {}) if isinstance(invocation, dict) else {}
+                        call_id = invocation.get("tool_call_id", f"call-{uuid.uuid4()}") if isinstance(invocation, dict) else f"call-{uuid.uuid4()}"
+                    else:
+                        args = {}
+                        call_id = f"call-{uuid.uuid4()}"
+                    # Args may arrive as JSON string
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
                     q.put_nowait(("workflow_tool", name, args, call_id))
                     return {
                         "textResultForLlm": f"Tool {name} executed successfully",
@@ -1055,7 +1077,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
             logger.info(f"[Copilot] Creating session for {agent_id} with MCP servers: {mcp_names}")
 
             try:
-                session = await self.client.create_session(**session_config)
+                session = await self.client.create_session(session_config)
                 self.sessions[agent_id] = session
                 self._session_signatures[agent_id] = session_signature
                 logger.info(f"[Copilot] Session created successfully for {agent_id}")
@@ -1099,7 +1121,7 @@ class CopilotBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
                 send_timeout_seconds = 60.0
             try:
                 await asyncio.wait_for(
-                    session.send(prompt),
+                    session.send({"prompt": prompt}),
                     timeout=send_timeout_seconds,
                 )
             except TimeoutError:

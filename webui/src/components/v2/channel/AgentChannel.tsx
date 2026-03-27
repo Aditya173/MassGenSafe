@@ -2,11 +2,9 @@ import { useRef, useEffect, useMemo, useState } from 'react';
 import { cn } from '../../../lib/utils';
 import { useAgentStore } from '../../../stores/agentStore';
 import { useMessageStore, type ChannelMessage, type ToolCallMessage, type ContentMessage } from '../../../stores/v2/messageStore';
-import { useTileStore } from '../../../stores/v2/tileStore';
 import { getAgentColor } from '../../../utils/agentColors';
 import { MessageRenderer } from './messages/MessageRenderer';
 import { ToolBatchView } from './messages/ToolBatchView';
-import { ModeBar } from './ModeBar';
 import { TaskPlanPanel } from './TaskPlanPanel';
 import { StreamingIndicator } from './StreamingIndicator';
 import { FinalAnswerSection } from './FinalAnswerSection';
@@ -63,11 +61,8 @@ export function AgentChannel({ agentId }: AgentChannelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Channel header */}
+      {/* Channel header (includes phase/round info) */}
       <ChannelHeader agentId={agentId} agent={agent} agentOrder={agentOrder} />
-
-      {/* Mode bar */}
-      <ModeBar />
 
       {/* Message stream + docked plan strip */}
       <div className="flex-1 flex overflow-hidden min-h-0">
@@ -119,8 +114,17 @@ export function AgentChannel({ agentId }: AgentChannelProps) {
 }
 
 // ============================================================================
-// Channel Header
+// Channel Header — now includes phase/round info (merged ModeBar)
 // ============================================================================
+
+const PHASE_CONFIG: Record<string, { label: string; color: string; hide?: boolean }> = {
+  idle: { label: 'Idle', color: 'bg-v2-offline', hide: true },
+  coordinating: { label: 'Coordinating', color: 'bg-blue-500' },
+  presenting: { label: 'Presenting', color: 'bg-v2-online' },
+  initial_answer: { label: 'Working', color: 'bg-blue-500' },
+  voting: { label: 'Voting', color: 'bg-v2-idle' },
+  consensus: { label: 'Consensus', color: 'bg-purple-500' },
+};
 
 interface ChannelHeaderProps {
   agentId: string;
@@ -129,45 +133,36 @@ interface ChannelHeaderProps {
 }
 
 function ChannelHeader({ agentId, agent, agentOrder }: ChannelHeaderProps) {
-  const setAutofitTiles = useTileStore((s) => s.setAutofitTiles);
-  const isAutofit = useTileStore((s) => s.autofit);
   const { isDraggable } = useTileDrag();
   const agentColor = getAgentColor(agentId, agentOrder);
   const agentIndex = agentOrder.indexOf(agentId);
 
-  const handleAutofit = () => {
-    if (isAutofit) {
-      // Toggle back to single view — set first agent
-      useTileStore.getState().setTile({
-        id: `channel-${agentOrder[0]}`,
-        type: 'agent-channel',
-        targetId: agentOrder[0],
-        label: agentOrder[0],
-      });
-    } else {
-      // Show all agents
-      const allTiles = agentOrder.map((id) => ({
-        id: `channel-${id}`,
-        type: 'agent-channel' as const,
-        targetId: id,
-        label: id,
-      }));
-      setAutofitTiles(allTiles);
-    }
-  };
+  // Phase & round from messageStore
+  const currentPhase = useMessageStore((s) => s.currentPhase);
+  const agentRound = useMessageStore((s) => s.currentRound[agentId] || 0);
+
+  // Winner state
+  const selectedAgent = useAgentStore((s) => s.selectedAgent);
+  const isComplete = useAgentStore((s) => s.isComplete);
+  const isWinner = isComplete && selectedAgent === agentId;
+
+  const phaseConfig = currentPhase
+    ? PHASE_CONFIG[currentPhase] || { label: currentPhase, color: 'bg-v2-offline' }
+    : null;
+  const showPhase = phaseConfig && !phaseConfig.hide;
 
   return (
     <div
       className="flex items-center gap-3 px-4 py-2.5 border-b border-v2-border-subtle bg-v2-surface shrink-0"
-      style={{ borderLeftWidth: '3px', borderLeftColor: agentColor.hex }}
+      style={{ borderLeftWidth: '3px', borderLeftColor: isWinner ? '#eab308' : agentColor.hex }}
     >
-      {/* Drag handle — before numbered badge */}
+      {/* Drag handle */}
       {isDraggable && <TileDragHandle />}
 
       {/* Numbered color badge */}
       <span
         className="flex items-center justify-center w-5 h-5 rounded text-[11px] font-bold text-white shrink-0"
-        style={{ backgroundColor: agentColor.hex }}
+        style={{ backgroundColor: isWinner ? '#eab308' : agentColor.hex }}
       >
         {agentIndex + 1}
       </span>
@@ -187,27 +182,26 @@ function ChannelHeader({ agentId, agent, agentOrder }: ChannelHeaderProps) {
       {/* Status */}
       <StatusBadge status={agent.status} />
 
-      <div className="flex-1" />
-
-      {/* Autofit button */}
-      {agentOrder.length > 1 && (
-        <button
-          onClick={handleAutofit}
-          className={cn(
-            'flex items-center gap-1.5 text-xs px-2 py-1 rounded',
-            'text-v2-text-muted hover:text-v2-text hover:bg-v2-sidebar-hover',
-            'transition-colors duration-150',
-            isAutofit && 'bg-v2-accent/10 text-v2-accent'
-          )}
-          title={isAutofit ? 'Single agent view' : 'See all agents'}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="2" y="2" width="5" height="12" rx="1" />
-            <rect x="9" y="2" width="5" height="12" rx="1" />
-          </svg>
-          {isAutofit ? 'Single' : 'Autofit'}
-        </button>
+      {/* Winner badge */}
+      {isWinner && (
+        <span className="flex items-center gap-1 text-[11px] font-semibold text-yellow-400 bg-yellow-500/10 px-1.5 py-0.5 rounded">
+          &#9733; Winner
+        </span>
       )}
+
+      {/* Phase & round — merged from ModeBar */}
+      {showPhase && (
+        <div className="flex items-center gap-1.5 text-[10px] text-v2-text-muted">
+          <span className="text-v2-text-muted/30">|</span>
+          <span className={cn('w-1.5 h-1.5 rounded-full', phaseConfig!.color)} />
+          <span className="uppercase tracking-wider font-medium">{phaseConfig!.label}</span>
+          {agentRound > 0 && (
+            <span>R{agentRound}</span>
+          )}
+        </div>
+      )}
+
+      <div className="flex-1" />
     </div>
   );
 }

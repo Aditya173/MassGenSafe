@@ -444,6 +444,12 @@ class Orchestrator(ChatAgent):
         self._snapshot_storage: str | None = snapshot_storage
         self._agent_temporary_workspace: str | None = agent_temporary_workspace
 
+        # Per-agent display round counter — increments every time _run_agent_turn
+        # is called, so each agent execution (answer, vote, or final) gets a unique
+        # round number for the UI.  Separate from coordination_tracker.agent_rounds
+        # which only increments on answer-triggered restarts.
+        self._agent_display_round: dict[str, int] = {}
+
         # DSPy paraphrase tracking
         self._agent_paraphrases: dict[str, str] = {}
         self._paraphrase_generation_errors: int = 0
@@ -1386,8 +1392,9 @@ class Orchestrator(ChatAgent):
                     blocked_msg = (
                         f"submit_checklist already called {agent_state.checklist_calls_this_round} time(s) "
                         f"this round (max: {max_calls}). You already have your improvement plan. "
-                        "Implement those improvements, verify your changes (screenshots, file checks, "
-                        "confirming changes landed correctly), then call the `new_answer` workflow tool "
+                        "Implement your improvements, then verify the integrated result "
+                        "(screenshots, file checks, confirming changes landed correctly), "
+                        "then call the `new_answer` workflow tool "
                         "to submit your completed work. Do not call `submit_checklist` again."
                     )
                     return {
@@ -2816,18 +2823,24 @@ class Orchestrator(ChatAgent):
                 f"[Orchestrator] Adding --use-two-tier-workspace flag to planning MCP for {agent_id}",
             )
 
-        # Create injection directory for task injection from propose_improvements
-        # Use log session dir (persists for entire run, accessible in Docker)
-        # IMPORTANT: resolve() to absolute path — the planning MCP server runs
-        # as a subprocess whose CWD may differ from the orchestrator's CWD,
-        # so relative paths would resolve to the wrong location.
-        log_dir = get_log_session_dir()
-        if log_dir:
-            injection_dir = (log_dir / "planning_injection" / agent_id).resolve()
+        # Create injection directory for task injection from propose_improvements.
+        # Both checklist MCP and planning MCP need rw access to this dir.
+        # In Docker mode, the log directory is NOT mounted into the container,
+        # so we use a workspace-local path (workspace is always mounted rw).
+        # IMPORTANT: resolve() to absolute path — MCP servers run as subprocesses
+        # whose CWD may differ from the orchestrator's.
+        _is_docker = hasattr(agent, "backend") and hasattr(agent.backend, "_is_docker_mode") and agent.backend._is_docker_mode
+        if _is_docker and hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager and agent.backend.filesystem_manager.cwd:
+            ws_root = Path(agent.backend.filesystem_manager.cwd)
+            injection_dir = (ws_root / ".massgen_scratch" / "planning_injection" / agent_id).resolve()
         else:
-            import tempfile as _tempfile
+            log_dir = get_log_session_dir()
+            if log_dir:
+                injection_dir = (log_dir / "planning_injection" / agent_id).resolve()
+            else:
+                import tempfile as _tempfile
 
-            injection_dir = Path(_tempfile.mkdtemp(prefix=f"massgen_plan_inject_{agent_id}_"))
+                injection_dir = Path(_tempfile.mkdtemp(prefix=f"massgen_plan_inject_{agent_id}_"))
         injection_dir.mkdir(parents=True, exist_ok=True)
         if not hasattr(self, "_planning_injection_dirs"):
             self._planning_injection_dirs = {}
@@ -4472,7 +4485,23 @@ class Orchestrator(ChatAgent):
         if action == "new_answer" and answer_text is not None:
             final_dir = log_dir / "final" / agent_id
             final_dir.mkdir(parents=True, exist_ok=True)
-            (final_dir / "answer.txt").write_text(answer_text)
+
+            # Normalize workspace paths so answer references the adjacent workspace/
+            normalized_answer = answer_text
+            if workspace_path:
+                dest_workspace = str(final_dir / "workspace")
+                normalized_answer = normalized_answer.replace(
+                    str(workspace_path),
+                    dest_workspace,
+                )
+                resolved_ws = str(Path(workspace_path).resolve())
+                if resolved_ws != str(workspace_path):
+                    normalized_answer = normalized_answer.replace(
+                        resolved_ws,
+                        dest_workspace,
+                    )
+
+            (final_dir / "answer.txt").write_text(normalized_answer)
 
             # Copy workspace to final/ if available
             if workspace_path:
@@ -6245,12 +6274,19 @@ Your answer:"""
                                 if display and hasattr(display, "send_new_answer") and not hasattr(display, "_app"):
                                     # Get the current round for this agent (0-indexed) and convert to 1-indexed
                                     _agent_round = self.coordination_tracker.get_agent_round(agent_id) + 1
+                                    _workspace_path = None
+                                    _log_session_dir = get_log_session_dir()
+                                    if _log_session_dir and answer_timestamp:
+                                        _workspace_path = str(
+                                            Path(_log_session_dir) / agent_id / answer_timestamp / "workspace",
+                                        )
                                     try:
                                         display.send_new_answer(
                                             agent_id=agent_id,
                                             content=result_data,
                                             answer_number=_answer_number,
                                             answer_label=_answer_label,
+                                            workspace_path=_workspace_path,
                                             submission_round=_agent_round,
                                         )
                                     except TypeError:
@@ -6260,6 +6296,16 @@ Your answer:"""
                                             content=result_data,
                                             answer_number=_answer_number,
                                             answer_label=_answer_label,
+                                            workspace_path=_workspace_path,
+                                        )
+                                    # Record for timeline visualization
+                                    if hasattr(display, "record_answer_with_context"):
+                                        _context = self.coordination_tracker.get_agent_context_labels(agent_id)
+                                        display.record_answer_with_context(
+                                            agent_id=agent_id,
+                                            answer_label=_answer_label,
+                                            context_sources=_context,
+                                            round_num=_agent_round,
                                         )
                             # Update status file for real-time monitoring
                             # Run in executor to avoid blocking event loop
@@ -6425,6 +6471,20 @@ Your answer:"""
                                                 target_id=result_data.get("agent_id", ""),
                                                 reason=result_data.get("reason", ""),
                                             )
+                                            # Record for timeline visualization
+                                            if hasattr(display, "record_vote_with_context"):
+                                                _vote_round = self.coordination_tracker.get_agent_round(agent_id) + 1
+                                                _context = self.coordination_tracker.get_agent_context_labels(agent_id)
+                                                _agent_idx = self.coordination_tracker.agent_ids.index(agent_id) + 1 if agent_id in self.coordination_tracker.agent_ids else 0
+                                                _vote_count = len([m for m in (self.coordination_tracker.votes or []) if getattr(m, "voter_id", None) == agent_id])
+                                                _vote_label = f"vote{_agent_idx}.{_vote_count}"
+                                                display.record_vote_with_context(
+                                                    voter_id=agent_id,
+                                                    vote_label=_vote_label,
+                                                    voted_for=result_data.get("agent_id", ""),
+                                                    available_answers=_context,
+                                                    voting_round=_vote_round,
+                                                )
                                 # Emit event (unified pipeline for main + subagent TUI)
                                 _emitter = get_event_emitter()
                                 if _emitter:
@@ -6925,11 +6985,12 @@ Your answer:"""
                         self._generated_evaluation_criteria = [
                             GeneratedCriterion(
                                 id=c.get("id", f"E{i + 1}"),
-                                text=c["text"],
+                                text=c.get("text") or c.get("description") or c.get("name", ""),
                                 category=c.get("category", "should"),
                                 verify_by=c.get("verify_by") or None,
                             )
                             for i, c in enumerate(criteria_data)
+                            if c.get("text") or c.get("description") or c.get("name")
                         ]
                         self._evaluation_criteria_generated = True
                         logger.info(
@@ -7092,6 +7153,25 @@ Your answer:"""
 
                     # Write the answer content (even if empty for final snapshots)
                     content_to_write = answer_content if answer_content is not None else ""
+
+                    # Normalize workspace paths in final answer so they reference
+                    # the adjacent workspace/ directory in the log structure
+                    if is_final and content_to_write and agent.backend.filesystem_manager:
+                        original_cwd = getattr(agent.backend.filesystem_manager, "cwd", None)
+                        if original_cwd:
+                            dest_workspace = str(timestamped_dir / "workspace")
+                            content_to_write = content_to_write.replace(
+                                str(original_cwd),
+                                dest_workspace,
+                            )
+                            # Also try resolved path in case they differ
+                            resolved_cwd = str(Path(original_cwd).resolve())
+                            if resolved_cwd != str(original_cwd):
+                                content_to_write = content_to_write.replace(
+                                    resolved_cwd,
+                                    dest_workspace,
+                                )
+
                     answer_file.write_text(content_to_write)
                     logger.info(
                         f"[Orchestrator._save_agent_snapshot] Saved answer to {answer_file}",
@@ -7841,7 +7921,51 @@ Your answer:"""
                     ],
                 )
 
+        # Append essential files from injected agents so the receiving agent
+        # can evaluate without re-reading from workspace
+        essential_files_block = self._build_essential_files_for_injection(
+            agent_id,
+            list(new_answers.keys()),
+        )
+        if essential_files_block:
+            injection_parts.extend(["", essential_files_block])
+
         return "\n".join(injection_parts)
+
+    def _build_essential_files_for_injection(
+        self,
+        receiving_agent_id: str,
+        source_agent_ids: list[str],
+    ) -> str | None:
+        """Build essential files content for mid-stream injection.
+
+        Loads manifests from the injected agents and formats pre-loaded
+        content so the receiving agent can evaluate without re-reading.
+        """
+        if not self._snapshot_storage:
+            return None
+
+        # Load manifests only for the source agents being injected
+        agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+        manifests: dict[str, Any] = {}
+        snapshot_base = Path(self._snapshot_storage)
+
+        for source_agent_id in source_agent_ids:
+            anon_id = agent_mapping.get(source_agent_id, source_agent_id)
+            manifest_path = snapshot_base / source_agent_id / "memory" / "short_term" / "essential_files_manifest.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if isinstance(manifest_data, dict) and manifest_data.get("version") == 1:
+                    manifests[anon_id] = manifest_data
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        if not manifests:
+            return None
+
+        return self._format_essential_files_context_block(manifests, receiving_agent_id)
 
     def _on_subagent_complete(
         self,
@@ -11444,6 +11568,173 @@ Your answer:"""
             return None
         return "\n\n".join(normalized)
 
+    def _load_essential_files_manifests(
+        self,
+        agent_id: str,
+    ) -> dict[str, Any]:
+        """Load essential_files_manifest.json from all agents' snapshots.
+
+        Returns a dict mapping anonymous agent ID to parsed manifest data.
+        Skips agents without manifests or with invalid JSON.
+        """
+        manifests: dict[str, Any] = {}
+        if not self._snapshot_storage:
+            return manifests
+
+        agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+        snapshot_base = Path(self._snapshot_storage)
+
+        for source_agent_id in self.agents:
+            anon_id = agent_mapping.get(source_agent_id, source_agent_id)
+            manifest_path = snapshot_base / source_agent_id / "memory" / "short_term" / "essential_files_manifest.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if not isinstance(manifest_data, dict) or manifest_data.get("version") != 1:
+                    logger.warning(
+                        f"[EssentialFiles] Invalid manifest version for {source_agent_id}, skipping",
+                    )
+                    continue
+                manifests[anon_id] = manifest_data
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    f"[EssentialFiles] Failed to load manifest for {source_agent_id}: {e}",
+                )
+        return manifests
+
+    def _format_essential_files_context_block(
+        self,
+        manifests: dict[str, Any],
+        agent_id: str,
+    ) -> str | None:
+        """Format essential files manifests as an XML context block for user message injection.
+
+        Reads file contents for read_whole_file=true entries, includes read guidance
+        for read_whole_file=false entries. Groups by agent with anonymous IDs.
+        Uses the same eviction pattern as tool results for files exceeding 20K tokens.
+        """
+        if not manifests:
+            return None
+
+        agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+        # Get answer labels for each agent
+        answer_labels: dict[str, str] = {}
+        for aid, answers_list in self.coordination_tracker.answers_by_agent.items():
+            anon = agent_mapping.get(aid, aid)
+            if answers_list:
+                answer_labels[anon] = answers_list[-1].label
+
+        snapshot_base = Path(self._snapshot_storage) if self._snapshot_storage else None
+
+        parts = [
+            "<essential_files>",
+            "<instructions>",
+            "Files from previous answers are pre-loaded below, grouped by agent.",
+            "DO NOT re-read pre-loaded files unless you modify them.",
+            'Files listed under "Read These" at the end of each agent section were too large to',
+            "pre-load — read ALL of them in parallel at the start of your round.",
+            "</instructions>",
+        ]
+
+        for anon_id, manifest in sorted(manifests.items()):
+            label = answer_labels.get(anon_id, anon_id)
+            summary = manifest.get("summary", "")
+            files = manifest.get("files", [])
+            if not files:
+                continue
+
+            parts.append(f'\n<agent id="{anon_id}" answer_label="{label}">')
+            if summary:
+                parts.append(f"<summary>{summary}</summary>")
+
+            preloaded_files = []
+            read_guidance_files = []
+
+            for file_entry in files:
+                file_path = file_entry.get("path", "")
+                why = file_entry.get("why", "")
+                read_whole = file_entry.get("read_whole_file", False)
+                how_to_read = file_entry.get("how_to_read")
+
+                if not file_path:
+                    continue
+
+                if read_whole:
+                    preloaded_files.append(file_entry)
+                else:
+                    read_guidance_files.append(file_entry)
+
+            # Render pre-loaded files
+            for file_entry in preloaded_files:
+                file_path = file_entry["path"]
+                display_path = f"{anon_id}/{file_path}"
+
+                # Resolve actual file from snapshot
+                content = None
+                if snapshot_base:
+                    # Find the real agent ID for this anon ID
+                    real_agent_id = None
+                    for aid, anon in agent_mapping.items():
+                        if anon == anon_id:
+                            real_agent_id = aid
+                            break
+                    if real_agent_id:
+                        actual_path = snapshot_base / real_agent_id / file_path
+                        if actual_path.exists() and actual_path.is_file():
+                            try:
+                                content = actual_path.read_text(encoding="utf-8")
+                            except (OSError, UnicodeDecodeError) as e:
+                                content = f"[Error reading file: {e}]"
+
+                if content is not None:
+                    # Check if content is too large (use same threshold as tool eviction)
+                    from .filesystem_manager._constants import (
+                        TOOL_RESULT_EVICTION_PREVIEW_TOKENS,
+                        TOOL_RESULT_EVICTION_THRESHOLD_TOKENS,
+                    )
+
+                    # Rough token estimate: ~4 chars per token
+                    estimated_tokens = len(content) // 4
+                    if estimated_tokens > TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:
+                        # Show preview only
+                        preview_chars = TOOL_RESULT_EVICTION_PREVIEW_TOKENS * 4
+                        preview = content[:preview_chars]
+                        parts.append(
+                            f'\n<file path="{display_path}" preview="true" ' f'chars="0-{preview_chars}" total="{len(content)}">',
+                        )
+                        parts.append(preview)
+                        parts.append("</file>")
+                    else:
+                        parts.append(f'\n<file path="{display_path}">')
+                        parts.append(content)
+                        parts.append("</file>")
+                else:
+                    parts.append(f'\n<file path="{display_path}">')
+                    parts.append("[File not found in snapshot]")
+                    parts.append("</file>")
+
+            # Render read-guidance files at end
+            if read_guidance_files:
+                parts.append("\n<read_these>")
+                parts.append(
+                    "Read these files in parallel at the start of your round:\n",
+                )
+                for file_entry in read_guidance_files:
+                    file_path = file_entry["path"]
+                    why = file_entry.get("why", "")
+                    how_to_read = file_entry.get("how_to_read", "")
+                    display_path = f"{anon_id}/{file_path}"
+                    parts.append(f"- `{display_path}` — {why}")
+                    if how_to_read:
+                        parts.append(f"  How to read: {how_to_read}")
+                parts.append("</read_these>")
+
+            parts.append("</agent>")
+
+        parts.append("\n</essential_files>")
+        return "\n".join(parts)
+
     def _rewrite_subagent_mcp_config_files(
         self,
         workspace_root: Any,
@@ -13230,11 +13521,15 @@ Your answer:"""
         context_labels = self.coordination_tracker.get_agent_context_labels(agent_id)
         round_type = "voting" if answers else "initial_answer"
 
-        # Emit round_start event for TUI display (round banners)
+        # Emit round_start event for UI display (round banners)
+        # Use _agent_display_round (monotonically increasing per agent) so every
+        # execution — answer, vote, or final — gets a unique round number.
+        display_round = self._agent_display_round.get(agent_id, -1) + 1
+        self._agent_display_round[agent_id] = display_round
 
         event_emitter = get_event_emitter()
         if event_emitter:
-            event_emitter.emit_round_start(round_number=current_round, agent_id=agent_id)
+            event_emitter.emit_round_start(round_number=display_round, agent_id=agent_id)
 
         span_attributes = {
             "massgen.agent_id": agent_id,
@@ -13449,6 +13744,12 @@ Your answer:"""
                 except Exception:
                     pass  # TUI notification is non-critical
 
+            # Check if essential files manifests exist for this round
+            _essential_files_active = False
+            if normalized_answers and current_round > 0 and self._snapshot_storage:
+                _ef_base = Path(self._snapshot_storage)
+                _essential_files_active = any((_ef_base / aid / "memory" / "short_term" / "essential_files_manifest.json").exists() for aid in self.agents)
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -13491,6 +13792,7 @@ Your answer:"""
                 item_verify_by=_active_verify_by,
                 builder_enabled=self._is_builder_subagent_enabled(),
                 regression_guard_enabled=self._is_regression_guard_subagent_enabled(),
+                essential_files_active=_essential_files_active,
             )
 
             # Update checklist tool state if registered (mutable dict — tool closure reads this)
@@ -13631,9 +13933,24 @@ Your answer:"""
             stale_answer_note = None
             if agent_id in self._evolved_prompts and normalized_answers:
                 stale_answer_note = "Note: The answers below were produced for an earlier " "version of this task and may not fully satisfy the " "evolved requirements above."
+
+            # Load and inject essential files manifests from previous rounds
+            essential_files_block = None
+            if normalized_answers and current_round > 0:
+                manifests = self._load_essential_files_manifests(agent_id)
+                if manifests:
+                    essential_files_block = self._format_essential_files_context_block(
+                        manifests,
+                        agent_id,
+                    )
+                    if essential_files_block:
+                        logger.info(
+                            f"[Orchestrator] Injecting essential_files block for {agent_id}" f" ({len(essential_files_block)} chars," f" {len(manifests)} agent manifest(s))",
+                        )
+
             conversation["user_message"] = self._insert_runtime_context_blocks_after_original_message(
                 conversation["user_message"],
-                [stale_answer_note, round_start_context, runtime_user_instructions],
+                [stale_answer_note, round_start_context, essential_files_block, runtime_user_instructions],
             )
 
             # Track all the context used for this agent execution
@@ -18091,7 +18408,27 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             # Write answer.txt alongside workspace
             answer_data = answers.get(selected)
             if answer_data and answer_data.get("answer"):
-                (final_dir / "answer.txt").write_text(answer_data["answer"])
+                answer_content = answer_data["answer"]
+                # Normalize workspace paths to reference adjacent workspace/
+                dest_workspace = str(final_dir / "workspace")
+                original_cwd = getattr(fm, "cwd", None)
+                if original_cwd:
+                    answer_content = answer_content.replace(
+                        str(original_cwd),
+                        dest_workspace,
+                    )
+                    resolved_cwd = str(Path(original_cwd).resolve())
+                    if resolved_cwd != str(original_cwd):
+                        answer_content = answer_content.replace(
+                            resolved_cwd,
+                            dest_workspace,
+                        )
+                if str(source) != dest_workspace:
+                    answer_content = answer_content.replace(
+                        str(source),
+                        dest_workspace,
+                    )
+                (final_dir / "answer.txt").write_text(answer_content)
 
             logger.info(
                 "[Orchestrator] Created final/ directory on shutdown for %s at %s",
@@ -18501,22 +18838,28 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             )
 
     def _namespace_verification_memory_files(self, archive_path: Path, agent_id: str) -> None:
-        """Namespace verification_latest memories so per-agent files never collide."""
+        """Namespace verification_latest and essential_files_manifest so per-agent files never collide."""
         token = self.coordination_tracker.get_path_token(agent_id)
         namespaced_name = f"verification_latest__{token}.md"
+        namespaced_manifest = f"essential_files_manifest__{token}.json"
         for tier in ("short_term", "long_term"):
             tier_dir = archive_path / tier
             if not tier_dir.exists():
                 continue
 
             legacy_file = tier_dir / "verification_latest.md"
-            if not legacy_file.exists():
-                continue
+            if legacy_file.exists():
+                namespaced_file = tier_dir / namespaced_name
+                if namespaced_file.exists():
+                    namespaced_file.unlink()
+                legacy_file.rename(namespaced_file)
 
-            namespaced_file = tier_dir / namespaced_name
-            if namespaced_file.exists():
-                namespaced_file.unlink()
-            legacy_file.rename(namespaced_file)
+            manifest_file = tier_dir / "essential_files_manifest.json"
+            if manifest_file.exists():
+                namespaced_mf = tier_dir / namespaced_manifest
+                if namespaced_mf.exists():
+                    namespaced_mf.unlink()
+                manifest_file.rename(namespaced_mf)
 
     def _get_previous_turns_context_paths(self) -> list[dict[str, Any]]:
         """

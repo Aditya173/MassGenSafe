@@ -8,6 +8,7 @@ import { FileViewerTile } from './FileViewerTile';
 import { WorkspaceBrowserTile } from './WorkspaceBrowserTile';
 import { TimelineTile } from './TimelineTile';
 import { VoteResultsTile } from './VoteResultsTile';
+import { AnswerBrowserTile } from './AnswerBrowserTile';
 import { SubagentTile } from './SubagentTile';
 import { InlineArtifactPreview } from '../../InlineArtifactPreview';
 import { useWorkspaceStore } from '../../../stores/workspaceStore';
@@ -86,13 +87,13 @@ export function TileWrapper({ tile, isActive, showClose, onDragStart, onDragEnd 
 
 function TileContent({ tile }: { tile: TileState }) {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const workspacePath = Object.keys(workspaces)[0] || '';
+  const workspacePath = tile.workspacePath || Object.keys(workspaces)[0] || '';
 
   switch (tile.type) {
     case 'agent-channel':
       return <AgentChannel agentId={tile.targetId} />;
     case 'file-viewer':
-      return <FileViewerTile filePath={tile.targetId} />;
+      return <FileViewerTile filePath={tile.targetId} workspacePath={tile.workspacePath} />;
     case 'artifact-preview':
       return workspacePath ? (
         <div className="h-full overflow-auto v2-scrollbar bg-v2-surface">
@@ -108,9 +109,11 @@ function TileContent({ tile }: { tile: TileState }) {
     case 'timeline-view':
       return <TimelineTile />;
     case 'workspace-browser':
-      return <WorkspaceBrowserTile />;
+      return <WorkspaceBrowserTile initialWorkspacePath={tile.targetId !== 'workspace' ? tile.targetId : undefined} />;
     case 'vote-results':
       return <VoteResultsTile />;
+    case 'answer-browser':
+      return <AnswerBrowserTile focusAnswerLabel={tile.targetId !== 'answers' ? tile.targetId : undefined} />;
     default:
       return null;
   }
@@ -149,6 +152,12 @@ function TileIcon({ type }: { type: TileState['type'] }) {
       return (
         <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M3 12V8M6.5 12V5M10 12V3M13.5 12V7" strokeLinecap="round" />
+        </svg>
+      );
+    case 'answer-browser':
+      return (
+        <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 1l2.1 4.2L15 6l-3.5 3.4.8 4.8L8 12l-4.3 2.2.8-4.8L1 6l4.9-.8L8 1z" />
         </svg>
       );
     default:

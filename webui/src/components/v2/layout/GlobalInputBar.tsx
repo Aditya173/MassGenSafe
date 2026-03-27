@@ -124,6 +124,9 @@ export function GlobalInputBar({
   const agentConfigs = useModeStore((s) => s.agentConfigs);
   const configLocked = useModeStore((s) => s.configLocked);
 
+  // Lock config selector and new-session during active coordination
+  const runLocked = hasActiveSession && !isComplete;
+
   // In custom mode (agentCount set, not configLocked), all agents must have a provider
   const agentsReady = configLocked || agentCount === null || agentConfigs.every((c) => c.provider);
   const canSend = isConnected && message.trim().length > 0 && agentsReady;
@@ -202,17 +205,19 @@ export function GlobalInputBar({
       )}
 
       <form onSubmit={handleSubmit} className="flex items-center gap-3">
-        {/* Config selector */}
+        {/* Config selector — locked during active coordination */}
         <div className="relative">
           <button
             type="button"
-            onClick={() => setShowConfigDropdown(!showConfigDropdown)}
+            onClick={() => { if (!runLocked) setShowConfigDropdown(!showConfigDropdown); }}
+            disabled={runLocked}
             className={cn(
               'flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-v2-input',
               'border border-v2-border bg-[var(--v2-input-bg)]',
               'text-v2-text-secondary hover:text-v2-text',
               'transition-colors duration-150 whitespace-nowrap',
-              !selectedConfig && 'text-v2-idle'
+              !selectedConfig && 'text-v2-idle',
+              runLocked && 'opacity-50 cursor-not-allowed pointer-events-none'
             )}
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

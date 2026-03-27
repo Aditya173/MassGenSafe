@@ -33,6 +33,10 @@ export function useWorkspaceConnection() {
   const sessionId = useAgentStore((s) => s.sessionId);
   const isComplete = useAgentStore((s) => s.isComplete);
   const agentCount = useAgentStore((s) => s.agentOrder.length);
+  const answerCount = useAgentStore((s) => s.answers.length);
+  const fileChangeCount = useAgentStore((s) =>
+    Object.values(s.agents).reduce((total, agent) => total + agent.files.length, 0)
+  );
 
   // Workspace store actions
   const setConnectionStatus = useWorkspaceStore((s) => s.setConnectionStatus);
@@ -56,6 +60,12 @@ export function useWorkspaceConnection() {
   const sessionIdRef = useRef(sessionId);
   const reconnectAttemptsRef = useRef(0);
   const completionEmptyPollsRef = useRef(0);
+  const liveRefreshSignatureRef = useRef({
+    sessionId: '',
+    answerCount: 0,
+    fileChangeCount: 0,
+    isComplete: false,
+  });
 
   // Keep sessionId ref updated
   useEffect(() => {
@@ -82,7 +92,8 @@ export function useWorkspaceConnection() {
             if (data.initial_files) {
               for (const [wsPath, files] of Object.entries(data.initial_files)) {
                 const fileList = files as WorkspaceFileInfo[];
-                setInitialFiles(wsPath, fileList);
+                const agentId = data.workspace_metadata?.[wsPath]?.agent_id;
+                setInitialFiles(wsPath, fileList, agentId);
               }
             }
             break;
@@ -90,7 +101,7 @@ export function useWorkspaceConnection() {
           case 'workspace_refresh':
             // Full refresh - replace all files for this workspace
             if (data.workspace_path && data.files) {
-              setInitialFiles(data.workspace_path, data.files);
+              setInitialFiles(data.workspace_path, data.files, data.agent_id);
             }
             break;
 
@@ -272,6 +283,29 @@ export function useWorkspaceConnection() {
     setRefreshSessionFn(refreshSession);
     return () => setRefreshSessionFn(null);
   }, [refreshSession, setRefreshSessionFn]);
+
+  useEffect(() => {
+    const previous = liveRefreshSignatureRef.current;
+    const sessionChanged = previous.sessionId !== sessionId;
+    const answerAdvanced = !sessionChanged && answerCount > previous.answerCount;
+    const fileChanged = !sessionChanged && fileChangeCount > previous.fileChangeCount;
+    const completedNow = !sessionChanged && isComplete && !previous.isComplete;
+
+    liveRefreshSignatureRef.current = {
+      sessionId: sessionId || '',
+      answerCount,
+      fileChangeCount,
+      isComplete,
+    };
+
+    if (!sessionId || !(answerAdvanced || fileChanged || completedNow)) {
+      return;
+    }
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'watch_session' }));
+    }
+  }, [answerCount, fileChangeCount, isComplete, sessionId]);
 
   // Auto-poll: re-send watch_session while workspaces are still missing
   // or discovered workspaces are still empty. This covers the race where

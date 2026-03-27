@@ -412,20 +412,30 @@ VALID_CRITERIA_PRESETS: frozenset[str] = frozenset(_CRITERIA_PRESETS.keys())
 def criteria_from_inline(inline_list: list[dict[str, str]]) -> list[GeneratedCriterion]:
     """Convert inline criteria dicts to GeneratedCriterion objects.
 
+    Accepts 'text' as the primary key, with 'description' and 'name' as fallbacks.
+
     Args:
-        inline_list: List of dicts with 'text' and 'category' keys.
+        inline_list: List of dicts with 'text' (or 'description'/'name') and 'category' keys.
 
     Returns:
         List of GeneratedCriterion with E1..EN IDs.
+
+    Raises:
+        ValueError: If a criterion has no text content (no 'text', 'description', or 'name' key).
     """
     criteria: list[GeneratedCriterion] = []
     for i, item in enumerate(inline_list):
-        # Accept any category from user configs for backward compat, but promote to "must".
+        # Accept common aliases: description, name -> text
+        text = item.get("text") or item.get("description") or item.get("name")
+        if not text:
+            raise ValueError(
+                f"Criterion {i + 1} is missing required 'text' field. " f'Expected format: {{"text": "...", "category": "must|should|could"}}. ' f"Got keys: {list(item.keys())}",
+            )
         verify_by = str(item.get("verify_by") or "").strip() or None
         criteria.append(
             GeneratedCriterion(
                 id=f"E{i + 1}",
-                text=item["text"],
+                text=text,
                 category="must",
                 verify_by=verify_by,
             ),

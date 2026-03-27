@@ -3,11 +3,12 @@ import { InlineArtifactPreview } from '../../InlineArtifactPreview';
 
 interface FileViewerTileProps {
   filePath: string;
+  workspacePath?: string;
 }
 
-export function FileViewerTile({ filePath }: FileViewerTileProps) {
+export function FileViewerTile({ filePath, workspacePath: explicitWorkspacePath }: FileViewerTileProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const workspacePath = Object.keys(workspaces)[0] || '';
+  const workspacePath = explicitWorkspacePath || Object.keys(workspaces)[0] || '';
 
   if (!workspacePath) {
     return (

@@ -68,6 +68,11 @@ export function SessionSection({ collapsed, onSessionChange, onNewSession, onCon
   const searchInputRef = useRef<HTMLInputElement>(null);
   const currentSessionId = useAgentStore((s) => s.sessionId);
   const question = useAgentStore((s) => s.question);
+  const isComplete = useAgentStore((s) => s.isComplete);
+  const automationMode = useAgentStore((s) => s.automationMode);
+  // Only lock session switching during active automation runs.
+  // Interactive mode (--web without --automation) should always allow browsing.
+  const runLocked = automationMode && !!question && !isComplete;
 
   const handleSwitchSession = useCallback((session: SessionInfo) => {
     const sessionId = session.session_id;
@@ -80,32 +85,6 @@ export function SessionSection({ collapsed, onSessionChange, onNewSession, onCon
     if (session.config_path && onConfigChange) {
       onConfigChange(session.config_path);
     }
-
-    // Fetch and replay event history for v2 message store
-    fetch(`/api/sessions/${sessionId}/events`)
-      .then((res) => res.json())
-      .then((data: { events?: Array<Record<string, unknown>> }) => {
-        if (data.events && data.events.length > 0) {
-          const msgStore = useMessageStore.getState();
-          const agentSt = useAgentStore.getState();
-
-          for (const event of data.events) {
-            const ev = event as Record<string, unknown>;
-            // Initialize agentStore from the synthesized init event
-            if (ev.type === 'init' && ev.agents && ev.question) {
-              agentSt.initSession(
-                sessionId,
-                ev.question as string,
-                ev.agents as string[],
-                'dark',
-                ev.agent_models as Record<string, string> | undefined,
-              );
-            }
-            msgStore.processWSEvent(ev as unknown as import('../../../types').WSEvent);
-          }
-        }
-      })
-      .catch(() => {});
   }, [onSessionChange, onConfigChange, currentSessionId]);
 
   const fetchSessions = useCallback(() => {
@@ -204,13 +183,15 @@ export function SessionSection({ collapsed, onSessionChange, onNewSession, onCon
             Sessions
           </span>
           <button
-            onClick={onNewSession}
+            onClick={runLocked ? undefined : onNewSession}
+            disabled={runLocked}
             className={cn(
               'flex items-center justify-center w-4 h-4 rounded',
               'text-v2-text-muted hover:text-v2-text',
-              'transition-colors duration-150'
+              'transition-colors duration-150',
+              runLocked && 'opacity-40 cursor-not-allowed'
             )}
-            title="New session"
+            title={runLocked ? 'Locked during active run' : 'New session'}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -295,7 +276,8 @@ export function SessionSection({ collapsed, onSessionChange, onNewSession, onCon
                         subtitle={subtitle}
                         active={isActive}
                         collapsed={collapsed}
-                        onClick={isActive ? undefined : () => handleSwitchSession(session)}
+                        disabled={runLocked && !isActive}
+                        onClick={isActive || runLocked ? undefined : () => handleSwitchSession(session)}
                       />
                     </div>
                     {/* Info + kebab buttons — visible on hover */}
@@ -430,22 +412,25 @@ interface SidebarItemProps {
   subtitle?: string;
   active?: boolean;
   collapsed: boolean;
+  disabled?: boolean;
   onClick?: () => void;
 }
 
-export function SidebarItem({ icon, label, subtitle, active, collapsed, onClick }: SidebarItemProps) {
+export function SidebarItem({ icon, label, subtitle, active, collapsed, disabled, onClick }: SidebarItemProps) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className={cn(
         'flex items-center gap-2 w-full rounded px-2 py-1.5 text-sm',
         'transition-colors duration-100',
         active
           ? 'bg-[var(--v2-channel-active)] text-v2-text'
           : 'text-v2-text-secondary hover:bg-[var(--v2-channel-hover)] hover:text-v2-text',
-        collapsed && 'justify-center px-0'
+        collapsed && 'justify-center px-0',
+        disabled && 'opacity-40 cursor-not-allowed hover:bg-transparent'
       )}
-      title={collapsed ? label : undefined}
+      title={collapsed ? label : (disabled ? 'Locked during active run' : undefined)}
     >
       <span className="shrink-0 flex items-center justify-center w-5 h-5">
         {icon}

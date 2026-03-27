@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { cn } from '../../../../lib/utils';
 import type { ToolCallMessage } from '../../../../stores/v2/messageStore';
 import type { HookExecutionInfo } from '../../../../types';
@@ -9,6 +9,7 @@ interface ToolCallMessageViewProps {
 
 export function ToolCallMessageView({ message }: ToolCallMessageViewProps) {
   const [expanded, setExpanded] = useState(false);
+  const detailsRef = useRef<HTMLDivElement>(null);
 
   const isPending = message.result === undefined;
   const isCheckpoint = message.toolName === 'mcp__massgen_checkpoint__checkpoint'
@@ -74,7 +75,15 @@ export function ToolCallMessageView({ message }: ToolCallMessageViewProps) {
           'hover:bg-[var(--v2-channel-hover)] transition-colors duration-100',
           expanded && 'v2-tool-row-expanded'
         )}
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          const willExpand = !expanded;
+          setExpanded(willExpand);
+          if (willExpand) {
+            requestAnimationFrame(() => {
+              detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+          }
+        }}
       >
         <svg
           className="v2-hover-chevron w-3 h-3 shrink-0 text-v2-text-muted"
@@ -111,7 +120,7 @@ export function ToolCallMessageView({ message }: ToolCallMessageViewProps) {
 
       {/* Expanded details — subtle left border */}
       {expanded && (
-        <div className="ml-1.5 border-l border-v2-border-subtle pl-3 mt-0.5 space-y-2 animate-v2-fade-in">
+        <div ref={detailsRef} className="ml-1.5 border-l border-v2-border-subtle pl-3 mt-0.5 space-y-2 animate-v2-fade-in">
           {Object.keys(message.args).length > 0 && (
             <div className="rounded bg-v2-surface p-2 border border-v2-border-subtle">
               <div className="text-[11px] uppercase tracking-wider text-v2-text-muted mb-1">Args</div>

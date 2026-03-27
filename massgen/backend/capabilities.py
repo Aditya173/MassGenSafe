@@ -723,6 +723,7 @@ AGENT_FRAMEWORK_BACKENDS = frozenset(
         "claude_code",
         "codex",
         "copilot",
+        "gemini_cli",
     },
 )
 

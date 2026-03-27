@@ -12,6 +12,7 @@ describe('AnswerMessageView', () => {
     answerLabel: 'agent1.1',
     answerNumber: 1,
     contentPreview: 'Love is the hush between two storms, a candle cupped in careful hands, a door left open in the cold.',
+    fullContent: 'Love is the hush between two storms, a candle cupped in careful hands, a door left open in the cold. It is the thread that holds the world together when everything else falls apart.',
   }
 
   it('shows truncated preview by default', () => {

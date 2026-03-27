@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import datetime
 import json
 import logging
 import logging.handlers
@@ -120,6 +121,37 @@ _log_dir_cache: tuple[list[dict[str, Any]], float] | None = None
 _LOG_DIR_CACHE_TTL = 30.0  # seconds
 
 
+def _coerce_session_sort_timestamp(value: Any) -> float | None:
+    """Normalize supported session timestamp values into comparable floats."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            pass
+        normalized = f"{stripped[:-1]}+00:00" if stripped.endswith("Z") else stripped
+        try:
+            return datetime.datetime.fromisoformat(normalized).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _session_sort_timestamp(*values: Any) -> float:
+    """Return the first valid normalized timestamp from the provided values."""
+    for value in values:
+        normalized = _coerce_session_sort_timestamp(value)
+        if normalized is not None:
+            return normalized
+    return 0.0
+
+
 def _find_latest_attempt(log_dir: Path) -> Path | None:
     """Find the latest turn/attempt subdirectory in a log directory.
 
@@ -205,7 +237,10 @@ def _scan_log_dirs(logs_root: Path) -> list[dict[str, Any]]:
         except Exception:
             continue
 
-    results.sort(key=lambda r: r.get("start_time") or "", reverse=True)
+    results.sort(
+        key=lambda r: _session_sort_timestamp(r.get("start_time")),
+        reverse=True,
+    )
     return results
 
 
@@ -382,6 +417,8 @@ def _should_skip_dir(dir_name: str) -> bool:
     """
     import fnmatch
 
+    if dir_name == ".massgen_scratch":
+        return False
     if dir_name.startswith("."):
         return True
     if dir_name in SKIP_DIRS_FOR_LOGGING:
@@ -493,19 +530,13 @@ def _discover_logged_workspace_candidates(log_session_dir: Path | None) -> dict[
     return dict(candidates)
 
 
-def _resolve_watch_session_workspaces(
+def _extract_live_workspace_paths(
     status_data: dict[str, Any] | None,
-    log_session_dir: Path | None,
-) -> list[tuple[str, list[dict]]]:
-    """Choose the best visible workspace per agent for the workspace websocket.
-
-    Prefers the live workspace from status.json when it already contains visible
-    files. If the live workspace is metadata-only, falls back to logged answer
-    or final snapshots so the browser can still surface meaningful artifacts.
-    """
+) -> tuple[list[str], dict[str, str]]:
+    """Extract live workspace paths keyed by agent ID from status data."""
     agents_data = (status_data or {}).get("agents", {})
-    current_paths_by_agent: dict[str, str] = {}
     ordered_agent_ids: list[str] = []
+    current_paths_by_agent: dict[str, str] = {}
 
     for agent_id, agent_info in agents_data.items():
         ordered_agent_ids.append(agent_id)
@@ -513,6 +544,33 @@ def _resolve_watch_session_workspaces(
         workspace_path = workspace_paths.get("workspace")
         if workspace_path and Path(workspace_path).exists():
             current_paths_by_agent[agent_id] = str(Path(workspace_path).resolve())
+
+    return ordered_agent_ids, current_paths_by_agent
+
+
+def _resolve_watch_session_workspaces(
+    status_data: dict[str, Any] | None,
+    log_session_dir: Path | None,
+    fallback_live_workspaces_by_agent: dict[str, str] | None = None,
+) -> list[tuple[str, str, list[dict]]]:
+    """Return the live workspace for each agent for the workspace websocket.
+
+    Historical answer/final snapshots are surfaced through their own APIs and
+    should not silently replace a live workspace in the always-on workspace
+    stream when that live workspace exists, even when it is still empty.
+    If no live workspace path is available at all, the best logged snapshot is
+    used as a compatibility fallback so the browser still has something to show.
+    """
+    ordered_agent_ids, current_paths_by_agent = _extract_live_workspace_paths(status_data)
+
+    if fallback_live_workspaces_by_agent:
+        for agent_id, workspace_path in fallback_live_workspaces_by_agent.items():
+            if agent_id not in ordered_agent_ids:
+                ordered_agent_ids.append(agent_id)
+            if agent_id in current_paths_by_agent:
+                continue
+            if workspace_path and Path(workspace_path).exists():
+                current_paths_by_agent[agent_id] = str(Path(workspace_path).resolve())
 
     logged_candidates = _discover_logged_workspace_candidates(log_session_dir)
     for agent_id in logged_candidates:
@@ -526,34 +584,23 @@ def _resolve_watch_session_workspaces(
             scan_cache[path] = _scan_workspace_files(Path(path))
         return scan_cache[path]
 
-    resolved: list[tuple[str, list[dict]]] = []
+    resolved: list[tuple[str, str, list[dict]]] = []
     seen_paths: set[str] = set()
 
     for agent_id in ordered_agent_ids:
-        candidates: list[str] = []
         current_path = current_paths_by_agent.get(agent_id)
         if current_path:
-            candidates.append(current_path)
-        for candidate in logged_candidates.get(agent_id, []):
-            if candidate not in candidates:
-                candidates.append(candidate)
-        if not candidates:
-            continue
-
-        chosen_path = candidates[0]
-        chosen_files = scan(chosen_path)
-        if not chosen_files:
-            for candidate in candidates[1:]:
-                candidate_files = scan(candidate)
-                if candidate_files:
-                    chosen_path = candidate
-                    chosen_files = candidate_files
-                    break
+            chosen_path = current_path
+        else:
+            candidates = logged_candidates.get(agent_id, [])
+            if not candidates:
+                continue
+            chosen_path = candidates[0]
 
         if chosen_path in seen_paths:
             continue
         seen_paths.add(chosen_path)
-        resolved.append((chosen_path, chosen_files))
+        resolved.append((agent_id, chosen_path, scan(chosen_path)))
 
     return resolved
 
@@ -573,7 +620,13 @@ class WorkspaceConnectionManager:
         self._connection_count = 0
         workspace_logger.info("WorkspaceConnectionManager initialized")
 
-    async def connect(self, websocket: WebSocket, session_id: str, workspace_paths: list[str]) -> None:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        session_id: str,
+        workspace_paths: list[str],
+        workspace_metadata: dict[str, dict[str, str]] | None = None,
+    ) -> bool:
         """Accept and register a WebSocket connection for workspace file listing.
 
         Scans workspace directories and sends initial file list on connect.
@@ -588,10 +641,6 @@ class WorkspaceConnectionManager:
 
         await websocket.accept()
         workspace_logger.debug(f"[Conn #{conn_id}] WebSocket accepted")
-
-        if session_id not in self.workspace_connections:
-            self.workspace_connections[session_id] = set()
-        self.workspace_connections[session_id].add(websocket)
 
         # Collect initial file lists from workspace paths
         watched = []
@@ -618,21 +667,31 @@ class WorkspaceConnectionManager:
                 workspace_logger.warning(f"[Conn #{conn_id}] Path does not exist, skipping: {path}")
 
         # Send connected confirmation with initial file lists
-        await websocket.send_json(
-            {
-                "type": "workspace_connected",
-                "session_id": session_id,
-                "timestamp": asyncio.get_event_loop().time(),
-                "watched_paths": watched,
-                "initial_files": initial_files,
-            },
-        )
+        try:
+            await websocket.send_json(
+                {
+                    "type": "workspace_connected",
+                    "session_id": session_id,
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "watched_paths": watched,
+                    "initial_files": initial_files,
+                    "workspace_metadata": workspace_metadata or {},
+                },
+            )
+        except (WebSocketDisconnect, RuntimeError):
+            workspace_logger.info(f"[Conn #{conn_id}] Client disconnected before initial send")
+            return False
+
+        if session_id not in self.workspace_connections:
+            self.workspace_connections[session_id] = set()
+        self.workspace_connections[session_id].add(websocket)
 
         workspace_logger.info(
             f"[Conn #{conn_id}] WebSocket CONNECTED: session={session_id}, "
             f"watching {len(watched)}/{len(workspace_paths)} paths, "
             f"total_connections={sum(len(conns) for conns in self.workspace_connections.values())}",
         )
+        return True
 
     def disconnect(self, websocket: WebSocket, session_id: str) -> None:
         """Remove a WebSocket connection."""
@@ -791,12 +850,16 @@ def create_app(
     config_path: str | None = None,
     automation_mode: bool = False,
     temporary_quickstart_session: dict[str, Any] | None = None,
+    cli_overrides: dict | None = None,
+    pending_question: str | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
         config_path: Default config path for coordination sessions
         automation_mode: If True, UI shows automation-friendly timeline view
+        cli_overrides: CLI flag overrides forwarded from cli_main --web
+        pending_question: Question from CLI to auto-start when first client connects
     """
     if not FASTAPI_AVAILABLE:
         raise ImportError(
@@ -813,9 +876,16 @@ def create_app(
         version="0.1.0",
     )
 
-    # Store automation_mode in app state for WebSocket access
+    # Store automation_mode in app state for server-side behavior (log
+    # suppression) but never send it to the frontend — the WebUI should
+    # always render the full UI regardless of how the run was started.
     app.state.automation_mode = automation_mode
     app.state.temporary_quickstart_session = temporary_quickstart_session
+    app.state.cli_overrides = cli_overrides
+    # Pending question from CLI --web "question" — auto-starts coordination
+    # when the first WebSocket client connects, giving the user the full
+    # visual experience (loading screen, preparation, agent cards, etc.).
+    app.state.pending_question = pending_question
 
     # CORS for development
     app.add_middleware(
@@ -848,6 +918,55 @@ def create_app(
         logger.warning("Failed to load persisted sessions", exc_info=True)
 
     # =========================================================================
+    # Automation: auto-start coordination immediately (don't wait for browser)
+    # =========================================================================
+
+    if automation_mode and pending_question:
+
+        @app.on_event("startup")
+        async def _auto_start_coordination():
+            """Start coordination immediately in automation mode.
+
+            The browser can connect later and receive the current state via
+            state_snapshot — no need to wait for a WebSocket connection.
+            """
+            import uuid
+
+            session_id = f"auto-{uuid.uuid4().hex[:12]}"
+            cfg_path = get_default_config()
+            if not cfg_path:
+                logger.warning("[AutoStart] No config path available, skipping auto-start")
+                return
+
+            q = app.state.pending_question
+            if not q:
+                return
+            app.state.pending_question = None  # consume
+
+            # Store the auto-started session ID so the frontend can find it
+            app.state.auto_session_id = session_id
+
+            logger.info(f"[AutoStart] Starting coordination immediately: session={session_id}")
+            task = asyncio.create_task(
+                run_coordination(
+                    session_id,
+                    q,
+                    cfg_path,
+                    cli_overrides=getattr(app.state, "cli_overrides", None),
+                ),
+            )
+            manager.tasks[session_id] = task
+
+            # In automation mode, shut down the server when coordination finishes
+            def _shutdown_on_complete(fut):
+                server = getattr(app.state, "uvicorn_server", None)
+                if server is not None:
+                    logger.info("[AutoStart] Coordination finished — shutting down server")
+                    server.should_exit = True
+
+            task.add_done_callback(_shutdown_on_complete)
+
+    # =========================================================================
     # API Routes
     # =========================================================================
 
@@ -855,6 +974,17 @@ def create_app(
     async def health_check():
         """Health check endpoint."""
         return {"status": "ok", "service": "massgen-web"}
+
+    @app.get("/api/active-session")
+    async def get_active_session():
+        """Get the currently running session ID (for automation auto-connect)."""
+        auto_id = getattr(app.state, "auto_session_id", None)
+        if auto_id and auto_id in manager.displays:
+            return {"session_id": auto_id, "source": "automation"}
+        # Fall back to any active session
+        for sid in manager.displays:
+            return {"session_id": sid, "source": "active"}
+        return {"session_id": None}
 
     @app.get("/api/config")
     async def get_config():
@@ -1608,6 +1738,9 @@ def create_app(
                 has_api_key = True
             elif backend_type == "codex":
                 # Codex always shows - works with OAuth (codex login) or OPENAI_API_KEY
+                has_api_key = True
+            elif backend_type == "gemini_cli":
+                # Gemini CLI always shows - works with `gemini` CLI login, GOOGLE_API_KEY, or GEMINI_API_KEY
                 has_api_key = True
             elif caps.env_var:
                 api_key = os.getenv(caps.env_var, "")
@@ -2368,8 +2501,11 @@ def create_app(
             pass  # Don't break session list if log scanning fails
 
         # Sort by start_time/completed_at descending, limit to 50
-        def _sort_key(s: dict) -> str:
-            return s.get("start_time") or s.get("completed_at") or ""
+        def _sort_key(s: dict) -> float:
+            return _session_sort_timestamp(
+                s.get("start_time"),
+                s.get("completed_at"),
+            )
 
         sessions.sort(key=_sort_key, reverse=True)
         return {"sessions": sessions[:50]}
@@ -4296,7 +4432,12 @@ def create_app(
 
         # Start orchestration in background
         task = asyncio.create_task(
-            run_coordination(session_id, question, cfg_path),
+            run_coordination(
+                session_id,
+                question,
+                cfg_path,
+                cli_overrides=getattr(app.state, "cli_overrides", None),
+            ),
         )
         manager.tasks[session_id] = task
 
@@ -4399,25 +4540,59 @@ def create_app(
         await manager.connect(websocket, session_id)
 
         try:
+            # Send current state if session exists.
             # Send current state if session exists
             display = manager.get_display(session_id)
             if display:
                 await websocket.send_json(
                     {
                         "type": "state_snapshot",
-                        "automation_mode": app.state.automation_mode,
                         **display.get_state_snapshot(),
                     },
                 )
             else:
-                # Send init message with automation_mode even without display
                 await websocket.send_json(
                     {
                         "type": "init",
-                        "automation_mode": app.state.automation_mode,
                         "session_id": session_id,
                     },
                 )
+
+            # Auto-start coordination if a pending question was provided via
+            # CLI (e.g. `massgen --web "question"`).  Pop atomically so only
+            # the first connecting client triggers the run.
+            pending_q = getattr(app.state, "pending_question", None)
+            if pending_q and not display:
+                app.state.pending_question = None  # consume — one-shot
+                cfg_path = get_default_config()
+                if cfg_path and pending_q:
+                    # Send preparation_status with question so the frontend
+                    # can show the launch sequence (LaunchIndicator) immediately.
+                    await websocket.send_json(
+                        {
+                            "type": "preparation_status",
+                            "status": "Received prompt...",
+                            "detail": "Preparing to start coordination",
+                            "question": pending_q,
+                            "session_id": session_id,
+                        },
+                    )
+                    task = asyncio.create_task(
+                        run_coordination(
+                            session_id,
+                            pending_q,
+                            cfg_path,
+                            cli_overrides=getattr(app.state, "cli_overrides", None),
+                        ),
+                    )
+                    manager.tasks[session_id] = task
+                    await websocket.send_json(
+                        {
+                            "type": "coordination_started",
+                            "session_id": session_id,
+                            "config": cfg_path,
+                        },
+                    )
 
             # Handle incoming messages
             while True:
@@ -4492,6 +4667,7 @@ def create_app(
                                 cfg_path,
                                 context_paths,
                                 mode_overrides=mode_overrides or None,
+                                cli_overrides=getattr(app.state, "cli_overrides", None),
                             ),
                         )
                         manager.tasks[session_id] = task
@@ -4641,6 +4817,7 @@ def create_app(
                             turn_number=next_turn,
                             context_paths=context_paths,
                             mode_overrides=cont_mode_overrides or None,
+                            cli_overrides=getattr(app.state, "cli_overrides", None),
                         ),
                     )
                     manager.tasks[session_id] = task
@@ -4729,7 +4906,9 @@ def create_app(
         workspace_logger.info(f"WS endpoint: new connection for session={session_id}")
 
         # Get workspace paths from query params or wait for watch action
-        initial_paths = []
+        initial_paths: list[str] = []
+        initial_workspace_metadata: dict[str, dict[str, str]] = {}
+        last_known_live_paths_by_agent: dict[str, str] = {}
 
         # Try to get workspace paths from status.json if session exists
         try:
@@ -4750,13 +4929,13 @@ def create_app(
                     with open(status_file) as f:
                         status_data = json.load(f)
 
-                    agents_data = status_data.get("agents", {})
-                    for agent_id_key, agent_info in agents_data.items():
-                        workspace_paths = agent_info.get("workspace_paths", {})
-                        workspace_path = workspace_paths.get("workspace")
-                        if workspace_path and Path(workspace_path).exists():
-                            initial_paths.append(workspace_path)
-                            workspace_logger.debug(f"WS endpoint: found workspace for {agent_id_key}: {workspace_path}")
+                    _, last_known_live_paths_by_agent = _extract_live_workspace_paths(status_data)
+                    for agent_id_key, workspace_path in last_known_live_paths_by_agent.items():
+                        initial_paths.append(workspace_path)
+                        initial_workspace_metadata[_normalize_workspace_path(workspace_path)] = {
+                            "agent_id": agent_id_key,
+                        }
+                        workspace_logger.debug(f"WS endpoint: found workspace for {agent_id_key}: {workspace_path}")
                 else:
                     workspace_logger.debug(f"WS endpoint: status.json not found at {status_file}")
         except Exception as e:
@@ -4765,7 +4944,14 @@ def create_app(
         workspace_logger.info(f"WS endpoint: connecting with {len(initial_paths)} initial paths")
 
         # Connect with initial paths (may be empty)
-        await workspace_manager.connect(websocket, session_id, initial_paths)
+        connected = await workspace_manager.connect(
+            websocket,
+            session_id,
+            initial_paths,
+            initial_workspace_metadata,
+        )
+        if not connected:
+            return
 
         try:
             # Handle incoming messages
@@ -4807,20 +4993,28 @@ def create_app(
                             if status_file.exists():
                                 with open(status_file) as f:
                                     status_data = json.load(f)
+                                _, last_known_live_paths_by_agent = _extract_live_workspace_paths(
+                                    status_data,
+                                )
                     except Exception as e:
                         workspace_logger.warning(f"WS watch_session: failed to read status.json: {e}")
 
                     resolved_workspaces = _resolve_watch_session_workspaces(
                         status_data,
                         Path(current_log_dir) if current_log_dir else None,
+                        fallback_live_workspaces_by_agent=last_known_live_paths_by_agent,
                     )
-                    session_paths = [path for path, _ in resolved_workspaces]
+                    session_paths = [path for _, path, _ in resolved_workspaces]
 
                     # Collect initial files for each workspace
                     initial_files: dict[str, list[dict]] = {}
-                    for path, files in resolved_workspaces:
+                    workspace_metadata: dict[str, dict[str, str]] = {}
+                    for agent_id, path, files in resolved_workspaces:
                         normalized_path = _normalize_workspace_path(path)
                         initial_files[normalized_path] = files
+                        workspace_metadata[normalized_path] = {
+                            "agent_id": agent_id,
+                        }
                         workspace_logger.debug(
                             f"WS watch_session: scanned {len(files)} files for {Path(path).name}",
                         )
@@ -4834,6 +5028,7 @@ def create_app(
                             "timestamp": asyncio.get_event_loop().time(),
                             "watched_paths": normalized_watched_paths,
                             "initial_files": initial_files,
+                            "workspace_metadata": workspace_metadata,
                         },
                     )
                     workspace_logger.info(f"WS watch_session: sent {len(session_paths)} workspaces with files")
@@ -5109,6 +5304,7 @@ async def run_coordination_with_history(
     turn_number: int,
     context_paths: list | None = None,
     mode_overrides: dict | None = None,
+    cli_overrides: dict | None = None,
 ) -> None:
     """Run coordination with conversation history from previous turns.
 
@@ -5125,13 +5321,18 @@ async def run_coordination_with_history(
         session_log_dir: Path to the session log directory (e.g., .massgen/massgen_logs/log_xxx)
         turn_number: The turn number for this coordination (2, 3, etc.)
         mode_overrides: Optional mode bar overrides from WebUI
+        cli_overrides: CLI flag overrides forwarded from cli_main --web
     """
     import traceback
 
     try:
         # Import here to avoid circular imports
-        from massgen.agent_config import AgentConfig, CoordinationConfig
+        from massgen.agent_config import AgentConfig
         from massgen.cli import (
+            _apply_orchestrator_runtime_params,
+            _parse_coordination_config,
+            _scope_agent_temporary_workspace,
+            _scope_snapshot_storage,
             create_agents_from_config,
             load_config_file,
             resolve_config_path,
@@ -5206,6 +5407,9 @@ async def run_coordination_with_history(
         # Apply mode bar overrides from WebUI before any config processing
         _apply_mode_overrides(config, mode_overrides)
 
+        # Apply CLI flag overrides (--eval-criteria, --checklist-criteria-preset, etc.)
+        _apply_cli_overrides(config, cli_overrides)
+
         # Inject context paths from @path syntax if provided
         if context_paths:
             if "orchestrator" not in config:
@@ -5218,6 +5422,13 @@ async def run_coordination_with_history(
 
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
+
+        # Inject instance_id for Docker container naming (parallel execution safety)
+        instance_id = uuid.uuid4().hex[:8]
+        agent_entries = [config["agent"]] if "agent" in config else config.get("agents", [])
+        for agent_data in agent_entries:
+            backend_config = agent_data.get("backend", {})
+            backend_config["instance_id"] = instance_id
 
         # Create agents from config with progress updates
         # Note: Multi-turn reuses existing session, so progress is less critical but nice to have
@@ -5298,93 +5509,27 @@ async def run_coordination_with_history(
             agent_models,
             main_agent_id=_main_agent_for_display,
         )
+        # Set question early so late-joining clients get it in state_snapshot
+        display.question = question
 
         # Build AgentConfig object for orchestrator
         orchestrator_config = AgentConfig()
+        _apply_orchestrator_runtime_params(orchestrator_config, orchestrator_cfg)
 
-        # Apply voting sensitivity if specified
-        if "voting_sensitivity" in orchestrator_cfg:
-            orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+        # Apply timeout settings if specified in YAML
+        timeout_settings = config.get("timeout_settings", {})
+        if timeout_settings:
+            from massgen.agent_config import TimeoutConfig
 
-        # Apply answer count limit if specified
-        if "max_new_answers_per_agent" in orchestrator_cfg:
-            orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+            orchestrator_config.timeout_config = TimeoutConfig(**timeout_settings)
 
-        # Apply answer novelty requirement if specified
-        if "answer_novelty_requirement" in orchestrator_cfg:
-            orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
-
-        # Apply coordination config from YAML (includes enable_agent_task_planning, etc.)
+        # Apply coordination config from YAML using canonical parser
         coord_cfg = orchestrator_cfg.get("coordination", {})
         if coord_cfg:
-            # Parse persona_generator config if present
-            from massgen.persona_generator import PersonaGeneratorConfig
-
-            persona_generator_config = PersonaGeneratorConfig()
-            if "persona_generator" in coord_cfg:
-                pg_cfg = coord_cfg["persona_generator"]
-                persona_generator_config = PersonaGeneratorConfig(
-                    enabled=pg_cfg.get("enabled", False),
-                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
-                    persona_guidelines=pg_cfg.get("persona_guidelines"),
-                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
-                    after_first_answer=pg_cfg.get("after_first_answer", "drop"),
-                )
-
-            orchestrator_config.coordination_config = CoordinationConfig(
-                enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
-                planning_mode_instruction=coord_cfg.get(
-                    "planning_mode_instruction",
-                    "During coordination, describe what you would do without actually executing actions.",
-                ),
-                max_orchestration_restarts=coord_cfg.get(
-                    "max_orchestration_restarts",
-                    0,
-                ),
-                enable_agent_task_planning=coord_cfg.get(
-                    "enable_agent_task_planning",
-                    False,
-                ),
-                max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
-                broadcast=coord_cfg.get("broadcast", False),
-                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
-                response_depth=coord_cfg.get("response_depth", "medium"),
-                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-                broadcast_wait_by_default=coord_cfg.get(
-                    "broadcast_wait_by_default",
-                    True,
-                ),
-                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-                task_planning_filesystem_mode=coord_cfg.get(
-                    "task_planning_filesystem_mode",
-                    False,
-                ),
-                enable_memory_filesystem_mode=coord_cfg.get(
-                    "enable_memory_filesystem_mode",
-                    False,
-                ),
-                learning_capture_mode=coord_cfg.get("learning_capture_mode", "round"),
-                disable_final_only_round_capture_fallback=coord_cfg.get(
-                    "disable_final_only_round_capture_fallback",
-                    False,
-                ),
-                use_skills=coord_cfg.get("use_skills", False),
-                massgen_skills=coord_cfg.get("massgen_skills", []),
-                skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
-                load_previous_session_skills=coord_cfg.get(
-                    "load_previous_session_skills",
-                    False,
-                ),
-                persona_generator=persona_generator_config,
-                drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
-            )
+            orchestrator_config.coordination_config = _parse_coordination_config(coord_cfg)
 
         # Get context sharing parameters — scope by session to avoid
         # concurrent WebUI sessions colliding on shared paths.
-        from massgen.cli import (
-            _scope_agent_temporary_workspace,
-            _scope_snapshot_storage,
-        )
 
         snapshot_storage = _scope_snapshot_storage(orchestrator_cfg.get("snapshot_storage"))
         agent_temporary_workspace = _scope_agent_temporary_workspace(
@@ -5900,6 +6045,42 @@ def _apply_mode_overrides(config: dict, overrides: dict | None) -> None:
         _apply_docker_override(config, overrides["docker_override"])
 
 
+def _apply_cli_overrides(config: dict, cli_overrides: dict | None) -> None:
+    """Apply CLI flag overrides forwarded from ``cli_main --web``.
+
+    Reuses the canonical injection helpers from :mod:`massgen.cli` so that
+    ``--eval-criteria``, ``--checklist-criteria-preset``, ``--orchestrator-timeout``,
+    and ``--cwd-context`` behave identically whether the run is started from
+    the terminal or from the WebUI.
+    """
+    if not cli_overrides:
+        return
+
+    from massgen.cli import (
+        _inject_checklist_criteria_preset_into_config,
+        _inject_eval_criteria_into_config,
+        _load_eval_criteria,
+        apply_cli_cwd_context_path,
+    )
+
+    if "eval_criteria" in cli_overrides:
+        criteria = _load_eval_criteria(cli_overrides["eval_criteria"])
+        _inject_eval_criteria_into_config(config, criteria)
+
+    if "checklist_criteria_preset" in cli_overrides:
+        _inject_checklist_criteria_preset_into_config(
+            config,
+            cli_overrides["checklist_criteria_preset"],
+        )
+
+    if "orchestrator_timeout" in cli_overrides:
+        timeout_settings = config.setdefault("timeout_settings", {})
+        timeout_settings["orchestrator_timeout_seconds"] = cli_overrides["orchestrator_timeout"]
+
+    if "cwd_context" in cli_overrides:
+        apply_cli_cwd_context_path(config, cli_overrides["cwd_context"])
+
+
 def _setup_checkpoint_orchestrator(
     orchestrator: Orchestrator,
     config: dict,
@@ -5941,6 +6122,7 @@ async def run_coordination(
     config_path: str | None = None,
     context_paths: list | None = None,
     mode_overrides: dict | None = None,
+    cli_overrides: dict | None = None,
 ) -> None:
     """Run coordination with web display.
 
@@ -5950,6 +6132,7 @@ async def run_coordination(
         config_path: Optional path to config YAML
         context_paths: Optional list of context paths from @path syntax
         mode_overrides: Optional mode bar overrides from WebUI
+        cli_overrides: CLI flag overrides forwarded from cli_main --web
     """
     import traceback
 
@@ -5983,7 +6166,7 @@ async def run_coordination(
         await emit_preparation_status("Loading configuration...", config_path or "")
 
         # Import here to avoid circular imports
-        from massgen.agent_config import AgentConfig, CoordinationConfig
+        from massgen.agent_config import AgentConfig
         from massgen.cli import (
             create_agents_from_config,
             load_config_file,
@@ -6009,6 +6192,9 @@ async def run_coordination(
         # Apply mode bar overrides from WebUI before any config processing
         _apply_mode_overrides(config, mode_overrides)
 
+        # Apply CLI flag overrides (--eval-criteria, --checklist-criteria-preset, etc.)
+        _apply_cli_overrides(config, cli_overrides)
+
         # Inject context paths from @path syntax if provided
         if context_paths:
             if "orchestrator" not in config:
@@ -6021,6 +6207,14 @@ async def run_coordination(
 
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
+
+        # Inject instance_id for Docker container naming (parallel execution safety)
+        # CLI main() does this at startup, but WebUI loads config from YAML directly
+        instance_id = uuid.uuid4().hex[:8]
+        agent_entries = [config["agent"]] if "agent" in config else config.get("agents", [])
+        for agent_data in agent_entries:
+            backend_config = agent_data.get("backend", {})
+            backend_config["instance_id"] = instance_id
 
         # Send agent setup status (this is the slow part - Docker containers, etc.)
         agent_configs = config.get("agents", [])
@@ -6113,95 +6307,36 @@ async def run_coordination(
             agent_models,
             main_agent_id=_main_agent_for_display,
         )
+        # Set question early so late-joining clients get it in state_snapshot
+        display.question = question
 
         await send_init_status("Initializing orchestrator...", "orchestrator", 80)
 
         # Build AgentConfig object for orchestrator (required by Orchestrator)
-        orchestrator_config = AgentConfig()
-
-        # Apply voting sensitivity if specified
-        if "voting_sensitivity" in orchestrator_cfg:
-            orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
-
-        # Apply answer count limit if specified
-        if "max_new_answers_per_agent" in orchestrator_cfg:
-            orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
-
-        # Apply answer novelty requirement if specified
-        if "answer_novelty_requirement" in orchestrator_cfg:
-            orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
-
-        # Apply coordination config from YAML (includes enable_agent_task_planning, etc.)
-        coord_cfg = orchestrator_cfg.get("coordination", {})
-        if coord_cfg:
-            # Parse persona_generator config if present
-            from massgen.persona_generator import PersonaGeneratorConfig
-
-            persona_generator_config = PersonaGeneratorConfig()
-            if "persona_generator" in coord_cfg:
-                pg_cfg = coord_cfg["persona_generator"]
-                persona_generator_config = PersonaGeneratorConfig(
-                    enabled=pg_cfg.get("enabled", False),
-                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
-                    persona_guidelines=pg_cfg.get("persona_guidelines"),
-                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
-                    after_first_answer=pg_cfg.get("after_first_answer", "drop"),
-                )
-
-            orchestrator_config.coordination_config = CoordinationConfig(
-                enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
-                planning_mode_instruction=coord_cfg.get(
-                    "planning_mode_instruction",
-                    "During coordination, describe what you would do without actually executing actions.",
-                ),
-                max_orchestration_restarts=coord_cfg.get(
-                    "max_orchestration_restarts",
-                    0,
-                ),
-                enable_agent_task_planning=coord_cfg.get(
-                    "enable_agent_task_planning",
-                    False,
-                ),
-                max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
-                broadcast=coord_cfg.get("broadcast", False),
-                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
-                response_depth=coord_cfg.get("response_depth", "medium"),
-                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-                broadcast_wait_by_default=coord_cfg.get(
-                    "broadcast_wait_by_default",
-                    True,
-                ),
-                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-                task_planning_filesystem_mode=coord_cfg.get(
-                    "task_planning_filesystem_mode",
-                    False,
-                ),
-                enable_memory_filesystem_mode=coord_cfg.get(
-                    "enable_memory_filesystem_mode",
-                    False,
-                ),
-                learning_capture_mode=coord_cfg.get("learning_capture_mode", "round"),
-                disable_final_only_round_capture_fallback=coord_cfg.get(
-                    "disable_final_only_round_capture_fallback",
-                    False,
-                ),
-                use_skills=coord_cfg.get("use_skills", False),
-                massgen_skills=coord_cfg.get("massgen_skills", []),
-                skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
-                load_previous_session_skills=coord_cfg.get(
-                    "load_previous_session_skills",
-                    False,
-                ),
-                persona_generator=persona_generator_config,
-                drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
-            )
-
-        # Get context sharing parameters — scope by session to avoid
-        # concurrent WebUI sessions colliding on shared paths.
         from massgen.cli import (
+            _apply_orchestrator_runtime_params,
+            _parse_coordination_config,
             _scope_agent_temporary_workspace,
             _scope_snapshot_storage,
         )
+
+        orchestrator_config = AgentConfig()
+        _apply_orchestrator_runtime_params(orchestrator_config, orchestrator_cfg)
+
+        # Apply timeout settings if specified in YAML
+        timeout_settings = config.get("timeout_settings", {})
+        if timeout_settings:
+            from massgen.agent_config import TimeoutConfig
+
+            orchestrator_config.timeout_config = TimeoutConfig(**timeout_settings)
+
+        # Apply coordination config from YAML using canonical parser
+        coord_cfg = orchestrator_cfg.get("coordination", {})
+        if coord_cfg:
+            orchestrator_config.coordination_config = _parse_coordination_config(coord_cfg)
+
+        # Get context sharing parameters — scope by session to avoid
+        # concurrent WebUI sessions colliding on shared paths.
 
         snapshot_storage = _scope_snapshot_storage(orchestrator_cfg.get("snapshot_storage"))
         agent_temporary_workspace = _scope_agent_temporary_workspace(
@@ -6386,6 +6521,8 @@ def run_server(
     reload: bool = False,
     config_path: str | None = None,
     automation_mode: bool = False,
+    cli_overrides: dict | None = None,
+    question: str | None = None,
 ) -> None:
     """Run the web server.
 
@@ -6394,7 +6531,9 @@ def run_server(
         port: Port to listen on
         reload: Enable auto-reload for development
         config_path: Default config path for coordination sessions
-        automation_mode: If True, UI shows automation-friendly timeline view
+        automation_mode: If True, suppresses verbose server logs
+        cli_overrides: CLI flag overrides forwarded from cli_main --web
+        question: Question from CLI to auto-start when first client connects
     """
     try:
         import uvicorn
@@ -6408,7 +6547,12 @@ def run_server(
         set_default_config(config_path)
 
     # Create app directly with automation_mode (can't pass args via factory string)
-    app = create_app(config_path=config_path, automation_mode=automation_mode)
+    app = create_app(
+        config_path=config_path,
+        automation_mode=automation_mode,
+        cli_overrides=cli_overrides,
+        pending_question=question,
+    )
 
     # In automation mode, suppress verbose logging to keep stdout clean
     if automation_mode:
@@ -6431,12 +6575,18 @@ def run_server(
             module="uvicorn.protocols.websockets",
         )
 
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            log_level="warning",
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host=host,
+                port=port,
+                log_level="warning",
+            ),
         )
+        # Store server on app.state so auto-start coordination can
+        # trigger shutdown when the run finishes (automation should exit).
+        app.state.uvicorn_server = server
+        server.run()
     else:
         uvicorn.run(
             app,
@@ -6483,7 +6633,7 @@ def run_temporary_quickstart_server(
         import time
         import webbrowser
 
-        browser_url = f"http://{host}:{port}/?v=2&temporary=1&wizard=open"
+        browser_url = f"http://{host}:{port}/?temporary=1&wizard=open&skill=1"
 
         def open_browser() -> None:
             time.sleep(0.5)

@@ -28,6 +28,7 @@ def _build_orchestrator(
     )
     orchestrator._normalize_workspace_paths_in_answers = lambda answers, viewing_agent_id: answers
     orchestrator._compute_plan_progress_stats = lambda _workspace_path: None
+    orchestrator._snapshot_storage = None
 
     backend = MagicMock()
     backend.filesystem_manager = MagicMock()

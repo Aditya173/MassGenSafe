@@ -25,19 +25,22 @@ vi.mock('../../wizard', () => ({
   SetupModeStep: () => <div data-testid="setupmode-step">Setup Mode Step</div>,
   AgentConfigStep: () => <div data-testid="agentconfig-step">Agent Config Step</div>,
   CoordinationStep: () => <div data-testid="coordination-step">Coordination Step</div>,
+  SkillsStep: () => <div data-testid="skills-step">Skills Step</div>,
   PreviewStep: () => <div data-testid="preview-step">Preview Step</div>,
+  WelcomeStep: () => <div data-testid="welcome-step">Welcome Step</div>,
 }));
 
 describe('V2QuickstartWizard', () => {
   beforeEach(() => {
     useWizardStore.setState({
       isOpen: true,
-      currentStep: 'docker',
+      currentStep: 'apiKeys',
       isLoading: false,
       error: null,
+      skillOnboarding: false,
       providers: [{ id: 'openai', name: 'OpenAI', models: [], default_model: 'gpt-4', env_var: 'OPENAI_API_KEY', has_api_key: true, is_agent_framework: false, capabilities: [], notes: '' }],
       agentCount: 3,
-      setupMode: 'same',
+      setupMode: 'different',
       agents: [],
       generatedConfig: null,
       generatedYaml: null,
@@ -61,14 +64,14 @@ describe('V2QuickstartWizard', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders the docker step by default', () => {
+  it('renders the apiKeys step by default', () => {
     render(<V2QuickstartWizard />);
-    expect(screen.getByTestId('docker-step')).toBeTruthy();
+    expect(screen.getByTestId('apikey-step')).toBeTruthy();
   });
 
   it('shows correct step title', () => {
     render(<V2QuickstartWizard />);
-    expect(screen.getByText(/Execution Mode/)).toBeTruthy();
+    expect(screen.getAllByText(/API Keys/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows progress dots', () => {
@@ -81,16 +84,16 @@ describe('V2QuickstartWizard', () => {
     render(<V2QuickstartWizard />);
     const nextButton = screen.getByText('Next');
     fireEvent.click(nextButton);
-    // Should skip apiKeys since provider has key, go to agentCount
-    expect(screen.getByTestId('agentcount-step')).toBeTruthy();
+    // apiKeys -> docker
+    expect(screen.getByTestId('docker-step')).toBeTruthy();
   });
 
   it('navigates back on Back click', () => {
-    useWizardStore.setState({ currentStep: 'agentCount' });
+    useWizardStore.setState({ currentStep: 'docker' });
     render(<V2QuickstartWizard />);
     const backButton = screen.getByText('Back');
     fireEvent.click(backButton);
-    expect(screen.getByTestId('docker-step')).toBeTruthy();
+    expect(screen.getByTestId('apikey-step')).toBeTruthy();
   });
 
   it('shows Cancel on first step instead of Back', () => {
@@ -150,12 +153,6 @@ describe('V2QuickstartWizard', () => {
     expect(screen.getByTestId('agentconfig-step')).toBeTruthy();
   });
 
-  it('renders coordination step', () => {
-    useWizardStore.setState({ currentStep: 'coordination' });
-    render(<V2QuickstartWizard />);
-    expect(screen.getByTestId('coordination-step')).toBeTruthy();
-  });
-
   it('shows loading state during save', () => {
     useWizardStore.setState({
       currentStep: 'preview',
@@ -166,13 +163,13 @@ describe('V2QuickstartWizard', () => {
     expect(screen.getByText('Saving...')).toBeTruthy();
   });
 
-  it('filters visible steps based on providers and agent count', () => {
-    // With has_api_key=true and agentCount=1, should skip apiKeys, setupMode, coordination
+  it('filters visible steps based on agent count', () => {
+    // With agentCount=1, should skip setupMode
+    // Visible: apiKeys, docker, agentCount, agentConfig, skills, preview = 6 steps
     useWizardStore.setState({ agentCount: 1 });
     render(<V2QuickstartWizard />);
     const progressDots = screen.getByTestId('progress-dots');
-    // docker, agentCount, agentConfig, preview = 4 steps
     const dots = progressDots.querySelectorAll('[data-testid="progress-dot"]');
-    expect(dots.length).toBe(4);
+    expect(dots.length).toBe(6);
   });
 });

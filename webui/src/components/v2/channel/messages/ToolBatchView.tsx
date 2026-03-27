@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '../../../../lib/utils';
 import type { ToolCallMessage } from '../../../../stores/v2/messageStore';
 import { HookList } from './ToolCallMessageView';
@@ -104,7 +104,9 @@ export function ToolBatchView({ tools }: ToolBatchViewProps) {
                     'hover:bg-[var(--v2-channel-hover)] transition-colors duration-100 text-xs',
                     toolExpanded && 'v2-sub-row-expanded'
                   )}
-                  onClick={() => setExpandedToolId(toolExpanded ? null : tool.id)}
+                  onClick={() => {
+                    setExpandedToolId(toolExpanded ? null : tool.id);
+                  }}
                 >
                   <svg
                     className="v2-sub-chevron w-2.5 h-2.5 shrink-0 text-v2-text-muted"
@@ -135,7 +137,7 @@ export function ToolBatchView({ tools }: ToolBatchViewProps) {
                   )}
                 </div>
 
-                {toolExpanded && <ToolDetail tool={tool} />}
+                {toolExpanded && <ToolDetail tool={tool} scrollOnMount />}
               </div>
             );
           })}
@@ -145,9 +147,15 @@ export function ToolBatchView({ tools }: ToolBatchViewProps) {
   );
 }
 
-function ToolDetail({ tool }: { tool: ToolCallMessage }) {
+function ToolDetail({ tool, scrollOnMount }: { tool: ToolCallMessage; scrollOnMount?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollOnMount) {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [scrollOnMount]);
   return (
-    <div className="ml-1.5 mb-1 space-y-1.5 animate-v2-fade-in border-l border-v2-border-subtle pl-2.5">
+    <div ref={ref} className="ml-1.5 mb-1 space-y-1.5 animate-v2-fade-in border-l border-v2-border-subtle pl-2.5">
       {Object.keys(tool.args).length > 0 && (
         <div className="rounded bg-v2-main p-2 border border-v2-border-subtle">
           <div className="text-[11px] uppercase tracking-wider text-v2-text-muted mb-1">Args</div>

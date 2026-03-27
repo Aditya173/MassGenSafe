@@ -21,7 +21,7 @@ export function ContentMessageView({ message }: ContentMessageViewProps) {
   // Thinking/reasoning — unlabeled italic text with hover-reveal chevron
   if (isThinking) {
     const firstLine = lines[0];
-    const previewLine = firstLine.length > 80 ? firstLine.slice(0, 77) + '\u2026' : firstLine;
+    const previewLine = firstLine.length > 200 ? firstLine.slice(0, 197) + '\u2026' : firstLine;
 
     return (
       <div

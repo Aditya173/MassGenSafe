@@ -28,6 +28,7 @@ from massgen.system_prompt_sections import (
     FilesystemOperationsSection,
     GPT5GuidanceSection,
     GrokGuidanceSection,
+    MainAgentCheckpointSection,
     MemorySection,
     MultimodalToolsSection,
     NoveltyPressureSection,
@@ -207,6 +208,7 @@ class SystemMessageBuilder:
         item_verify_by: dict[str, str] | None = None,
         builder_enabled: bool = True,
         regression_guard_enabled: bool = False,
+        essential_files_active: bool = False,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -508,6 +510,7 @@ class SystemMessageBuilder:
                 concurrent_tool_execution=concurrent_tool_execution,
                 agent_mapping=agent_mapping,
                 decomposition_mode=is_decomposition,
+                essential_files_active=essential_files_active,
             )
 
             builder.add_section(fs_ops)
@@ -606,6 +609,18 @@ class SystemMessageBuilder:
                 ),
             )
 
+        # PRIORITY 10 (MEDIUM): Checkpoint Coordination (main agent only)
+        _checkpoint_enabled = hasattr(self.config, "coordination_config") and self.config.coordination_config and getattr(self.config.coordination_config, "checkpoint_enabled", False)
+        if _checkpoint_enabled:
+            _coord = self.config.coordination_config
+            builder.add_section(
+                MainAgentCheckpointSection(
+                    checkpoint_guidance=getattr(_coord, "checkpoint_guidance", ""),
+                    gated_patterns=getattr(_coord, "checkpoint_gated_patterns", []) or [],
+                    checkpoint_mode=getattr(_coord, "checkpoint_mode", "conversation"),
+                ),
+            )
+
         # PRIORITY 10 (MEDIUM): Evolving Skills (when auto-discovery AND task planning are both enabled)
         # Both gates must be true: evolving skills are structured work plans that complement task planning
         auto_discover_enabled = False
@@ -675,6 +690,7 @@ class SystemMessageBuilder:
                         "round_evaluator_transformation_pressure",
                         "balanced",
                     ),
+                    essential_files_active=essential_files_active,
                 ),
             )
             logger.info(f"[SystemMessageBuilder] Added changedoc instructions for {agent_id} (prior_answers={has_prior_answers})")
@@ -948,6 +964,7 @@ This makes the work reusable for similar future tasks."""
         concurrent_tool_execution: bool = False,
         agent_mapping: dict[str, str] | None = None,
         decomposition_mode: bool = False,
+        essential_files_active: bool = False,
     ) -> tuple[Any, Any, Any | None]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
         """Build filesystem-related sections.
 
@@ -1006,6 +1023,7 @@ This makes the work reusable for similar future tasks."""
             enable_command_execution=enable_command_execution,
             agent_mapping=agent_mapping,
             has_native_tools=has_native_tools,
+            essential_files_active=essential_files_active,
         )
 
         # Build filesystem best practices section

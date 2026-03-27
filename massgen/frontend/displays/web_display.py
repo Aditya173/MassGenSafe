@@ -841,6 +841,7 @@ class WebDisplay(BaseDisplay):
         answer_number: int = 1,
         answer_label: str | None = None,
         workspace_path: str | None = None,
+        submission_round: int | None = None,
     ) -> None:
         """Notify about a new answer from an agent.
 
@@ -851,6 +852,7 @@ class WebDisplay(BaseDisplay):
             answer_number: The answer number for this agent (1, 2, etc.)
             answer_label: Label for this answer (e.g., "agent1.1")
             workspace_path: Absolute path to the workspace snapshot for this answer
+            submission_round: Optional 1-indexed round number for this answer
         """
         # Note: Don't set status to "completed" here - submitting an answer doesn't mean
         # the agent is done. They still need to vote. Status will be set to "completed"
@@ -864,6 +866,7 @@ class WebDisplay(BaseDisplay):
                 "answer_number": answer_number,
                 "answer_label": answer_label,
                 "workspace_path": workspace_path,
+                "submission_round": submission_round,
             },
         )
 

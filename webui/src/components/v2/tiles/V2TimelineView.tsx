@@ -16,11 +16,11 @@ interface V2TimelineViewProps {
   onNodeClick?: (node: TimelineNodeType) => void;
 }
 
-// Layout constants
+// Layout constants — horizontal flow (time = left→right, agents = top→bottom rows)
 const NODE_SIZE = 40;
-const NODE_GAP_Y = 80;
-const COLUMN_WIDTH = 150;
-const HEADER_HEIGHT = 60;
+const NODE_GAP_X = 100;     // horizontal spacing between nodes in same row
+const ROW_HEIGHT = 120;      // vertical spacing between agent rows
+const HEADER_WIDTH = 100;    // left column for agent labels
 const PADDING = 40;
 
 // ============================================================================
@@ -78,7 +78,7 @@ export function V2TimelineView({ onNodeClick }: V2TimelineViewProps) {
     return () => clearInterval(interval);
   }, [fetchTimeline]);
 
-  // Calculate node positions
+  // Calculate node positions — horizontal layout
   const nodePositions = useMemo(() => {
     if (!timelineData || timelineData.nodes.length === 0) {
       return new Map<string, { x: number; y: number }>();
@@ -95,12 +95,13 @@ export function V2TimelineView({ onNodeClick }: V2TimelineViewProps) {
       if (agentNodes) agentNodes.push(node);
     });
 
+    // Agents are rows (y), time flows left→right (x)
     agents.forEach((agentId, agentIndex) => {
       const agentNodes = nodesByAgent.get(agentId) || [];
       agentNodes.sort((a, b) => a.timestamp - b.timestamp);
       agentNodes.forEach((node, nodeIndex) => {
-        const x = PADDING + agentIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
-        const y = HEADER_HEIGHT + PADDING + nodeIndex * NODE_GAP_Y;
+        const x = HEADER_WIDTH + PADDING + nodeIndex * NODE_GAP_X;
+        const y = PADDING + agentIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
         positions.set(node.id, { x, y });
       });
     });
@@ -108,13 +109,13 @@ export function V2TimelineView({ onNodeClick }: V2TimelineViewProps) {
     return positions;
   }, [timelineData]);
 
-  // SVG dimensions
+  // SVG dimensions — horizontal layout
   const svgDimensions = useMemo(() => {
-    if (!timelineData) return { width: 600, height: 400 };
-    const width = Math.max(600, PADDING * 2 + timelineData.agents.length * COLUMN_WIDTH);
-    let maxY = HEADER_HEIGHT + PADDING;
-    nodePositions.forEach(pos => { maxY = Math.max(maxY, pos.y); });
-    const height = Math.max(400, maxY + NODE_GAP_Y + PADDING);
+    if (!timelineData) return { width: 800, height: 300 };
+    let maxX = HEADER_WIDTH + PADDING;
+    nodePositions.forEach(pos => { maxX = Math.max(maxX, pos.x); });
+    const width = Math.max(800, maxX + NODE_GAP_X + PADDING);
+    const height = Math.max(300, PADDING * 2 + timelineData.agents.length * ROW_HEIGHT);
     return { width, height };
   }, [timelineData, nodePositions]);
 
@@ -192,38 +193,42 @@ export function V2TimelineView({ onNodeClick }: V2TimelineViewProps) {
       {/* Timeline SVG */}
       <div className="flex-1 overflow-auto v2-scrollbar p-4">
         <svg width={svgDimensions.width} height={svgDimensions.height} className="min-w-full">
-          {/* Swimlane grid lines */}
-          {timelineData.agents.map((_, index) => (
-            <line
-              key={`grid-${index}`}
-              x1={PADDING + index * COLUMN_WIDTH + COLUMN_WIDTH / 2}
-              y1={HEADER_HEIGHT}
-              x2={PADDING + index * COLUMN_WIDTH + COLUMN_WIDTH / 2}
-              y2={svgDimensions.height - PADDING}
-              stroke="var(--v2-border)"
-              strokeWidth="1"
-              strokeDasharray="4 4"
-              opacity={0.5}
-            />
-          ))}
+          {/* Swimlane horizontal grid lines (one per agent row) */}
+          {timelineData.agents.map((_, index) => {
+            const y = PADDING + index * ROW_HEIGHT + ROW_HEIGHT / 2;
+            return (
+              <line
+                key={`grid-${index}`}
+                x1={HEADER_WIDTH}
+                y1={y}
+                x2={svgDimensions.width - PADDING}
+                y2={y}
+                stroke="var(--v2-border)"
+                strokeWidth="1"
+                strokeDasharray="4 4"
+                opacity={0.3}
+              />
+            );
+          })}
 
-          {/* Agent column headers */}
+          {/* Agent row labels (left side) */}
           {timelineData.agents.map((agentId, index) => {
-            const x = PADDING + index * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+            const y = PADDING + index * ROW_HEIGHT + ROW_HEIGHT / 2;
             const color = getAgentColor(agentId, timelineData.agents);
             return (
               <g key={`header-${agentId}`}>
                 <rect
-                  x={x - 50} y={10} width={100} height={36} rx={8}
-                  fill={`${color.hex}33`}
-                  stroke={`${color.hex}80`}
+                  x={4} y={y - 16} width={HEADER_WIDTH - 8} height={32} rx={6}
+                  fill={`${color.hex}22`}
+                  stroke={`${color.hex}60`}
                   strokeWidth="1"
                 />
                 <text
-                  x={x} y={32}
+                  x={HEADER_WIDTH / 2} y={y + 1}
                   textAnchor="middle"
+                  dominantBaseline="middle"
                   fill={color.hex}
-                  className="text-sm font-medium"
+                  className="text-xs font-medium"
                 >
                   Agent {index + 1}
                 </text>
@@ -279,12 +284,12 @@ export function V2TimelineView({ onNodeClick }: V2TimelineViewProps) {
                   targetAgentIndex = timelineData.agents.indexOf(node.votedFor);
                 }
                 if (targetAgentIndex === -1 || targetAgentIndex >= timelineData.agents.length) return null;
-                const targetX = PADDING + targetAgentIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+                const targetY = PADDING + targetAgentIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
                 return (
                   <V2Arrow
                     key={`vote-arrow-${node.id}`}
                     from={nodePos}
-                    to={{ x: targetX, y: nodePos.y - 40 }}
+                    to={{ x: nodePos.x - 40, y: targetY }}
                     type="vote"
                   />
                 );

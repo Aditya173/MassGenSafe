@@ -512,7 +512,18 @@ export function InlineArtifactPreview({
       return (
         <div className="flex flex-col items-center justify-center h-full text-v2-text-muted">
           <Eye className="w-12 h-12 mb-4 opacity-50" />
-          <span>Select a file to preview</span>
+          <span>File moved or removed</span>
+          <span className="text-sm mt-1">Choose another file to keep browsing</span>
+        </div>
+      );
+    }
+
+    if (is404) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-v2-text-muted">
+          <Eye className="w-12 h-12 mb-4 opacity-50" />
+          <span>File moved or removed</span>
+          <span className="text-sm mt-1">Refresh or choose another file</span>
         </div>
       );
     }

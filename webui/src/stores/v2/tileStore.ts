@@ -8,6 +8,7 @@ export type TileType =
   | 'timeline-view'
   | 'workspace-browser'
   | 'vote-results'
+  | 'answer-browser'
   | 'checkpoint-view';
 
 export interface TileState {
@@ -16,6 +17,8 @@ export interface TileState {
   /** Agent ID for agent-channel/subagent tiles, file path for file-viewer, etc. */
   targetId: string;
   label: string;
+  /** Explicit workspace context for workspace-bound tiles and previews. */
+  workspacePath?: string;
 }
 
 export type Orientation = 'horizontal' | 'vertical';
@@ -78,7 +81,10 @@ export const useTileStore = create<TileStoreState & TileStoreActions>(
       set((state) => {
         // Don't add duplicate tiles for the same target
         const existing = state.tiles.find(
-          (t) => t.type === tile.type && t.targetId === tile.targetId
+          (t) =>
+            t.type === tile.type &&
+            t.targetId === tile.targetId &&
+            t.workspacePath === tile.workspacePath
         );
         if (existing) {
           return { activeTileId: existing.id };
