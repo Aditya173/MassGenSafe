@@ -17,7 +17,7 @@ export interface AgentRoundTiming {
 export interface EvalCriterion {
   id: string;
   text: string;
-  category: string;  // "must", "should", "could"
+  category: string;  // "primary", "standard", "stretch" (legacy: "must", "should", "could")
 }
 
 export interface ContextPath {

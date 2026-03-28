@@ -1052,14 +1052,14 @@ class TestDecompositionPromptGuidance:
         )
         orchestrator._agent_subtasks["frontend"] = "Build the timeline section and keep shared navigation aligned."
 
-        items, categories, _ = orchestrator._get_active_criteria("frontend")
+        items, categories, _, _anti = orchestrator._get_active_criteria("frontend")
 
         assert items is not None
         assert "Build the timeline section" in items[0]
         assert any("relevant peer work" in item.lower() for item in items)
         assert any("owned scope" in item.lower() for item in items)
         assert any("meaningful improvement" in item.lower() for item in items)
-        assert categories["E1"] == "must"
+        assert categories["E1"] == "standard"
 
     def test_decomposition_agent_specific_criteria_are_routed_to_prompt_only_for_that_agent(self):
         config = AgentConfig()
@@ -1083,7 +1083,7 @@ class TestDecompositionPromptGuidance:
             ],
         }
 
-        frontend_items, frontend_categories, frontend_verify_by = orchestrator._get_active_criteria("frontend")
+        frontend_items, frontend_categories, frontend_verify_by, _anti = orchestrator._get_active_criteria("frontend")
         message = orchestrator._get_system_message_builder().build_coordination_message(
             agent=orchestrator.agents["frontend"],
             agent_id="frontend",

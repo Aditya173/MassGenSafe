@@ -3484,6 +3484,8 @@ def _build_cli_overrides_dict(args: argparse.Namespace) -> dict[str, Any]:
         overrides["orchestrator_timeout"] = args.orchestrator_timeout
     if getattr(args, "cwd_context", None):
         overrides["cwd_context"] = args.cwd_context
+    if getattr(args, "web_review", False):
+        overrides["web_review"] = True
     return overrides
 
 
@@ -3611,6 +3613,7 @@ def _parse_coordination_config(coord_cfg: dict[str, Any]) -> "CoordinationConfig
         checkpoint_mode=coord_cfg.get("checkpoint_mode", "conversation"),
         checkpoint_guidance=coord_cfg.get("checkpoint_guidance", ""),
         checkpoint_gated_patterns=coord_cfg.get("checkpoint_gated_patterns", []),
+        web_review=coord_cfg.get("web_review", False),
     )
 
 
@@ -3961,7 +3964,7 @@ async def run_question_with_history(
                 GeneratedCriterion(
                     id=c.get("id", f"E{i + 1}"),
                     text=c.get("text") or c.get("description") or c.get("name", ""),
-                    category=c.get("category", "should"),
+                    category=c.get("category", "standard"),
                 )
                 for i, c in enumerate(raw_criteria)
                 if c.get("text") or c.get("description") or c.get("name")
@@ -7280,7 +7283,7 @@ async def run_textual_interactive_mode(
                         GeneratedCriterion(
                             id=c.get("id", f"E{i + 1}"),
                             text=c.get("text") or c.get("description") or c.get("name", ""),
-                            category=c.get("category", "should"),
+                            category=c.get("category", "standard"),
                         )
                         for i, c in enumerate(raw_criteria)
                         if c.get("text") or c.get("description") or c.get("name")
@@ -11017,6 +11020,12 @@ Environment Variables:
         help="Don't auto-open browser when using --web with a question",
     )
     parser.add_argument(
+        "--web-review",
+        action="store_true",
+        default=False,
+        help="Enable change review modal in WebUI for approving/rejecting git diffs (requires --web)",
+    )
+    parser.add_argument(
         "--automation",
         action="store_true",
         help="Enable automation mode: silent output (~10 lines), status.json tracking, meaningful exit codes. "
@@ -11126,7 +11135,7 @@ Environment Variables:
         type=str,
         metavar="FILE",
         help="Path to JSON file with evaluation criteria. "
-        "Each entry: {text, category (must/should/could), verify_by?}. "
+        "Each entry: {text, category (primary/standard/stretch), anti_patterns?, verify_by?}. "
         "Also accepts 'description' or 'name' as aliases for 'text'. "
         "Injected as checklist_criteria_inline in coordination config.",
     )
@@ -11363,7 +11372,7 @@ def _load_eval_criteria(file_path: str) -> list[dict]:
         if not has_text:
             print(
                 f"{BRIGHT_RED}Error: --eval-criteria item {i + 1} missing 'text' field.\n"
-                f'  Expected: {{"text": "...", "category": "must|should|could"}}\n'
+                f'  Expected: {{"text": "...", "category": "primary|standard|stretch"}}\n'
                 f"  Got keys: {list(item.keys())}{RESET}",
             )
             sys.exit(EXIT_CONFIG_ERROR)

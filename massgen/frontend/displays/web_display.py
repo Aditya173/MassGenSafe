@@ -12,7 +12,10 @@ import json
 import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from massgen.filesystem_manager import ReviewResult
 
 from .base_display import BaseDisplay
 
@@ -79,6 +82,11 @@ class WebDisplay(BaseDisplay):
 
         # Event emitter listener reference (for cleanup)
         self._event_listener: Any | None = None
+
+        # Review modal state
+        self._review_enabled: bool = kwargs.get("review_enabled", False)
+        self._review_future: asyncio.Future | None = None
+        self._pending_review_data: dict[str, Any] | None = None
 
         # Setup agent output files (same as terminal displays)
         self._setup_agent_output_files()
@@ -891,13 +899,161 @@ class WebDisplay(BaseDisplay):
                 # Send keepalive to keep connection alive
                 yield json.dumps({"type": "keepalive", "timestamp": time.time()})
 
+    async def show_final_answer_modal(
+        self,
+        changes: list[dict[str, Any]],
+        answer_content: str,
+        vote_results: dict[str, Any],
+        agent_id: str,
+        model_name: str = "",
+        post_eval_content: str | None = None,
+        post_eval_status: str = "none",
+        context_paths: dict[str, list[str]] | None = None,
+        workspace_path: str | None = None,
+    ) -> ReviewResult:
+        """Show review modal in WebUI and wait for user decision.
+
+        Emits a review_request WebSocket event and blocks until the browser
+        (or REST API) sends back a review_response.
+        """
+        from massgen.filesystem_manager import ReviewResult
+
+        if not self._review_enabled:
+            return ReviewResult(approved=True, metadata={"auto_approved": True})
+
+        review_data = {
+            "changes": changes,
+            "answer_content": answer_content,
+            "vote_results": vote_results,
+            "agent_id": agent_id,
+            "model_name": model_name,
+            "context_paths": context_paths,
+        }
+        self._pending_review_data = review_data
+
+        # Signal review pending on orchestrator for status.json
+        if self.orchestrator:
+            self.orchestrator._review_pending = True
+            if hasattr(self.orchestrator, "coordination_tracker"):
+                self.orchestrator.coordination_tracker.save_status_file(
+                    self.log_session_dir,
+                    self.orchestrator,
+                )
+
+        # Write review_request.json to log dir for external agents
+        if self.log_session_dir:
+            files_summary = []
+            for ctx in changes:
+                for change in ctx.get("changes", []):
+                    files_summary.append(
+                        {
+                            "path": change.get("path", ""),
+                            "status": change.get("status", ""),
+                        },
+                    )
+            request_json = {
+                "review_pending": True,
+                "url": "http://localhost:8000/?v=2",
+                "api_url": f"http://localhost:8000/api/sessions/{self.session_id}/review-response",
+                "files": files_summary,
+                "answer_preview": answer_content[:200] if answer_content else "",
+            }
+            request_path = self.log_session_dir / "review_request.json"
+            try:
+                import json as _json
+
+                tmp_path = request_path.with_suffix(".json.tmp")
+                tmp_path.write_text(_json.dumps(request_json, indent=2))
+                tmp_path.rename(request_path)
+            except Exception:
+                pass
+
+        # Print stdout marker for skill watcher
+        print("__REVIEW_PENDING__ URL=http://localhost:8000/?v=2", flush=True)
+
+        # Emit WebSocket event to connected browsers
+        self._emit("review_request", review_data)
+
+        # Create future and await browser/API response
+        loop = asyncio.get_running_loop()
+        self._review_future = loop.create_future()
+
+        try:
+            result = await asyncio.wait_for(self._review_future, timeout=600)
+        except TimeoutError:
+            result = ReviewResult(
+                approved=False,
+                metadata={"error": "timeout", "timeout_seconds": 600},
+            )
+
+        # Cleanup
+        self._pending_review_data = None
+        self._review_future = None
+        if self.orchestrator:
+            self.orchestrator._review_pending = False
+
+        # Write review_result.json
+        if self.log_session_dir:
+            result_json = {
+                "approved": result.approved,
+                "approved_files": result.approved_files,
+                "action": getattr(result, "action", "approve" if result.approved else "reject"),
+                "resolved_by": getattr(result, "_resolved_by", "unknown"),
+                "timestamp": time.time(),
+            }
+            result_path = self.log_session_dir / "review_result.json"
+            try:
+                import json as _json
+
+                tmp_path = result_path.with_suffix(".json.tmp")
+                tmp_path.write_text(_json.dumps(result_json, indent=2))
+                tmp_path.rename(result_path)
+            except Exception:
+                pass
+
+        print(f"__REVIEW_COMPLETE__ APPROVED={result.approved}", flush=True)
+        return result
+
+    def resolve_review(self, result_data: dict[str, Any], source: str = "unknown") -> None:
+        """Resolve the pending review future with a decision.
+
+        Called by both the WebSocket handler (browser) and REST API (agent).
+        Idempotent -- subsequent calls after the first resolution are ignored.
+        """
+        if self._review_future is None or self._review_future.done():
+            return
+
+        from massgen.filesystem_manager import ReviewResult
+
+        approved = result_data.get("approved", False)
+        result = ReviewResult(
+            approved=approved,
+            approved_files=result_data.get("approved_files"),
+            comments=result_data.get("comments"),
+            metadata=result_data.get("metadata", {}),
+            action=result_data.get("action", "approve" if approved else "reject"),
+            feedback=result_data.get("feedback"),
+        )
+        result._resolved_by = source  # type: ignore[attr-defined]
+
+        self._review_future.set_result(result)
+
+        # Notify all connected browsers that review was resolved
+        self._emit(
+            "review_resolved",
+            {
+                "approved": approved,
+                "resolved_by": source,
+            },
+        )
+
     def get_state_snapshot(self) -> dict[str, Any]:
         """Get current display state for late-joining clients.
 
         Returns:
             Dictionary containing full current state
         """
-        return {
+        snapshot = {
             "session_id": self.session_id,
             "question": getattr(self, "question", ""),
             "agents": self.agent_ids,
@@ -912,6 +1068,11 @@ class WebDisplay(BaseDisplay):
             "orchestrator_events": list(self.orchestrator_events),
             "theme": self.theme,
         }
+        # Include pending review data for late-joining clients
+        if self._pending_review_data:
+            snapshot["review_pending"] = True
+            snapshot["review_request"] = self._pending_review_data
+        return snapshot
 
 
 def is_web_display_available() -> bool:

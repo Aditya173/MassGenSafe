@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentStore } from '../stores/agentStore';
 import { useMessageStore } from '../stores/v2/messageStore';
 import { useModeStore } from '../stores/v2/modeStore';
+import { useReviewStore } from '../stores/v2/reviewStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import type { WSEvent } from '../types';
 
@@ -67,6 +68,14 @@ export function useWebSocket({
         const data: WSEvent = JSON.parse(event.data);
         processWSEvent(data);
         processV2Event(data);
+
+        // Dispatch review events to review store
+        if (data.type === 'review_request') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          useReviewStore.getState().openReview(data as any);
+        } else if (data.type === 'review_resolved') {
+          useReviewStore.getState().closeReview();
+        }
 
         if (data.type === 'file_change' && refreshWorkspaceSession) {
           if (workspaceRefreshTimeoutRef.current) {
@@ -163,6 +172,11 @@ export function useWebSocket({
       console.warn('WebSocket is not connected');
     }
   }, []);
+
+  // Register send function with review store so modal can send responses
+  useEffect(() => {
+    useReviewStore.getState().setSendFn(send);
+  }, [send]);
 
   // Start coordination
   const startCoordination = useCallback(

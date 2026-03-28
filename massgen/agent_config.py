@@ -251,13 +251,14 @@ class CoordinationConfig:
     novelty_injection: str = "none"  # "none" | "gentle" | "moderate" | "aggressive"
     improvements: dict[str, Any] = field(default_factory=dict)  # Quality gate config for propose_improvements
     checklist_criteria_preset: str | None = None  # "persona" | "decomposition" | "evaluation" | "prompt" | "analysis" | "planning" | "spec" | "round_evaluator"
-    checklist_criteria_inline: list[dict[str, str]] | None = None  # [{text: str, category: must|should|could}]
+    checklist_criteria_inline: list[dict[str, str]] | None = None  # [{text, category: primary|standard|stretch, anti_patterns?, verify_by?}]
     resume_from_log: dict[str, Any] | None = None  # {log_path: str, round: int}
     # Checkpoint coordination fields
     checkpoint_enabled: bool = False  # Enable checkpoint coordination mode
     checkpoint_mode: str = "conversation"  # "conversation" | "task"
     checkpoint_guidance: str = ""  # Appended to main agent system prompt
     checkpoint_gated_patterns: list[str] = field(default_factory=list)  # fnmatch patterns for gated tools
+    web_review: bool = False  # Enable change review modal in WebUI (requires --web)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -1204,6 +1205,7 @@ class AgentConfig:
             "checkpoint_mode": self.coordination_config.checkpoint_mode,
             "checkpoint_guidance": self.coordination_config.checkpoint_guidance,
             "checkpoint_gated_patterns": self.coordination_config.checkpoint_gated_patterns,
+            "web_review": self.coordination_config.web_review,
         }
 
         # Handle debug fields

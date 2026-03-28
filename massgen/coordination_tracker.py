@@ -1327,7 +1327,7 @@ class CoordinationTracker:
                             {
                                 "id": cid,
                                 "text": text,
-                                "category": categories.get(cid, "must"),
+                                "category": categories.get(cid, "standard"),
                             }
                             for cid, text in zip(categories.keys(), texts)
                         ]
@@ -1531,17 +1531,27 @@ class CoordinationTracker:
                     finish_reason = "error"
                     finish_reason_details = f"Agent(s) encountered errors: {', '.join(error_agents)}"
                     is_complete = True
+                # Waiting for user review in WebUI
+                elif getattr(orchestrator, "_review_pending", False):
+                    finish_reason = "waiting_for_review"
+                    finish_reason_details = "User review required in WebUI"
+                    is_complete = False
                 # Still in progress
                 else:
                     finish_reason = "in_progress"
                     finish_reason_details = f"Phase: {phase}"
                     is_complete = False
 
+            _review_pending = bool(
+                orchestrator and getattr(orchestrator, "_review_pending", False),
+            )
+
             status_data = {
                 # IMPORTANT: finish_reason is placed first for visibility
                 "finish_reason": finish_reason,
                 "finish_reason_details": finish_reason_details,
                 "is_complete": is_complete,
+                "review_pending": _review_pending,
                 "meta": {
                     "last_updated": time.time(),
                     "session_id": log_dir.name if log_dir else "",

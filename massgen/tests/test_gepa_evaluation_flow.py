@@ -55,7 +55,7 @@ class TestItemCategoriesInState:
 
         assert state["item_prefix"] == "E"
         assert "E1" in state["item_categories"]
-        assert state["item_categories"]["E1"] == "must"
+        assert state["item_categories"]["E1"] == "standard"
 
     def test_item_categories_match_default_criteria(self):
         """Default categories must match get_default_criteria() output."""
@@ -67,12 +67,12 @@ class TestItemCategoriesInState:
             assert _CHECKLIST_ITEM_CATEGORIES[c.id] == c.category
 
     def test_changedoc_categories_have_4_items(self):
-        """Changedoc categories must have 4 items, all 'must'."""
+        """Changedoc categories must have 4 items, all 'standard'."""
         from massgen.system_prompt_sections import _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC
 
         assert len(_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC) == 4
-        must_count = sum(1 for v in _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC.values() if v == "must")
-        assert must_count == 4
+        standard_count = sum(1 for v in _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC.values() if v == "standard")
+        assert standard_count == 4
 
 
 class TestDynamicCriteriaInToolSchema:
@@ -172,8 +172,8 @@ class TestCriteriaCountValidation:
                 "criteria": [{"text": "Only one", "category": "core"}],
             },
         )
-        result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
-        assert result is None
+        criteria, aspiration = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
+        assert criteria is None
 
     def test_too_many_criteria_returns_none(self):
         """Parsing more than max_criteria should fail."""
@@ -184,8 +184,8 @@ class TestCriteriaCountValidation:
                 "criteria": [{"text": f"C{i}", "category": "core"} for i in range(15)],
             },
         )
-        result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
-        assert result is None
+        criteria, aspiration = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
+        assert criteria is None
 
     def test_exactly_min_criteria_works(self):
         """Exactly min_criteria items should parse successfully."""
@@ -199,9 +199,9 @@ class TestCriteriaCountValidation:
                 ],
             },
         )
-        result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
-        assert result is not None
-        assert len(result) == 4
+        criteria, aspiration = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
+        assert criteria is not None
+        assert len(criteria) == 4
 
     def test_exactly_max_criteria_works(self):
         """Exactly max_criteria items should parse successfully."""
@@ -215,9 +215,9 @@ class TestCriteriaCountValidation:
                 ],
             },
         )
-        result = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
-        assert result is not None
-        assert len(result) == 10
+        criteria, aspiration = _parse_criteria_response(response, min_criteria=4, max_criteria=10)
+        assert criteria is not None
+        assert len(criteria) == 10
 
 
 class TestAnalysisDynamicCriteriaLabels:

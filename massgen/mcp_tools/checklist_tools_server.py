@@ -193,7 +193,7 @@ def _find_plateaued_criteria(
     Each returned dict contains:
     - id: criterion ID (e.g. "E1")
     - text: criterion text (from items list)
-    - category: must/should/could
+    - category: primary/standard/stretch (legacy: must/should/could)
     - score_history: list of scores across rounds (prior + current)
     - current_score: latest score
 

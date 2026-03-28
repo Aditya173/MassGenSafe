@@ -82,9 +82,9 @@ class TestE4StretchDefinition:
         """Changedoc checklist must have exactly 4 items."""
         assert len(_CHECKLIST_ITEMS_CHANGEDOC) == 4
 
-    def test_e4_is_must_category(self):
-        """E4 is tagged as must — no tier deprioritization."""
-        assert _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC["E4"] == "must"
+    def test_e4_is_standard_category(self):
+        """E4 is tagged as standard — must-pass criterion."""
+        assert _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC["E4"] == "standard"
 
 
 # ---------------------------------------------------------------------------

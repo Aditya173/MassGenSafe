@@ -140,13 +140,13 @@ _CHECKLIST_ITEMS = [
     ),
 ]
 
-# Category tags for default checklist items — all "must" (no tier deprioritization).
+# Category tags for default checklist items — all "standard" (must-pass).
 _CHECKLIST_ITEM_CATEGORIES = {
-    "E1": "must",
-    "E2": "must",
-    "E3": "must",
-    "E4": "must",
-    "E5": "must",
+    "E1": "standard",
+    "E2": "standard",
+    "E3": "standard",
+    "E4": "standard",
+    "E5": "standard",
 }
 
 _CHECKLIST_ITEMS_CHANGEDOC = [
@@ -161,12 +161,12 @@ _CHECKLIST_ITEMS_CHANGEDOC = [
     ("The output shows care beyond correctness — thoughtful choices," " consistent style, attention to edge cases, or creative elements that" " distinguish it from adequate work."),
 ]
 
-# Category tags for changedoc checklist items — all "must" (no tier deprioritization).
+# Category tags for changedoc checklist items — all "standard" (must-pass).
 _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC = {
-    "E1": "must",
-    "E2": "must",
-    "E3": "must",
-    "E4": "must",
+    "E1": "standard",
+    "E2": "standard",
+    "E3": "standard",
+    "E4": "standard",
 }
 
 
@@ -226,13 +226,14 @@ def _checklist_confidence_cutoff(effective_threshold: int) -> int:
 def _build_criteria_failure_bullets(
     custom_checklist_items: list[str] | None = None,
     item_verify_by: dict[str, str] | None = None,
+    item_categories: dict[str, str] | None = None,
+    item_anti_patterns: dict[str, list[str]] | None = None,
 ) -> str:
     """Build failure-pattern bullets from criteria list.
 
     When custom items are provided, generates E1/E2/... bullets with short
     labels derived from the first ~60 chars of each criterion text.
-    If item_verify_by is provided, appends a verification hint for criteria
-    that require non-textual evidence.
+    Shows [PRIMARY] marker, verification hints, and anti-patterns.
     Otherwise returns the hardcoded generic labels.
     """
     if custom_checklist_items:
@@ -240,9 +241,12 @@ def _build_criteria_failure_bullets(
         for i, text in enumerate(custom_checklist_items):
             label = text[:60].rstrip(" .,—-")
             eid = f"E{i + 1}"
+            primary = " [PRIMARY]" if (item_categories or {}).get(eid) == "primary" else ""
             vb = (item_verify_by or {}).get(eid)
             vb_hint = f" [verify: {vb}]" if vb else ""
-            lines.append(f"- **{eid} ({label}{vb_hint})**: Gaps or failures against this criterion?")
+            anti = (item_anti_patterns or {}).get(eid)
+            anti_hint = f"\n  Anti-patterns: {', '.join(anti)}" if anti else ""
+            lines.append(f"- **{eid}{primary} ({label}{vb_hint})**: Gaps or failures against this criterion?{anti_hint}")
         return "\n".join(lines)
     return (
         "- **E1 (goal alignment)**: Requirements missing or only partially met?\n"
@@ -662,6 +666,8 @@ def _build_checklist_scored_decision(
     checklist_items: list,
     terminate_action: str = "vote",
     iterate_action: str = "new_answer",
+    item_categories: dict[str, str] | None = None,
+    item_anti_patterns: dict[str, list[str]] | None = None,
 ) -> str:
     """Build checklist_scored decision section (0-10 confidence, visible cutoff)."""
     effective_t = _checklist_effective_threshold(threshold, remaining, total)
@@ -669,8 +675,15 @@ def _build_checklist_scored_decision(
     cutoff = _checklist_confidence_cutoff(effective_t)
     budget = _checklist_budget_context(remaining, total)
 
-    # Build numbered checklist with confidence instructions and E-prefix
-    numbered = "\n".join(f"  E{i+1}. {item}  → **___/10**" for i, item in enumerate(checklist_items))
+    # Build numbered checklist with confidence instructions, E-prefix, PRIMARY marker, and anti-patterns
+    numbered_lines = []
+    for i, item in enumerate(checklist_items):
+        eid = f"E{i + 1}"
+        primary = " **[PRIMARY]**" if (item_categories or {}).get(eid) == "primary" else ""
+        anti = (item_anti_patterns or {}).get(eid)
+        anti_line = f"\n    Anti-patterns: {', '.join(anti)}" if anti else ""
+        numbered_lines.append(f"  {eid}.{primary} {item}  → **___/10**{anti_line}")
+    numbered = "\n".join(numbered_lines)
 
     force_terminate = ""
     if remaining <= 0:
@@ -3691,6 +3704,7 @@ class EvaluationSection(SystemPromptSection):
         custom_checklist_items: list[str] | None = None,
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
+        item_anti_patterns: dict[str, list[str]] | None = None,
         has_existing_answers: bool = True,
         builder_enabled: bool = True,
         regression_guard_enabled: bool = False,
@@ -3719,6 +3733,7 @@ class EvaluationSection(SystemPromptSection):
         self.custom_checklist_items = custom_checklist_items
         self.item_categories = item_categories
         self.item_verify_by = item_verify_by
+        self.item_anti_patterns = item_anti_patterns
         self.has_existing_answers = has_existing_answers
         self.builder_enabled = builder_enabled
         self.regression_guard_enabled = regression_guard_enabled
@@ -3851,6 +3866,8 @@ Your goal is to iteratively refine answers until they meet the quality bar.
                     remaining,
                     total,
                     items,
+                    item_categories=self.item_categories,
+                    item_anti_patterns=self.item_anti_patterns,
                 )
             evaluation_section = f"""{analysis}
 
@@ -4059,6 +4076,7 @@ class DecompositionSection(SystemPromptSection):
         custom_checklist_items: list[str] | None = None,
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
+        item_anti_patterns: dict[str, list[str]] | None = None,
         improvements_cfg: dict | None = None,
     ):
         super().__init__(
@@ -4077,6 +4095,7 @@ class DecompositionSection(SystemPromptSection):
         self.custom_checklist_items = custom_checklist_items
         self.item_categories = item_categories
         self.item_verify_by = item_verify_by
+        self.item_anti_patterns = item_anti_patterns
         self.improvements_cfg = improvements_cfg
 
     def _build_decision_block(self) -> str:
@@ -4109,6 +4128,8 @@ class DecompositionSection(SystemPromptSection):
                         items,
                         terminate_action="stop",
                         iterate_action="new_answer",
+                        item_categories=self.item_categories,
+                        item_anti_patterns=self.item_anti_patterns,
                     )
                 return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round.

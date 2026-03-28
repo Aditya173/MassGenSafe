@@ -5,9 +5,10 @@ consensus run, replacing fixed T1-T4 items with dynamic E1-EN criteria tailored
 to the actual task. When generation is disabled or fails, concrete static defaults
 are used instead.
 
-All criteria use category "must" — no criterion is deprioritized via tier labels.
-For backward compatibility, old "core" maps to "must" and "stretch" maps to "must".
-Legacy "should" and "could" from user configs are silently promoted to "must".
+Criteria use category "primary" (at most one, the most impactful criterion),
+"standard" (must-pass), or "stretch" (nice-to-have).
+For backward compatibility: "must"/"core" → "standard", "should" → "standard",
+"could"/"stretch" → "stretch".
 """
 
 import json
@@ -43,8 +44,14 @@ class GeneratedCriterion:
 
     Attributes:
         id: Criterion identifier (e.g., "E1", "E2")
-        text: The criterion description text
-        category: "must", "should", or "could" (legacy: "core"→"must", "stretch"→"could")
+        text: The criterion description text — should be an opinionated quality
+            definition that takes a position on what "good" means, not just a
+            dimension label. See the Anthropic harness design article for context:
+            https://www.anthropic.com/engineering/harness-design-long-running-apps
+        category: "primary" (THE criterion where default model behavior is weakest
+            — at most one per set), "standard" (must-pass), or "stretch" (nice-to-have).
+            Legacy values "must"/"core" map to "standard", "should" maps to "standard",
+            "could"/"stretch" maps to "stretch".
         verify_by: Optional free-form instruction for how to gather evidence for this
             criterion. Set when reading the output text is insufficient — e.g.
             "render each slide to PNG and view visually with read_media",
@@ -52,12 +59,16 @@ class GeneratedCriterion:
             "listen to the audio output from start to finish",
             "open in browser and test: click all links, submit forms, check states".
             None when textual inspection of the output is sufficient.
+        anti_patterns: Specific failure modes that should tank the score for this
+            criterion. Concrete, not abstract — e.g. "heart/fire/ocean metaphors"
+            not "avoid cliches". None when not applicable.
     """
 
     id: str
     text: str
-    category: str  # "must", "should", or "could" (legacy: "core"→"must", "stretch"→"could")
+    category: str  # "primary", "standard", or "stretch"
     verify_by: str | None = None
+    anti_patterns: list[str] | None = None
 
 
 # Static defaults inspired by GEPA's diagnostic structure.
@@ -70,7 +81,7 @@ _DEFAULT_CRITERIA_TEXTS = [
     ("The output shows care beyond correctness — thoughtful choices," " consistent style, attention to edge cases, or creative elements that" " distinguish it from adequate work."),
 ]
 
-_DEFAULT_CATEGORIES = ["must", "must", "must", "must"]
+_DEFAULT_CATEGORIES = ["standard", "standard", "standard", "standard"]
 
 # ---------------------------------------------------------------------------
 # Domain-specific criteria presets
@@ -86,29 +97,29 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " meaningfully different outputs — not just surface variation in tone or"
             " vocabulary. Two personas that would produce essentially the same answer"
             " are a failure.",
-            "must",
+            "standard",
         ),
         (
             "Personas are grounded in the actual task. Each perspective is relevant to" " the problem domain and brings a genuinely useful lens, not an arbitrary" " or forced viewpoint.",
-            "must",
+            "standard",
         ),
         (
             "Personas are actionable instructions, not character descriptions. An agent"
             " receiving this persona knows exactly how it changes their approach,"
             " priorities, and decision-making — not just who they are pretending to be.",
-            "must",
+            "standard",
         ),
         (
             "The persona set collectively provides coverage — the major reasonable"
             " approaches, value trade-offs, or methodological choices for this task are"
             " represented. No critical perspective is missing.",
-            "must",
+            "standard",
         ),
         (
             "Personas are vivid enough to resist homogenization under peer pressure."
             " The perspective is strongly stated so that even after seeing other agents'"
             " answers, the core viewpoint remains distinguishable.",
-            "must",
+            "standard",
         ),
     ],
     "decomposition": [
@@ -116,62 +127,69 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             "Subtasks are collectively exhaustive — completing all subtasks fully"
             " produces the complete output. No significant aspect of the original task"
             " falls through the cracks between subtasks.",
-            "must",
+            "standard",
         ),
         (
             "Subtasks have minimal coupling — each can be executed independently"
             " without requiring intermediate results from other subtasks. Where"
             " dependencies exist, they are explicit and the dependency order is"
             " specified.",
-            "must",
+            "standard",
         ),
         (
             "Subtask scoping is balanced — no single subtask is trivial while another"
             " carries the bulk of the complexity. Work is distributed so each agent has"
             " a meaningful, roughly comparable contribution.",
-            "must",
+            "standard",
         ),
         (
             "Each subtask description is self-contained and specific enough that an" " agent can execute it without needing to infer intent from other subtasks" " or the original prompt.",
-            "must",
+            "standard",
         ),
         (
             "The decomposition strategy is appropriate for the task type — creative"
             " tasks split along conceptual boundaries, technical tasks along component"
             " boundaries, analytical tasks along dimension boundaries.",
-            "must",
+            "standard",
         ),
     ],
     "evaluation": [
         (
             "Each criterion is specific to the actual task — not generic advice that" " applies to any output. A criterion that could be copy-pasted to an" " unrelated task is too vague.",
-            "must",
+            "standard",
         ),
         (
             "Criteria are evaluable — an agent can determine pass/fail by examining the"
             ' output, not by making subjective judgments about intent. "Addresses edge'
             ' cases" is vague; "handles empty input, null values, and boundary'
             ' conditions" is evaluable.',
-            "must",
+            "standard",
         ),
         (
-            "The criteria set distinguishes excellent work from adequate work. If every"
-            " competent first draft would pass all criteria, the bar is too low. At"
-            " least one criterion should require genuine effort to satisfy.",
-            "must",
+            "Criteria push on dimensions where the model is weakest by default, not"
+            " where it is already competent. Models already produce structurally correct,"
+            " functional output by default — criteria that only check for correctness or"
+            " completeness will pass on the first draft and add no iterative value."
+            " At least one criterion must target a dimension where default model output"
+            " is predictably mediocre: originality, distinctive voice, visual identity,"
+            " architectural elegance, or domain-specific depth. The PRIMARY criterion"
+            " should be the one the model needs to hear most.",
+            "primary",
         ),
         (
-            "Tier categorization is correct. MUST criteria represent"
-            " non-negotiable requirements; COULD criteria represent quality"
-            " differentiators. A misclassified MUST criterion blocks good work; a"
-            " misclassified COULD criterion lets mediocre work pass.",
-            "must",
+            "Each criterion takes a position and names anti-patterns — it defines what"
+            " good looks like AND what bad looks like for this specific task. A criterion"
+            ' that says "uses vivid imagery" is a dimension label; one that says "uses'
+            ' imagery that surprises — stock metaphors score poorly" is a quality'
+            " definition. Every criterion should include concrete anti-patterns that"
+            " identify how this task type typically goes wrong.",
+            "standard",
         ),
         (
             "Criteria do not conflict with each other or create impossible trade-offs."
             " Meeting one criterion should not require violating another. Where genuine"
             " tensions exist, the criteria acknowledge the trade-off explicitly.",
-            "must",
+            "standard",
         ),
     ],
     "prompt": [
@@ -180,63 +198,63 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " would produce the intended type of output without additional"
             " clarification. Test: could you hand this to a capable model cold and get"
             " back what you need?",
-            "must",
+            "standard",
         ),
         (
             "The prompt is appropriately scoped — it constrains enough to prevent" " unhelpful outputs but does not over-constrain in ways that eliminate" " valid approaches.",
-            "must",
+            "standard",
         ),
         (
             "Important requirements are explicit, not implied. The prompt does not" ' depend on shared context, cultural assumptions, or "obvious" intentions' " that a model might miss.",
-            "must",
+            "standard",
         ),
         (
             "The prompt is structured for parseability — key instructions are" " prominent, not buried in paragraphs. An agent skimming the prompt would" " still catch the critical constraints.",
-            "must",
+            "standard",
         ),
         (
             "The prompt anticipates likely failure modes for its task type and includes"
             ' guardrails against them (e.g., "do not summarize when asked to analyze"'
             ' or "include concrete examples, not abstract principles").',
-            "must",
+            "standard",
         ),
     ],
     "analysis": [
         (
             "The analysis identifies concrete, specific findings — not vague" " observations. Each finding points to a specific location, pattern, or" " data point in the source material.",
-            "must",
+            "standard",
         ),
         (
             "Findings are supported by evidence from the actual data, not inferred from"
             ' assumptions about what "usually" happens. Claims include references to'
             " specific log entries, metrics, or examples.",
-            "must",
+            "standard",
         ),
         (
             "The analysis distinguishes symptoms from root causes. Surface-level"
             ' observations (e.g., "agent 2 was slow") are traced to underlying'
             ' explanations (e.g., "agent 2 hit rate limits due to tool call volume").',
-            "must",
+            "standard",
         ),
         (
             "Actionable recommendations follow from findings. Each significant finding" " includes a concrete suggestion for what to change, not just a description" " of what went wrong.",
-            "must",
+            "standard",
         ),
         (
             "The analysis identifies patterns across the dataset, not just individual"
             " anomalies. Recurring behaviors, systematic biases, or structural issues"
             " are surfaced alongside one-off events.",
-            "must",
+            "standard",
         ),
     ],
     "planning": [
         (
             "The plan captures the user's requested outcome and constraints" " without scope drift. Critical requirements are explicit, and no" " mandatory deliverable expectation is omitted.",
-            "must",
+            "standard",
         ),
         (
             "The task graph is executable and internally consistent:" " dependencies are valid, ordering is coherent, and there are no" " contradictory or impossible steps.",
-            "must",
+            "standard",
         ),
         (
             "Tasks describe both what to produce AND how to approach it —"
@@ -246,7 +264,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " palette, add a single prominent CTA' tells the executor what to"
             " actually do. Each task should be actionable without requiring the"
             " executor to infer creative or technical direction.",
-            "must",
+            "standard",
         ),
         (
             "Each task has verification guidance matched to its type."
@@ -257,7 +275,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " inherently qualitative work — 'visually inspect the rendered page"
             " for layout balance and readability' is valid verification."
             " Verification says what to examine and what to look for.",
-            "must",
+            "standard",
         ),
         (
             "Technology and tooling choices are explicit — frameworks,"
@@ -265,14 +283,14 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " to guess. Where tasks connect or produce artifacts consumed by"
             " other tasks, interface contracts are specified: data shapes,"
             " file conventions, API signatures, or shared types.",
-            "must",
+            "standard",
         ),
         (
             "The plan demonstrates thoughtful sequencing and risk management:"
             " chunking and prioritization reduce rework, high-risk or"
             " foundational tasks come first, and quality gates are placed"
             " where they most improve final output quality.",
-            "must",
+            "standard",
         ),
         (
             "The plan demonstrates strategic depth — major decisions"
@@ -283,14 +301,14 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " rationale rather than left implicit. If the project name could"
             " be swapped out and the plan reused unchanged, it lacks the"
             " specificity that produces excellent results.",
-            "must",
+            "standard",
         ),
         (
             "Iterations prefer tightening existing tasks over adding new ones."
             " New tasks are justified when filling genuine gaps, but unjustified"
             " growth indicates sprawl. Descriptions, verification, and"
             " dependencies should improve in precision across rounds.",
-            "must",
+            "standard",
         ),
         (
             "Tasks are classified as deterministic or exploratory with"
@@ -300,7 +318,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " approaches, qualitative verification) have success criteria"
             " and constraints instead of implementation steps, giving the"
             " executor freedom to iterate.",
-            "should",
+            "standard",
         ),
         (
             "The plan includes evaluation checkpoints after high-risk or"
@@ -308,34 +326,34 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " which should trigger plan revision if invalidated during"
             " execution. The plan treats itself as a hypothesis, not a"
             " contract.",
-            "should",
+            "standard",
         ),
     ],
     "spec": [
         (
             "Requirements are complete and unambiguous — each requirement" " describes a single, testable behavior or property. A developer" " reading the spec can implement without guessing intent.",
-            "must",
+            "standard",
         ),
         (
             "Each requirement has concrete acceptance criteria: specific" " conditions, inputs, expected outputs, or observable behaviors" " that prove the requirement is met.",
-            "must",
+            "standard",
         ),
         (
             "Scope boundaries are explicit — what is in scope and what is"
             " deliberately out of scope are both stated. The spec does not"
             " silently omit aspects the user would expect to be covered.",
-            "must",
+            "standard",
         ),
         (
             "Requirements are prioritized and internally consistent — no two"
             " requirements contradict each other, and the priority or"
             " ordering reflects genuine implementation dependencies and"
             " user-facing importance.",
-            "must",
+            "standard",
         ),
         (
             "Requirements anticipate edge cases, error states, and boundary" " conditions relevant to the domain. The spec does not only" " describe the happy path.",
-            "must",
+            "standard",
         ),
         (
             "The spec demonstrates strategic depth — the chosen design"
@@ -344,7 +362,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " problem context and users. If the project name could be"
             " swapped out and the spec reused unchanged, it lacks the"
             " specificity that produces excellent results.",
-            "must",
+            "standard",
         ),
         (
             "Iterations prefer tightening existing requirements over adding"
@@ -352,7 +370,7 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " gaps, but unjustified growth indicates sprawl. EARS statements,"
             " verification, and rationale should improve in precision across"
             " rounds.",
-            "must",
+            "standard",
         ),
     ],
     "round_evaluator": [
@@ -361,46 +379,46 @@ _CRITERIA_PRESETS: dict[str, list[tuple[str, str]]] = {
             " Required sections are present, the output stays critique-only, and"
             " it does not drift into checklist payload drafting, parent workflow"
             " tool instructions, or terminal outcome recommendations.",
-            "must",
+            "standard",
         ),
         (
             "criteria_interpretation is rigorous for every active criterion."
             " It explains what the criterion truly demands, what excellent work"
             " would look like, and which false positives or shallow passes might"
             " otherwise slip through.",
-            "must",
+            "standard",
         ),
         (
             "criterion_findings are evidence-grounded and criterion-specific."
             " They cite concrete details from the candidate answers, identify"
             " hidden risks, and clearly separate weak spots from source-answer"
             " strengths worth carrying forward.",
-            "must",
+            "standard",
         ),
         (
             "cross_answer_synthesis and preserve guidance are decisive and"
             " lossless. The packet makes clear which answer is strongest on"
             " which dimension, what no answer gets right yet, and what strengths"
             " must not regress in the next revision.",
-            "must",
+            "standard",
         ),
         (
             "improvement_spec is actionable, prioritized, and concrete enough"
             " that the parent can implement it with minimal reinterpretation."
             " It should describe what to change and how to change it, not just"
             " restate the problem.",
-            "must",
+            "standard",
         ),
         (
             "verification_plan and evidence_gaps are specific and useful."
             " They name what still needs to be checked, what evidence is"
             " missing, and how the parent can close those gaps instead of"
             " falling back to generic 'test more' guidance.",
-            "must",
+            "standard",
         ),
         (
             "unexplored_approaches includes at least one grounded, non-obvious" " direction that could beat every current answer rather than merely" " patching the current weaknesses.",
-            "must",
+            "standard",
         ),
     ],
 }
@@ -429,15 +447,28 @@ def criteria_from_inline(inline_list: list[dict[str, str]]) -> list[GeneratedCri
         text = item.get("text") or item.get("description") or item.get("name")
         if not text:
             raise ValueError(
-                f"Criterion {i + 1} is missing required 'text' field. " f'Expected format: {{"text": "...", "category": "must|should|could"}}. ' f"Got keys: {list(item.keys())}",
+                f"Criterion {i + 1} is missing required 'text' field. " f'Expected format: {{"text": "...", "category": "primary|standard|stretch"}}. ' f"Got keys: {list(item.keys())}",
             )
         verify_by = str(item.get("verify_by") or "").strip() or None
+        raw_cat = str(item.get("category", "standard")).strip().lower()
+        # Map legacy category values
+        if raw_cat in ("must", "core"):
+            cat = "standard"
+        elif raw_cat == "primary":
+            cat = "primary"
+        elif raw_cat in ("could", "stretch"):
+            cat = "stretch"
+        else:
+            cat = "standard"
+        raw_anti = item.get("anti_patterns")
+        anti = raw_anti if isinstance(raw_anti, list) else None
         criteria.append(
             GeneratedCriterion(
                 id=f"E{i + 1}",
                 text=text,
-                category="must",
+                category=cat,
                 verify_by=verify_by,
+                anti_patterns=anti,
             ),
         )
     return criteria
@@ -454,23 +485,23 @@ def build_decomposition_execution_criteria(subtask: str) -> list[GeneratedCriter
     criteria = [
         (
             f"The current work substantially completes and improves the owned scope for this subtask: {scope}",
-            "must",
+            "standard",
         ),
         (
             "Relevant peer work that touches this subtask is incorporated cleanly where needed " "(interfaces, contracts, shared assets, or adjacent integration boundaries).",
-            "must",
+            "standard",
         ),
         (
             "Changes stay within the owned scope except for necessary adjacent integration. " "The agent does not take over unrelated work owned by other subtasks.",
-            "must",
+            "standard",
         ),
         (
             "The current work does not introduce regressions in the owned area or shared " "contracts it depends on. Validation evidence is strong enough to support that claim.",
-            "must",
+            "standard",
         ),
         (
             "This revision is a meaningful improvement to the owned subtask, not just churn, " "reformatting, or superficial edits.",
-            "must",
+            "standard",
         ),
     ]
     return [GeneratedCriterion(id=f"E{i + 1}", text=text, category=category) for i, (text, category) in enumerate(criteria)]
@@ -541,7 +572,7 @@ def get_default_criteria(has_changedoc: bool = False) -> list[GeneratedCriterion
         GeneratedCriterion(
             id=f"E{len(criteria) + 1}",
             text=_QUALITY_CRAFT_TEXT,
-            category="must",
+            category="standard",
         ),
     )
 
@@ -552,7 +583,7 @@ def _parse_criteria_response(
     response: str,
     min_criteria: int = 4,
     max_criteria: int = 7,
-) -> list[GeneratedCriterion] | None:
+) -> tuple[list[GeneratedCriterion] | None, str | None]:
     """Parse LLM response into GeneratedCriterion objects.
 
     Tries to extract JSON from the response using multiple strategies:
@@ -560,7 +591,7 @@ def _parse_criteria_response(
     2. Extract from markdown code blocks
     3. Find JSON object by braces
 
-    Returns None if parsing fails or validation doesn't pass (triggering fallback).
+    Returns (criteria, aspiration) tuple. Both may be None if parsing fails.
     """
     json_str = response.strip()
 
@@ -598,47 +629,76 @@ def _parse_criteria_response(
 
     if data is None or "criteria" not in data:
         logger.warning("Failed to parse criteria response")
-        return None
+        return None, None
 
     try:
+        aspiration = data.get("aspiration") if isinstance(data.get("aspiration"), str) else None
+
         raw_criteria = data["criteria"]
         if not isinstance(raw_criteria, list):
             logger.warning("criteria field is not a list")
-            return None
+            return None, None
 
         # Validate count
         if len(raw_criteria) < min_criteria:
             logger.warning(
                 f"Too few criteria: {len(raw_criteria)} < {min_criteria}",
             )
-            return None
+            return None, None
         if len(raw_criteria) > max_criteria:
             logger.warning(
                 f"Too many criteria: {len(raw_criteria)} > {max_criteria}",
             )
-            return None
+            return None, None
 
-        # Parse into GeneratedCriterion objects — all categories forced to "must".
+        # Parse into GeneratedCriterion objects with opinionated category values.
         criteria = []
+        primary_count = 0
         for i, item in enumerate(raw_criteria):
             text = item.get("text", "")
             verify_by = item.get("verify_by") or None
             if verify_by and not isinstance(verify_by, str):
                 verify_by = None
+            # Extract category with legacy mapping
+            raw_cat = str(item.get("category", "standard")).strip().lower()
+            if raw_cat in ("must", "core"):
+                cat = "standard"
+            elif raw_cat == "primary":
+                cat = "primary"
+                primary_count += 1
+            elif raw_cat in ("could", "stretch"):
+                cat = "stretch"
+            else:
+                cat = "standard"
+            # Extract anti-patterns
+            raw_anti = item.get("anti_patterns")
+            anti = raw_anti if isinstance(raw_anti, list) and all(isinstance(a, str) for a in raw_anti) else None
             criteria.append(
                 GeneratedCriterion(
                     id=f"E{i + 1}",
                     text=text,
-                    category="must",
+                    category=cat,
                     verify_by=verify_by,
+                    anti_patterns=anti,
                 ),
             )
 
-        return criteria
+        if primary_count > 1:
+            logger.warning(
+                f"[CriteriaParser] {primary_count} criteria marked 'primary', expected at most 1. Keeping first.",
+            )
+            seen_primary = False
+            for c in criteria:
+                if c.category == "primary":
+                    if seen_primary:
+                        c.category = "standard"
+                    seen_primary = True
+
+        return criteria, aspiration
 
     except (KeyError, TypeError, AttributeError) as e:
         logger.warning(f"Failed to extract criteria from parsed data: {e}")
-        return None
+        return None, None
 
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
@@ -658,6 +718,7 @@ class EvaluationCriteriaGenerator:
 
     def __init__(self):
         self.last_generation_source = "unknown"
+        self.last_aspiration: str | None = None
 
     def _build_generation_prompt(
         self,
@@ -696,6 +757,11 @@ it so goals, personas, and deliverable expectations stay coherent. Treat plannin
 files as read-only references — do not modify them.
 """
 
+        # Prompt design informed by:
+        # https://www.anthropic.com/engineering/harness-design-long-running-apps
+        # Key insight: criteria shape what agents produce, not just how they're scored.
+        # Opinionated criteria with anti-patterns and aspiration levels drive quality
+        # leaps; generic dimension labels produce generic work.
         return f"""You are generating evaluation criteria for a multi-agent AI system.
 
 ## Task Being Evaluated
@@ -703,126 +769,148 @@ files as read-only references — do not modify them.
 {planning_context_section}
 
 ## Your Goal
-Generate {min_criteria}-{max_criteria} concrete, verifiable evaluation criteria \
-specific to THIS task. Each criterion names a quality dimension and describes \
-what to look for when assessing it.
+Generate {min_criteria}-{max_criteria} **opinionated** evaluation criteria that define \
+what excellent work looks like for THIS task. Each criterion is not just a dimension \
+to score — it is a quality principle that shapes how agents approach the work. \
+A strong criterion takes a position on what "good" means and explicitly rejects \
+common ways outputs go wrong.
 
-Criteria must be **concrete and verifiable** — specific enough that an evaluator \
-can point to evidence in the output.
+## Aspiration Level
+
+Before writing criteria, identify the aspiration level for this task in 1-2 phrases. \
+What would genuinely excellent output look like? Not "correct and complete" — that \
+is the floor. What would make someone say "this is remarkably good"? \
+Examples: "publishable in a literary journal", "a senior engineer would merge this \
+without changes", "a designer would screenshot this for their portfolio", "an expert \
+in the field would learn something from reading this."
+
+Your aspiration level appears in the output JSON and should inform every criterion.
 
 ## What Correctness Means
 
-Correctness is not just "the file exists and opens." A correct output is one that \
-works as the user actually experiences it across all relevant dimensions:
+Correctness is not just "the file exists and opens." A correct output works as \
+the user actually experiences it:
 
-- **Structural correctness**: the output has the right form and can be used at all \
-  (file opens, code runs, API responds)
-- **Content correctness**: the output says or computes the right things — accurate, \
-  complete, no factual errors or wrong results
-- **Experiential correctness**: the output behaves correctly in its primary use \
-  environment — text renders without overflow or clipped characters, visuals display \
-  as intended, interactions work, audio/video plays back properly, no obvious visual \
-  glitches or broken elements at the normal viewing context
+- **Structural correctness**: right form, can be used (file opens, code runs)
+- **Content correctness**: says/computes right things (accurate, complete)
+- **Experiential correctness**: behaves correctly in primary use environment \
+  (text renders without overflow, visuals display as intended, interactions work)
 
-An output that passes structural checks but fails experiential ones (e.g., text that \
-renders with a single letter orphaned on its own line, a chart that displays blank, a \
-button that does nothing, a layout that is visually broken at the default viewport) is \
-a *wrong* output, not a mediocre one. Correctness criteria must cover all three \
-dimensions, not just structural validity.
+An output that passes structural checks but fails experiential ones is a *wrong* \
+output, not a mediocre one. Correctness criteria must cover all three dimensions.
 
-Experiential correctness at the **primary use context** is always required — the output \
-must work correctly where and how it will normally be used.
+Correctness is separate from **quality/craft**: a correct output can still be mediocre.
 
-Correctness is separate from **quality/craft**: a correct output can still be mediocre. Craft \
-criteria ask whether the output shows intentional quality — cohesive choices, thoughtful \
-structure, elegance — beyond what is merely correct. Include at least one craft criterion.
+## What Makes Criteria Opinionated
 
-BAD (abstract): "Visual design quality."
-GOOD (concrete): "Visual design: typography is legible at mobile resolution \
-(16px+ body text, sufficient contrast), layout has clear visual hierarchy, \
-color palette is consistent across all pages."
+A good criterion does three things:
 
-BAD (abstract): "Code quality."
-GOOD (concrete): "Code quality: functions have single responsibility, error \
-paths are handled (no swallowed exceptions), public API has type annotations, \
-no hardcoded secrets or credentials."
+1. **Takes a position on what "good" means** — not just "is it present?" but \
+"does it achieve X quality?" with X being a specific, directional standard.
 
-BAD (only structural): all criteria check whether the output exists and has the right form
-GOOD (covers all dimensions): criteria cover what it says/computes, how it behaves \
-when actually used, and whether it shows intentional craft beyond correctness.
+BAD (dimension label): "Uses vivid imagery."
+GOOD (quality definition): "Uses imagery that surprises — that makes the reader \
+see something they have seen before in a way they have not. Stock metaphors \
+(heart = love, darkness = sadness) or AI-typical purple-prose descriptors \
+score poorly."
+
+BAD (dimension label): "Visual design quality."
+GOOD (quality definition): "Design coherence: Does the design feel like it was \
+authored by someone with a point of view, or assembled from components? Evidence \
+of custom decisions — intentional spacing rhythms, a color system that creates mood, \
+typography choices that reinforce hierarchy — scores highly. Unmodified component \
+library defaults or generic AI aesthetics score poorly."
+
+2. **Names specific anti-patterns to penalize** — what does bad work in this \
+dimension look like? Not abstract badness, but the specific ways THIS task type \
+typically goes wrong. Include these as an `anti_patterns` list in the JSON.
+
+Examples of good anti-patterns:
+- Code: "god functions, swallowed exceptions, any-typed escape hatches"
+- Writing: "topic-sentence-then-three-examples structure, hedging qualifiers, \
+  conclusions that summarize rather than advance"
+- Design: "unmodified library defaults, centered-everything layouts, purple \
+  gradients over white cards"
+- Data: "cherry-picked examples, conclusions stated before evidence examined"
+
+3. **Marks ONE criterion as "primary"** — the dimension where default model \
+behavior is weakest and where improvement matters most. For creative tasks, \
+this is usually originality or voice. For technical tasks, architecture or error \
+handling. For design, visual distinctiveness. The primary criterion is where you \
+push hardest. Set its `category` to `"primary"`.
 
 ## Requirements
 1. Generate between {min_criteria} and {max_criteria} criteria
 2. Each criterion must be specific to THIS task, not generic
-3. Each criterion should be scoreable — an evaluator rates it on a 1-10 scale
-4. **One criterion MUST assess quality/craft** — whether the output shows intentional, \
-cohesive choices that a viewer would notice and appreciate. This criterion requires \
-evidence of a point of view, not just absence of defects. \
-Without this, agents produce correct but forgettable output.
-5. **Criteria must cover distinct dimensions of the task** — do not cluster \
-multiple criteria around the same aspect. Think about what the major \
-independent quality axes are for this specific task (e.g., content correctness, \
-experiential correctness, completeness, error handling, usability, craft) and \
-ensure each significant dimension gets at least one criterion. An evaluator \
-reading the full set should feel like the entire task space is covered.
-6. **For tasks that produce a rendered or experienced artifact** (website, slides, \
-document, video, audio, interactive app): you MUST include a dedicated criterion \
-whose sole focus is rendering/playback correctness in the primary use \
-context — no defects when the output is opened and experienced normally. This means: \
-no text overflow or clipping, no element collisions, no invisible or blank content, \
-no broken playback. Do NOT merge this into a craft or polish criterion — those are \
-separate.
-7. **Per-part quality**: When the output has multiple distinct parts (sections of a \
-page, chapters of a document, modules of a codebase, scenes of a video), include at \
-least one criterion that assesses whether EACH significant part independently meets a \
-quality bar. Whole-output criteria like "visual craft is intentional" allow one strong \
-area to mask mediocrity elsewhere — an impressive hero section can pull up the score \
-while feature cards, testimonials, and CTAs remain template-tier. A per-part criterion \
-forces evaluation of the weakest component, not the average.
+3. Each criterion should be scoreable on a 1-10 scale with evidence
+4. **Exactly ONE criterion must be `"primary"`** — the most impactful quality \
+dimension for this task. All others are `"standard"` (must-pass) or `"stretch"` \
+(nice-to-have).
+5. **Every criterion must include `anti_patterns`** — 2-4 specific failure modes
+6. **Criteria must cover distinct dimensions** — content, experience, craft, etc.
+7. **For rendered/experienced artifacts**: include a dedicated rendering \
+correctness criterion (no visual defects, broken interactions, etc.)
+8. **Per-part quality**: include at least one criterion assessing whether EACH \
+significant part independently meets a quality bar, not just the average.
 {changedoc_instruction}
 ## Examples
 
 For a task "Create an SVG of a pelican riding a bicycle":
-- "Pelican accuracy: beak shape, throat pouch, plumage detail are recognizable and correct."
-- "Bicycle accuracy: wheels, frame, handlebars, and pedals are all present and structurally plausible."
-- "Convincingness of the riding pose: pelican's body position, grip, and balance look physically coherent."
-- "Visual appeal: scenery, color palette, and composition make the image engaging beyond just accurate."
+- **[PRIMARY]** "Riding conviction: The composition must sell the fiction that \
+this pelican is actually riding — weight distribution, contact points, and body \
+angle create physical plausibility. A pelican floating above a bicycle or \
+statically posed with no sense of motion fails."
+  anti_patterns: ["character and vehicle as separate non-interacting elements", \
+"static T-pose on seat", "missing pedal/handlebar engagement"]
+- "Pelican accuracy: Immediately recognizable as a pelican from silhouette \
+alone — beak with throat pouch, proportional body, correct wing structure. A \
+generic bird with a long beak is not a pelican."
+  anti_patterns: ["cartoon-simplified shapes that lose species identity", \
+"anatomically impossible joint positions"]
+- "Visual craft: The illustration evidences a considered aesthetic — not just \
+accurate rendering. Color palette, line weight variation, and composition feel \
+intentional."
+  anti_patterns: ["flat uniform line weight", "white/empty background as default", \
+"over-reliance on gradients as only visual interest"]
 
-For a task "Write an API client library":
-- "API coverage: all documented endpoints have working method signatures with correct parameters."
-- "Error handling: client is resilient to network failures, rate limits, and malformed responses."
-- "Developer ergonomics: naming is clear, the public API is discoverable, and usage is self-evident."
+For a task "Write a poem about love":
+- **[PRIMARY]** "Earned emotion: The poem makes the reader feel something through \
+specific imagery and situation, not through stating feelings. Every emotional beat \
+grounded in something concrete enough to see, hear, or touch."
+  anti_patterns: ["abstract declarations ('my heart aches')", \
+"greeting-card resolution", "emotional escalation without corresponding specificity"]
+- "Surprise and originality: At least one moment the reader could not have predicted. \
+Resistance to the gravitational pull of cliche on the subject of love."
+  anti_patterns: ["heart/fire/ocean/stars as primary metaphors", \
+"list-of-beautiful-things structure", "ending that restates the opening sentiment"]
 
-For tasks producing an artifact that is experienced rather than just read (rendered \
-visuals, video, audio, interactive output): always include a criterion covering \
-correctness in the primary use context — for rendered output this means no visual \
-defects when viewed normally; for video/audio this means plays back correctly without \
-distortion, sync errors, or gaps; for interactive output this means all interactions \
-work as expected without errors. \
-The verify_by must require actually experiencing the full artifact, not just checking \
-its source or structure.
+Criteria name a quality axis with an opinion — they do NOT prescribe specific \
+quantities, thresholds, or implementation choices.
 
-Notice: these name a quality axis and list what to look for — they do NOT prescribe \
-specific quantities, thresholds, or implementation choices.
-
-BAD (prescriptive requirement): "The website contains at least 4 distinct pages covering history, discography, members, and legacy"
-GOOD (evaluation dimension): "Breadth and depth of topic coverage: all major aspects of the subject are addressed with meaningful depth."
-
-BAD (implementation plan): "Each of the four Beatles is individually featured with accurate biographical details including birth year, role, and contributions"
-GOOD (evaluation dimension): "Individual member coverage: each member has accurate biographical detail, distinct contributions, and is not reduced to a footnote."
+BAD (prescriptive): "The website contains at least 4 pages"
+GOOD (evaluative): "Topic coverage: all major aspects addressed with meaningful depth"
 
 BAD (whole-output only): "The output shows intentional design choices"
-GOOD (per-part): "Per-section quality: each significant section of the output independently \
-demonstrates craft and purpose — no section is carried by the strength of others. \
-Evaluate the weakest section, not the average."
+GOOD (per-part): "Per-section quality: each significant section independently \
+demonstrates craft — no section is carried by the strength of others. Evaluate the \
+weakest section, not the average."
 
 ## Output Format
 Return JSON with this structure:
 {{
+    "aspiration": "[1-2 phrase quality ceiling for this task]",
     "criteria": [
-        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "must"}},
-        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "must", "verify_by": "render output to images and inspect for [specific defects to check]"}},
-        {{"text": "[Aspect name]: [concrete things to look for and how to assess them].", "category": "must"}}
+        {{
+            "text": "[Aspect]: [opinionated quality definition].",
+            "category": "primary",
+            "anti_patterns": ["specific failure mode 1", "specific failure mode 2"],
+            "verify_by": "evidence gathering instructions if needed"
+        }},
+        {{
+            "text": "[Aspect]: [opinionated quality definition].",
+            "category": "standard",
+            "anti_patterns": ["failure mode 1", "failure mode 2"]
+        }}
     ]
 }}
 
@@ -1021,15 +1109,16 @@ Generate evaluation criteria now for the task above."""
 
             # Try parsing from answer text
             if result.answer:
-                criteria = _parse_criteria_response(
+                criteria, aspiration = _parse_criteria_response(
                     result.answer,
                     min_criteria,
                     max_criteria,
                 )
                 if criteria:
                     self.last_generation_source = "subagent"
+                    self.last_aspiration = aspiration
                     logger.info(
-                        f"Parsed {len(criteria)} criteria from answer",
+                        f"Parsed {len(criteria)} criteria from answer (aspiration: {aspiration})",
                     )
                     return criteria
 
@@ -1061,12 +1150,13 @@ Generate evaluation criteria now for the task above."""
 
         try:
             content = criteria_file.read_text()
-            criteria = _parse_criteria_response(
+            criteria, aspiration = _parse_criteria_response(
                 content,
                 min_criteria,
                 max_criteria,
             )
             if criteria:
+                self.last_aspiration = aspiration
                 return criteria
         except Exception as e:
             logger.debug(f"Failed to parse {criteria_file}: {e}")

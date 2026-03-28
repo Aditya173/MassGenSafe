@@ -34,7 +34,9 @@ export type WSEventType =
   | 'hook_execution'
   | 'checkpoint_started'
   | 'checkpoint_completed'
-  | 'checkpoint_action_executed';
+  | 'checkpoint_action_executed'
+  | 'review_request'
+  | 'review_resolved';
 
 // Base WebSocket message
 export interface WSMessage {
@@ -404,6 +406,38 @@ export type WSEvent =
   | TimeoutStatusEvent
   | HookExecutionEvent
   | WSMessage;
+
+// Review modal types (WebUI git diff review)
+export interface ReviewFileChange {
+  status: 'M' | 'A' | 'D';
+  path: string;
+}
+
+export interface ReviewChangeContext {
+  original_path: string;
+  isolated_path: string;
+  repo_root?: string;
+  base_ref?: string;
+  context_prefix?: string;
+  changes: ReviewFileChange[];
+  diff: string;
+}
+
+export interface ReviewRequestEvent extends WSMessage {
+  type: 'review_request';
+  changes: ReviewChangeContext[];
+  answer_content: string;
+  vote_results: Record<string, unknown>;
+  agent_id: string;
+  model_name: string;
+  context_paths?: Record<string, string[]>;
+}
+
+export interface ReviewResolvedEvent extends WSMessage {
+  type: 'review_resolved';
+  approved: boolean;
+  resolved_by: string;
+}
 
 // Config file info from API
 export interface ConfigInfo {

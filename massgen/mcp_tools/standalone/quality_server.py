@@ -173,7 +173,7 @@ async def _generate_eval_criteria_impl(
             {
                 "id": str(c["id"]),
                 "text": str(c["text"]),
-                "category": str(c.get("category", "must")),
+                "category": str(c.get("category", "standard")),
                 "rationale": str(c.get("rationale", "")),
             },
         )

@@ -76,7 +76,7 @@ class TaskDecomposer:
     ) -> str:
         """Build the decomposition prompt passed to the subagent."""
         n_agents = len(agent_ids)
-        schema_entry = '{"subtask": "owned scope + integration touchpoints + quality bar", ' '"criteria": [{"text": "criterion text", "category": "must"}]}'
+        schema_entry = '{"subtask": "owned scope + integration touchpoints + quality bar", ' '"criteria": [{"text": "criterion text", "category": "standard"}]}'
         schema = ", ".join(f'"{aid}": {schema_entry}' for aid in agent_ids)
         planning_context_requirements = ""
         if has_planning_spec_context:
@@ -516,13 +516,14 @@ Requirements:
             text = str(entry.get("text") or "").strip()
             if not text:
                 continue
-            category = str(entry.get("category") or "should").strip().lower()
-            if category == "core":
-                category = "must"
-            elif category == "stretch":
-                category = "could"
-            if category not in {"must", "should", "could"}:
-                category = "should"
+            category = str(entry.get("category") or "standard").strip().lower()
+            # Map legacy values to new scheme
+            if category in ("core", "must", "should"):
+                category = "standard"
+            elif category in ("could", "stretch"):
+                category = "stretch"
+            if category not in {"primary", "standard", "stretch"}:
+                category = "standard"
             normalized_entry = {
                 "text": text,
                 "category": category,

@@ -811,6 +811,7 @@ class ConnectionManager:
         agent_ids: list,
         agent_models: dict[str, str] | None = None,
         main_agent_id: str | None = None,
+        review_enabled: bool = False,
     ) -> WebDisplay:
         """Create a new WebDisplay for a session."""
 
@@ -823,6 +824,7 @@ class ConnectionManager:
             session_id=session_id,
             agent_models=agent_models,
             main_agent_id=main_agent_id,
+            review_enabled=review_enabled,
         )
         self.displays[session_id] = display
         return display
@@ -2571,6 +2573,36 @@ def create_app(
             )
 
         return JSONResponse({"status": "deleted", "session_id": session_id})
+
+    @app.get("/api/sessions/{session_id}/review")
+    async def get_review_state(session_id: str):
+        """Get current review state including file list and diffs.
+
+        Returns pending review data if a review is active, or
+        review_pending: false otherwise. Used by external agents
+        to fetch diff data for text-based resolution.
+        """
+        display = manager.get_display(session_id)
+        if display and hasattr(display, "_pending_review_data") and display._pending_review_data:
+            return JSONResponse({"review_pending": True, **display._pending_review_data})
+        return JSONResponse({"review_pending": False})
+
+    @app.post("/api/sessions/{session_id}/review-response")
+    async def submit_review_response(session_id: str, request: Request):
+        """Agent-side review resolution.
+
+        Accepts JSON body with approve/reject decision. Resolves the
+        pending review future, allowing the orchestrator to proceed.
+        """
+        data = await request.json()
+        display = manager.get_display(session_id)
+        if display and hasattr(display, "resolve_review"):
+            display.resolve_review(data, source="api")
+            return JSONResponse({"status": "ok"})
+        return JSONResponse(
+            {"error": "No active review for this session"},
+            status_code=404,
+        )
 
     @app.get("/api/workspace/{session_id}/{agent_id}")
     async def get_workspace_files(session_id: str, agent_id: str):
@@ -4823,8 +4855,29 @@ def create_app(
                         },
                     )
 
+                elif action == "review_response":
+                    # Browser sent a review decision (approve/reject)
+                    display = manager.get_display(session_id)
+                    if display and hasattr(display, "resolve_review"):
+                        display.resolve_review(data, source="webui")
+                    else:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "No active review to respond to",
+                            },
+                        )
+
                 elif action == "cancel":
                     # Cancel the running coordination task
+                    # Resolve any pending review as rejected before cancelling
+                    cancel_display = manager.get_display(session_id)
+                    if cancel_display and hasattr(cancel_display, "resolve_review"):
+                        cancel_display.resolve_review(
+                            {"approved": False, "action": "reject"},
+                            source="cancel",
+                        )
+
                     task = manager.tasks.get(session_id)
                     if task and not task.done():
                         # Set cancellation flag on orchestrator first (for graceful stop)
@@ -5494,12 +5547,17 @@ async def run_coordination_with_history(
             if coord_cfg.get("checkpoint_enabled", False) and agent_ids:
                 _main_agent_for_display = agent_ids[0]
 
+        # Determine if web review is enabled (CLI override or YAML config)
+        _hist_coord_cfg = config.get("orchestrator", config).get("coordination", {})
+        _hist_web_review_enabled = _hist_coord_cfg.get("web_review", False)
+
         # Create web display with agent_models
         display = manager.create_display(
             session_id,
             agent_ids,
             agent_models,
             main_agent_id=_main_agent_for_display,
+            review_enabled=_hist_web_review_enabled,
         )
         # Set question early so late-joining clients get it in state_snapshot
         display.question = question
@@ -6072,6 +6130,10 @@ def _apply_cli_overrides(config: dict, cli_overrides: dict | None) -> None:
     if "cwd_context" in cli_overrides:
         apply_cli_cwd_context_path(config, cli_overrides["cwd_context"])
 
+    if cli_overrides.get("web_review"):
+        coord = config.setdefault("orchestrator", {}).setdefault("coordination", {})
+        coord["web_review"] = True
+
 
 def _setup_checkpoint_orchestrator(
     orchestrator: Orchestrator,
@@ -6292,12 +6354,17 @@ async def run_coordination(
             if coord_cfg.get("checkpoint_enabled", False) and agent_ids:
                 _main_agent_for_display = agent_ids[0]
 
+        # Determine if web review is enabled (CLI override or YAML config)
+        _coord_cfg = config.get("orchestrator", config).get("coordination", {})
+        _web_review_enabled = _coord_cfg.get("web_review", False)
+
         # Create web display with agent_models
         display = manager.create_display(
             session_id,
             agent_ids,
             agent_models,
             main_agent_id=_main_agent_for_display,
+            review_enabled=_web_review_enabled,
         )
         # Set question early so late-joining clients get it in state_snapshot
         display.question = question

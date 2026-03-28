@@ -1377,7 +1377,7 @@ class ConfigValidator:
                 if "checklist_criteria_inline" in coordination:
                     inline = coordination["checklist_criteria_inline"]
                     if inline is not None:
-                        valid_categories = {"must", "should", "could"}
+                        valid_categories = {"primary", "standard", "stretch", "must", "should", "could"}
                         if not isinstance(inline, list):
                             result.add_error(
                                 "checklist_criteria_inline must be a list",
@@ -1403,7 +1403,7 @@ class ConfigValidator:
                                     result.add_error(
                                         f"checklist_criteria_inline[{i}] missing 'category'",
                                         f"{location}.coordination.checklist_criteria_inline[{i}]",
-                                        "Each criterion needs a 'category' (must/should/could)",
+                                        "Each criterion needs a 'category' (primary/standard/stretch)",
                                     )
                                 elif item["category"] not in valid_categories:
                                     result.add_error(

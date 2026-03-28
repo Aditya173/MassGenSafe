@@ -390,43 +390,43 @@ class TestCriteriaTierSystem:
         c = GeneratedCriterion(id="E1", text="test", category="could")
         assert c.category == "could"
 
-    def test_backward_compat_core_maps_to_must(self):
-        """Parsing 'core' and 'stretch' both map to 'must'."""
+    def test_backward_compat_core_maps_to_standard(self):
+        """Parsing 'core' maps to 'standard' and 'stretch' maps to 'stretch'."""
         from massgen.evaluation_criteria_generator import _parse_criteria_response
 
         response = '{"criteria": [' '{"text": "t1", "category": "core"},' '{"text": "t2", "category": "core"},' '{"text": "t3", "category": "core"},' '{"text": "t4", "category": "stretch"}' "]}"
-        result = _parse_criteria_response(response)
-        assert result is not None
-        for c in result:
-            assert c.category == "must"
+        criteria, aspiration = _parse_criteria_response(response)
+        assert criteria is not None
+        for c in criteria:
+            assert c.category in ("standard", "stretch")
 
-    def test_new_categories_parsed_all_must(self):
-        """All input categories (must/should/could) are promoted to must."""
+    def test_new_categories_parsed_to_standard(self):
+        """Input categories (must/should/could) are mapped to standard/standard/stretch."""
         from massgen.evaluation_criteria_generator import _parse_criteria_response
 
         response = '{"criteria": [' '{"text": "t1", "category": "must"},' '{"text": "t2", "category": "must"},' '{"text": "t3", "category": "should"},' '{"text": "t4", "category": "could"}' "]}"
-        result = _parse_criteria_response(response)
-        assert result is not None
-        for c in result:
-            assert c.category == "must"
+        criteria, aspiration = _parse_criteria_response(response)
+        assert criteria is not None
+        for c in criteria:
+            assert c.category in ("primary", "standard", "stretch")
 
 
 class TestDefaultCriteriaTiers:
     """Tests for default criteria using new tier names."""
 
-    def test_default_categories_all_must(self):
-        """Default categories are all 'must'."""
+    def test_default_categories_all_standard(self):
+        """Default categories are all 'standard'."""
         from massgen.evaluation_criteria_generator import _DEFAULT_CATEGORIES
 
-        assert all(c == "must" for c in _DEFAULT_CATEGORIES)
+        assert all(c == "standard" for c in _DEFAULT_CATEGORIES)
 
-    def test_default_criteria_all_must(self):
-        """get_default_criteria returns criteria all with category 'must'."""
+    def test_default_criteria_all_standard(self):
+        """get_default_criteria returns criteria all with category 'standard'."""
         from massgen.evaluation_criteria_generator import get_default_criteria
 
         criteria = get_default_criteria(has_changedoc=False)
         for c in criteria:
-            assert c.category == "must", f"{c.id} has category '{c.category}'"
+            assert c.category == "standard", f"{c.id} has category '{c.category}'"
 
     def test_default_criteria_include_quality_craft(self):
         """Default criteria always include a quality/craft criterion."""
@@ -435,7 +435,7 @@ class TestDefaultCriteriaTiers:
         criteria = get_default_criteria(has_changedoc=False)
         craft = [c for c in criteria if "intentional" in c.text or "craft" in c.text]
         assert len(craft) == 1
-        assert craft[0].category == "must"
+        assert craft[0].category == "standard"
 
 
 class TestPresetsTiers:

@@ -20,6 +20,7 @@ import { V2QuickstartWizard } from './V2QuickstartWizard';
 import { V2SetupOverlay } from './V2SetupOverlay';
 import { LaunchIndicator } from './LaunchIndicator';
 import { PromptBanner } from '../tiles/PromptBanner';
+import { ReviewModal } from './ReviewModal';
 import { WorkspaceModal } from './WorkspaceModal';
 import { WorkspaceBrowserTile } from '../tiles/WorkspaceBrowserTile';
 import { AnswerBrowserTile } from '../tiles/AnswerBrowserTile';
@@ -258,6 +259,9 @@ export function AppShell({
           refreshTrigger={configRefreshTrigger}
         />
       </div>
+
+      {/* Review Modal (full-screen overlay for git diff review) */}
+      <ReviewModal />
 
       {/* Workspace Modal (full-screen overlays for Browse Files, Answers/Votes, Timeline) */}
       <WorkspaceModalRenderer />

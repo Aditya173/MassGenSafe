@@ -411,6 +411,10 @@ function EvalCriteriaSection() {
   if (evalCriteria.length === 0) return null;
 
   const categoryColor: Record<string, string> = {
+    primary: 'bg-purple-500/20 text-purple-400',
+    standard: 'bg-red-500/20 text-red-400',
+    stretch: 'bg-blue-500/20 text-blue-400',
+    // Legacy values for backward compatibility
     must: 'bg-red-500/20 text-red-400',
     should: 'bg-yellow-500/20 text-yellow-400',
     could: 'bg-blue-500/20 text-blue-400',
