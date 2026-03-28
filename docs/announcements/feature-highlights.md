@@ -47,7 +47,7 @@ Update this when major new features ship.
 
 🐳Code execution — Run commands with Docker support and code mode for efficient filesystem-based tool execution. 👉 More Info: https://lnkd.in/gDy5imFE
 
-🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers. 👉 More Info: https://lnkd.in/gxWNKCB6
+🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, and skill integration. 👉 More Info: https://lnkd.in/gxWNKCB6
 
 🪪Trace workflows — Orchestration logs, execution traces, workspace history, cost tracking, and Logfire integration for full observability. 👉 More Info: https://lnkd.in/gecFJE2z
 
