@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 Redesigned three-tier evaluation criteria system with anti-pattern definitions and aspiration statements. Checklist-gated evaluation workflow with iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
+We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 Redesigned three-tier evaluation criteria system with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
 
 ## Install
 
@@ -29,7 +29,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 Redesigned three-tier evaluation criteria system with anti-pattern definitions and aspiration statements. Checklist-gated evaluation workflow enables iterative submission cycles with scoring and improvement proposals before final voting.
+We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 Redesigned three-tier evaluation criteria system with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles, scoring, and improvement proposals before final voting.
 
 **Key Improvements:**
 
@@ -38,7 +38,7 @@ We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 
 - Anti-pattern definitions per criterion for sharper evaluation
 - Aspiration statements to set the quality bar
 
-🔄 **Checklist-Gated Evaluation Workflow** — Iterative refinement before voting:
+🔄 **Improved Checklist-Gated Evaluation** — Tighter iterative refinement before voting:
 - Agents submit, get scored against the checklist, receive improvement proposals, and resubmit
 - Scoring and gap analysis drive meaningful iteration
 
@@ -52,8 +52,8 @@ We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 
 
 ```bash
 pip install massgen==0.1.70
-# Try the redesigned evaluation criteria
-uv run massgen --web
+# Try fast iteration with redesigned evaluation criteria
+uv run massgen --config @examples/features/fast_iteration.yaml "Create an svg of an AI agent coding."
 ```
 
 Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.70

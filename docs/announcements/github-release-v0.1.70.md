@@ -5,9 +5,8 @@
 - **Aspiration statements**: Set the quality bar with a single sentence describing the ideal outcome
 - **Improved criteria generation**: Criteria generation now produces opinionated, task-specific criteria
 
-### 🔄 [Checklist-Gated Evaluation Workflow](https://docs.massgen.ai/en/latest/user_guide/concepts.html)
-- **Iterative submission cycles** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Agents submit, get scored against the checklist, receive improvement proposals, and resubmit before final voting
-- **Scoring and gap analysis**: Drive meaningful iteration with concrete feedback
+### 🔄 [Improved Checklist-Gated Evaluation](https://docs.massgen.ai/en/latest/user_guide/concepts.html)
+- **Tighter iterative submission cycles** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Improved scoring, gap analysis, and improvement proposals drive more meaningful iteration before final voting
 
 ### ✨ Plus
 - **Fast iteration mode** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Streamlined multi-round submission phases via `fast_iteration.yaml`
@@ -22,6 +21,6 @@
 - **Try It**:
   ```bash
   pip install massgen==0.1.70
-  # Try the redesigned evaluation criteria
-  uv run massgen --web
+  # Try fast iteration with redesigned evaluation criteria
+  uv run massgen --config @examples/features/fast_iteration.yaml "Create an svg of an AI agent coding."
   ```

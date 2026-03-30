@@ -202,7 +202,7 @@ Recent Releases
 
 **v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
 
-Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Checklist-gated evaluation workflow with iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis.
+Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis.
 
 **v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
 

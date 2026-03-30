@@ -161,15 +161,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 **What's New in v0.1.70:**
 - **📋 Evaluation Criteria Redesign** - Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements.
-- **🔄 Checklist-Gated Evaluation Workflow** - Iterative submission cycles with scoring and improvement proposals before final voting.
+- **🔄 Improved Checklist-Gated Evaluation** - Tighter iterative submission cycles with improved scoring and improvement proposals.
 - **⚡ Fast Iteration Mode** - Streamlined multi-round submission phases via `fast_iteration.yaml`.
 - **🔍 WebUI Review Modal** - Approve and comment on outputs directly in the browser.
 
 **Try v0.1.70 Features:**
 ```bash
 pip install massgen==0.1.70
-# Try the redesigned evaluation criteria
-uv run massgen --web
+# Try fast iteration with redesigned evaluation criteria
+uv run massgen --config @examples/features/fast_iteration.yaml "Create an svg of an AI agent coding."
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1247,7 +1247,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 #### Evaluation Criteria Redesign
 - **Evaluation Criteria Redesign** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements
-- **Checklist-Gated Evaluation Workflow** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Iterative submission cycles with scoring and improvement proposals before final voting
+- **Improved Checklist-Gated Evaluation** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Tighter iterative submission cycles with improved scoring and improvement proposals
 - **Fast Iteration Mode** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Streamlined multi-round submission phases via `fast_iteration.yaml`
 - **WebUI Review Modal** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Approve and comment on outputs directly in the browser when working in git
 - **Background Trace Analysis** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Execution trace analyzer starts automatically from round 2

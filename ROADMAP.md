@@ -56,7 +56,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ### Features
 - **Evaluation Criteria Redesign**: Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements
-- **Checklist-Gated Evaluation Workflow**: Iterative submission cycles with scoring and improvement proposals before final voting
+- **Improved Checklist-Gated Evaluation**: Tighter iterative submission cycles with improved scoring and improvement proposals before final voting
 - **Fast Iteration Mode**: Streamlined multi-round submission phases via `fast_iteration.yaml`
 - **WebUI Review Modal**: Approve and comment on outputs in the browser when working in git
 - **Background Trace Analysis**: Execution trace analyzer starts automatically from round 2

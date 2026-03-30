@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Recent Releases
 
 **v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
-Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Checklist-gated evaluation workflow with iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
+Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
 
 **v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
 WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework, Workspace Browser expansion, and flexible evaluation criteria field names.
@@ -24,7 +24,7 @@ New checkpoint coordination mode with delegator pattern — main agent plans sol
 
 ### Added
 - **Evaluation Criteria Redesign** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions per criterion and aspiration statements
-- **Checklist-Gated Evaluation Workflow** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Iterative submission cycles — agents submit, get scored against the checklist, receive improvement proposals, and resubmit before final voting
+- **Improved Checklist-Gated Evaluation** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Tighter iterative submission cycles — improved scoring, gap analysis, and improvement proposals drive more meaningful iteration before final voting
 - **Fast Iteration Mode** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Streamlined multi-round submission phases via `fast_iteration.yaml` config
 - **WebUI Review Modal** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Approve and comment on outputs directly in the browser when working in git
 - **Background Trace Analysis** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Execution trace analyzer starts automatically from round 2
