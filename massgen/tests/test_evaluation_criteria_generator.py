@@ -15,8 +15,10 @@ from types import SimpleNamespace
 import pytest
 
 from massgen.evaluation_criteria_generator import (
+    VALID_CRITERIA_PRESETS,
     EvaluationCriteriaGenerator,
     EvaluationCriteriaGeneratorConfig,
+    get_criteria_for_preset,
     get_default_criteria,
 )
 
@@ -525,6 +527,89 @@ class TestScoreAnchors:
         assert criteria[0].score_anchors is not None
         assert criteria[0].score_anchors["7"] == "Good"
         assert criteria[1].score_anchors is None
+
+
+class TestStaticCriteriaEnrichment:
+    """Verify all static criteria have anti_patterns and score_anchors."""
+
+    def test_default_criteria_have_anti_patterns(self):
+        """Every default criterion must have non-empty anti_patterns."""
+        criteria = get_default_criteria()
+        for c in criteria:
+            assert c.anti_patterns is not None, f"{c.id} missing anti_patterns"
+            assert len(c.anti_patterns) >= 2, f"{c.id} needs at least 2 anti_patterns, has {len(c.anti_patterns)}"
+
+    def test_default_criteria_have_score_anchors(self):
+        """Every default criterion must have score_anchors with keys 3, 5, 7, 9."""
+        criteria = get_default_criteria()
+        for c in criteria:
+            assert c.score_anchors is not None, f"{c.id} missing score_anchors"
+            for level in ("3", "5", "7", "9"):
+                assert level in c.score_anchors, f"{c.id} missing score_anchors[{level}]"
+
+    def test_changedoc_criteria_have_anti_patterns(self):
+        """Every changedoc criterion must have non-empty anti_patterns."""
+        from massgen.evaluation_criteria_generator import _CHANGEDOC_CRITERIA
+
+        for c in _CHANGEDOC_CRITERIA:
+            assert c.anti_patterns is not None, f"{c.id} missing anti_patterns"
+            assert len(c.anti_patterns) >= 2, f"{c.id} needs at least 2 anti_patterns"
+
+    def test_changedoc_criteria_have_score_anchors(self):
+        """Every changedoc criterion must have score_anchors with keys 3, 5, 7, 9."""
+        from massgen.evaluation_criteria_generator import _CHANGEDOC_CRITERIA
+
+        for c in _CHANGEDOC_CRITERIA:
+            assert c.score_anchors is not None, f"{c.id} missing score_anchors"
+            for level in ("3", "5", "7", "9"):
+                assert level in c.score_anchors, f"{c.id} missing score_anchors[{level}]"
+
+    @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
+    def test_preset_criteria_have_anti_patterns(self, preset_name):
+        """Every criterion in every preset must have non-empty anti_patterns."""
+        criteria = get_criteria_for_preset(preset_name)
+        for c in criteria:
+            assert c.anti_patterns is not None, f"{preset_name}/{c.id} missing anti_patterns"
+            assert len(c.anti_patterns) >= 2, f"{preset_name}/{c.id} needs at least 2 anti_patterns"
+
+    @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
+    def test_preset_criteria_have_score_anchors(self, preset_name):
+        """Every criterion in every preset must have score_anchors with keys 3, 5, 7, 9."""
+        criteria = get_criteria_for_preset(preset_name)
+        for c in criteria:
+            assert c.score_anchors is not None, f"{preset_name}/{c.id} missing score_anchors"
+            for level in ("3", "5", "7", "9"):
+                assert level in c.score_anchors, f"{preset_name}/{c.id} missing score_anchors[{level}]"
+
+    @pytest.mark.parametrize("preset_name", list(VALID_CRITERIA_PRESETS))
+    def test_every_preset_has_exactly_one_primary(self, preset_name):
+        """Every preset must have exactly one PRIMARY criterion."""
+        criteria = get_criteria_for_preset(preset_name)
+        primary = [c for c in criteria if c.category == "primary"]
+        assert len(primary) == 1, f"Preset '{preset_name}' has {len(primary)} PRIMARY criteria, expected 1. " f"Primary IDs: {[c.id for c in primary]}"
+
+    def test_decomposition_execution_criteria_have_anti_patterns(self):
+        """Decomposition execution criteria must have anti_patterns."""
+        from massgen.evaluation_criteria_generator import (
+            build_decomposition_execution_criteria,
+        )
+
+        criteria = build_decomposition_execution_criteria("Build the frontend")
+        for c in criteria:
+            assert c.anti_patterns is not None, f"{c.id} missing anti_patterns"
+            assert len(c.anti_patterns) >= 2, f"{c.id} needs at least 2 anti_patterns"
+
+    def test_decomposition_execution_criteria_have_score_anchors(self):
+        """Decomposition execution criteria must have score_anchors."""
+        from massgen.evaluation_criteria_generator import (
+            build_decomposition_execution_criteria,
+        )
+
+        criteria = build_decomposition_execution_criteria("Build the frontend")
+        for c in criteria:
+            assert c.score_anchors is not None, f"{c.id} missing score_anchors"
+            for level in ("3", "5", "7", "9"):
+                assert level in c.score_anchors, f"{c.id} missing score_anchors[{level}]"
 
 
 @pytest.mark.asyncio

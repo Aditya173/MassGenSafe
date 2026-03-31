@@ -18,6 +18,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from massgen.evaluation_criteria_generator import _CHANGEDOC_CRITERIA, _DEFAULT_CRITERIA
+
 # ---------------------------------------------------------------------------
 # ROI evaluation shared helpers
 #
@@ -139,88 +141,18 @@ Calibration rule: your score for each criterion MUST be consistent with the
 weaknesses in your diagnostic report. If your report identifies significant
 gaps but your scores are 8+, your scores are inflated — lower them to match."""
 
-_CHECKLIST_ITEMS = [
-    (
-        "Requirements fidelity: The output achieves what was specifically asked"
-        " for — each stated requirement is met as described, not approximated or"
-        " reinterpreted. Missing requirements, partially implemented features, or"
-        " creative substitutions for what was actually requested count as failures."
-    ),
-    (
-        "Multi-level correctness: The output works correctly as experienced, not"
-        " just as inspected. Structural correctness (valid format, runnable code,"
-        " proper syntax), content correctness (accurate information, right"
-        " computations), and experiential correctness (renders properly,"
-        " interactions work, no visual defects) are all required. A file that"
-        " opens but displays incorrectly is wrong, not merely unpolished."
-    ),
-    (
-        "Per-part depth: Every significant component of the output independently"
-        " meets a quality bar — no section is filler, placeholder, or carried by"
-        " the strength of others. Evaluate the weakest part, not the average. A"
-        " brilliant introduction with thin body sections, or a strong"
-        " implementation with stub tests, fails this criterion."
-    ),
-    (
-        "Intentional craft: The output shows evidence of deliberate, thoughtful"
-        " choices — not minimum viable execution assembled from defaults."
-        " Structure, style, and detail reflect someone who cared about the"
-        " result, not someone who satisfied requirements and stopped. A"
-        " knowledgeable person in the domain would recognize quality, not just"
-        " correctness."
-    ),
-]
+# Derive checklist items from the canonical criteria definitions in
+# evaluation_criteria_generator.py.  This eliminates duplication and ensures
+# anti_patterns / score_anchors are available to the fallback paths.
+_CHECKLIST_ITEMS = [c.text for c in _DEFAULT_CRITERIA]
+_CHECKLIST_ITEM_CATEGORIES = {c.id: c.category for c in _DEFAULT_CRITERIA}
+_CHECKLIST_ITEM_ANTI_PATTERNS = {c.id: c.anti_patterns for c in _DEFAULT_CRITERIA if c.anti_patterns}
+_CHECKLIST_ITEM_SCORE_ANCHORS = {c.id: c.score_anchors for c in _DEFAULT_CRITERIA if c.score_anchors}
 
-# Category tags for default checklist items.
-# E3 (per-part depth) is PRIMARY — this is where default model behavior is
-# weakest. Models produce uneven output where some parts are strong and others
-# are filler, placeholder, or superficial.
-_CHECKLIST_ITEM_CATEGORIES = {
-    "E1": "standard",
-    "E2": "standard",
-    "E3": "primary",
-    "E4": "standard",
-}
-
-_CHECKLIST_ITEMS_CHANGEDOC = [
-    (
-        "Spec fidelity: The output implements what the changedoc specifies —"
-        " each goal and requirement is addressed as described, not approximated"
-        " or reinterpreted. Missing goals, partially implemented requirements,"
-        " or creative substitutions for what was specified count as failures."
-    ),
-    (
-        "Multi-level correctness: The output works correctly as experienced, not"
-        " just as inspected. Structural correctness (valid format, runnable code,"
-        " proper syntax), content correctness (accurate information, right"
-        " computations), and experiential correctness (renders properly,"
-        " interactions work, no visual defects) are all required. A deliverable"
-        " that passes structural checks but fails experientially is wrong, not"
-        " merely unpolished."
-    ),
-    (
-        "Per-part depth: Every significant component independently meets a"
-        " quality bar — no section is filler, placeholder, or carried by the"
-        " strength of others. Evaluate the weakest part, not the average. A"
-        " brilliant first section with thin remaining sections, or strong core"
-        " logic with stub supporting pieces, fails this criterion."
-    ),
-    (
-        "Intentional craft: The output shows evidence of deliberate choices —"
-        " not minimum viable execution assembled from defaults. Structure,"
-        " style, and detail reflect care about the result. A knowledgeable"
-        " person in the domain would recognize quality, not just correctness."
-    ),
-]
-
-# Category tags for changedoc checklist items.
-# E3 (per-part depth) is PRIMARY — same rationale as the generic set.
-_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC = {
-    "E1": "standard",
-    "E2": "standard",
-    "E3": "primary",
-    "E4": "standard",
-}
+_CHECKLIST_ITEMS_CHANGEDOC = [c.text for c in _CHANGEDOC_CRITERIA]
+_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC = {c.id: c.category for c in _CHANGEDOC_CRITERIA}
+_CHECKLIST_ITEM_ANTI_PATTERNS_CHANGEDOC = {c.id: c.anti_patterns for c in _CHANGEDOC_CRITERIA if c.anti_patterns}
+_CHECKLIST_ITEM_SCORE_ANCHORS_CHANGEDOC = {c.id: c.score_anchors for c in _CHANGEDOC_CRITERIA if c.score_anchors}
 
 
 def _checklist_budget_context(remaining: int, total: int) -> str:

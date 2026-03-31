@@ -189,6 +189,8 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         # Tool event tracking (for emit_tool_start/emit_tool_complete)
         self._tool_start_times: dict[str, float] = {}
         self._tool_id_to_name: dict[str, str] = {}
+        self._workflow_call_emitted_this_turn = False
+        self._workflow_mcp_item_ids_emitted: set[str] = set()
 
         # Docker execution mode
         self._docker_execution = kwargs.get("command_line_execution_mode") == "docker"
@@ -1556,8 +1558,28 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
 
             if not is_completed:
                 # item.started (in_progress) — emit tool_start
-                # Skip workflow MCP tools — only the completed result matters
                 if server == "massgen_workflow_tools":
+                    workflow_call = self._build_workflow_tool_call_from_codex_item(
+                        tool_name=tool_name,
+                        arguments=item.get("arguments", {}),
+                        item_id=item_id,
+                    )
+                    if workflow_call:
+                        if self._workflow_call_emitted_this_turn:
+                            logger.info(
+                                "Codex: suppressing additional workflow MCP start " "after first accepted call (%s)",
+                                tool_name,
+                            )
+                            return []
+                        self._workflow_call_emitted_this_turn = True
+                        self._workflow_mcp_item_ids_emitted.add(item_id)
+                        return [
+                            StreamChunk(
+                                type="tool_calls",
+                                tool_calls=[workflow_call],
+                                source="codex",
+                            ),
+                        ]
                     return []
                 if is_background_wait_call:
                     self._active_background_wait_calls.add(item_id)
@@ -1593,8 +1615,24 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
 
                 # Workflow MCP tools: extract as tool_calls (preserve existing behavior)
                 if server == "massgen_workflow_tools":
+                    if item_id in self._workflow_mcp_item_ids_emitted:
+                        return []
+                    if self._workflow_call_emitted_this_turn:
+                        logger.info(
+                            "Codex: ignoring additional workflow MCP completion " "after first accepted call (%s)",
+                            tool_name,
+                        )
+                        return []
                     workflow_call = self._try_extract_workflow_mcp_result_from_codex(result)
+                    if not workflow_call:
+                        workflow_call = self._build_workflow_tool_call_from_codex_item(
+                            tool_name=tool_name,
+                            arguments=item.get("arguments", {}),
+                            item_id=item_id,
+                        )
                     if workflow_call:
+                        self._workflow_call_emitted_this_turn = True
+                        self._workflow_mcp_item_ids_emitted.add(item_id)
                         return [
                             StreamChunk(
                                 type="tool_calls",
@@ -1850,6 +1888,8 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         held_done_chunk = None
         has_workflow = has_workflow_mcp or bool(self._pending_workflow_instructions)
         got_workflow_tool_calls = False
+        self._workflow_call_emitted_this_turn = False
+        self._workflow_mcp_item_ids_emitted.clear()
 
         try:
             stream = self._stream_docker(prompt, resume_session) if self._is_docker_mode else self._stream_local(prompt, resume_session)
@@ -2126,6 +2166,34 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             return None
 
     @staticmethod
+    def _build_workflow_tool_call_from_codex_item(
+        tool_name: str,
+        arguments: Any,
+        item_id: str,
+    ) -> dict[str, Any] | None:
+        """Build a workflow tool call directly from a Codex MCP item payload."""
+        if not tool_name:
+            return None
+
+        normalized_args = arguments
+        if isinstance(normalized_args, str):
+            try:
+                normalized_args = json.loads(normalized_args)
+            except json.JSONDecodeError:
+                normalized_args = {}
+        if not isinstance(normalized_args, dict):
+            normalized_args = {}
+
+        return {
+            "id": f"call_{item_id}",
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "arguments": normalized_args,
+            },
+        }
+
+    @staticmethod
     def _stringify_mcp_result(result: Any) -> str:
         """Normalize Codex MCP results into a frontend-friendly string payload.
 
@@ -2240,6 +2308,8 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         self._pending_workflow_instructions = ""
         self._tool_start_times.clear()
         self._tool_id_to_name.clear()
+        self._workflow_call_emitted_this_turn = False
+        self._workflow_mcp_item_ids_emitted.clear()
         self._cleanup_workspace_config()
         logger.info("Codex session state reset.")
 

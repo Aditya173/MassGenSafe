@@ -17,7 +17,7 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -203,6 +203,77 @@ def test_get_trace_path_unknown_agent(tmp_path: Path):
     orch = _make_orchestrator(tmp_path)
     result = orch._get_execution_trace_path_for_agent("no_such_agent")
     assert result is None
+
+
+def test_get_trace_context_path_prefers_temp_workspace_copy(tmp_path: Path):
+    """Trace analyzer should use the temp-workspace copy visible to subagents."""
+    orch = _make_orchestrator(tmp_path)
+    fs_mgr = orch.agents["agent_a"].backend.filesystem_manager
+
+    snapshot_trace = fs_mgr.snapshot_storage / "execution_trace.md"
+    snapshot_trace.write_text("# snapshot trace", encoding="utf-8")
+
+    temp_root = tmp_path / "temp_workspaces"
+    temp_trace = temp_root / "agent1" / "execution_trace.md"
+    temp_trace.parent.mkdir(parents=True, exist_ok=True)
+    temp_trace.write_text("# temp trace", encoding="utf-8")
+
+    class _FakeTracker:
+        def get_reverse_agent_mapping(self) -> dict[str, str]:
+            return {"agent_a": "agent1"}
+
+    orch.coordination_tracker = _FakeTracker()
+
+    result = orch._get_execution_trace_context_path_for_agent(
+        "agent_a",
+        temp_workspace_path=str(temp_root),
+    )
+    assert result == temp_trace
+
+
+@pytest.mark.asyncio
+async def test_spawn_trace_analyzer_uses_temp_workspace_trace_path(tmp_path: Path):
+    """Background auto-trace should pass the temp-workspace trace path to spawn."""
+    orch = _make_orchestrator(tmp_path, restart_count=1)
+    fs_mgr = orch.agents["agent_a"].backend.filesystem_manager
+
+    snapshot_trace = fs_mgr.snapshot_storage / "execution_trace.md"
+    snapshot_trace.write_text("# snapshot trace", encoding="utf-8")
+
+    temp_root = tmp_path / "temp_workspaces"
+    temp_trace = temp_root / "agent1" / "execution_trace.md"
+    temp_trace.parent.mkdir(parents=True, exist_ok=True)
+    temp_trace.write_text("# temp trace", encoding="utf-8")
+
+    fs_mgr.agent_temporary_workspace = temp_root
+    orch._agent_temporary_workspace = str(temp_root)
+
+    type_dir = fs_mgr.cwd / ".massgen" / "subagent_types" / "execution_trace_analyzer"
+    type_dir.mkdir(parents=True, exist_ok=True)
+
+    class _FakeTracker:
+        def get_reverse_agent_mapping(self) -> dict[str, str]:
+            return {"agent_a": "agent1"}
+
+    orch.coordination_tracker = _FakeTracker()
+    orch._copy_all_snapshots_to_temp_workspace = AsyncMock(return_value=str(temp_root))
+
+    seen: dict[str, Any] = {}
+
+    async def _fake_run(parent_agent_id: str, round_number: int, trace_path: Path) -> None:
+        seen["parent_agent_id"] = parent_agent_id
+        seen["round_number"] = round_number
+        seen["trace_path"] = trace_path
+
+    orch._run_trace_analyzer = _fake_run  # type: ignore[assignment]
+
+    await orch._spawn_trace_analyzer_background("agent_a")
+    task = orch._background_trace_tasks["agent_a"]
+    await task
+
+    assert seen["parent_agent_id"] == "agent_a"
+    assert seen["round_number"] == 2
+    assert seen["trace_path"] == temp_trace
 
 
 # ---------------------------------------------------------------------------

@@ -933,8 +933,12 @@ class Orchestrator(ChatAgent):
             (items, categories, verify_by, source, anti_patterns, score_anchors)
         """
         from massgen.system_prompt_sections import (
+            _CHECKLIST_ITEM_ANTI_PATTERNS,
+            _CHECKLIST_ITEM_ANTI_PATTERNS_CHANGEDOC,
             _CHECKLIST_ITEM_CATEGORIES,
             _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC,
+            _CHECKLIST_ITEM_SCORE_ANCHORS,
+            _CHECKLIST_ITEM_SCORE_ANCHORS_CHANGEDOC,
             _CHECKLIST_ITEMS,
             _CHECKLIST_ITEMS_CHANGEDOC,
         )
@@ -962,11 +966,18 @@ class Orchestrator(ChatAgent):
                 dict(_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC),
                 None,
                 "changedoc",
-                None,
-                None,
+                dict(_CHECKLIST_ITEM_ANTI_PATTERNS_CHANGEDOC),
+                dict(_CHECKLIST_ITEM_SCORE_ANCHORS_CHANGEDOC),
             )
 
-        return list(_CHECKLIST_ITEMS), dict(_CHECKLIST_ITEM_CATEGORIES), None, "generic", None, None
+        return (
+            list(_CHECKLIST_ITEMS),
+            dict(_CHECKLIST_ITEM_CATEGORIES),
+            None,
+            "generic",
+            dict(_CHECKLIST_ITEM_ANTI_PATTERNS),
+            dict(_CHECKLIST_ITEM_SCORE_ANCHORS),
+        )
 
     def _push_cached_criteria_to_display(self, *, force: bool = False) -> None:
         """Push cached evaluation criteria to the active display when available."""
@@ -6367,10 +6378,12 @@ Your answer:"""
                                 )
                             await self._cancel_running_background_work_for_agent(agent_id)
 
-                            # Trigger B: auto trace analysis for non-evaluator-gated configs.
-                            # When the round evaluator gate is enabled, Trigger A (inside
-                            # _run_round_evaluator_pre_round_if_needed) handles this instead.
-                            if not self._is_round_evaluator_gate_enabled() and self._should_spawn_trace_analyzer(agent_id):
+                            # Trigger B: auto trace analysis per agent on new_answer.
+                            # Trigger A (inside _run_round_evaluator_pre_round_if_needed)
+                            # only fires for single-agent configs.  For multi-agent,
+                            # this is the only trigger.  _should_spawn_trace_analyzer
+                            # prevents double-spawning if Trigger A already fired.
+                            if self._should_spawn_trace_analyzer(agent_id):
                                 await self._spawn_trace_analyzer_background(agent_id)
 
                             restart_triggered_id = agent_id  # Last agent to provide new answer
@@ -9605,6 +9618,13 @@ Your answer:"""
             agent_cfg: dict[str, Any] = {"id": aid}
             if hasattr(a.backend, "config"):
                 backend_cfg = {k: v for k, v in a.backend.config.items() if k not in ("mcp_servers", "_config_path")}
+                # The 'type' key is consumed by create_backend() and not
+                # stored in self.config.  Inject it so subagent configs
+                # inherit the correct backend type.
+                if "type" not in backend_cfg and hasattr(a.backend, "get_provider_name"):
+                    from .backend.capabilities import normalize_backend_type
+
+                    backend_cfg["type"] = normalize_backend_type(a.backend.get_provider_name())
                 agent_cfg["backend"] = backend_cfg
             agent_configs.append(agent_cfg)
 
@@ -12697,6 +12717,63 @@ Your answer:"""
         trace_path = fs_mgr.snapshot_storage / "execution_trace.md"
         return trace_path if trace_path.exists() else None
 
+    def _get_execution_trace_context_path_for_agent(
+        self,
+        agent_id: str,
+        temp_workspace_path: str | os.PathLike[str] | None = None,
+    ) -> Path | None:
+        """Return a subagent-readable execution trace path for the agent.
+
+        Direct-spawned subagents can only read files mounted from the parent
+        workspace and the agent temp-workspace shared-reference tree. The raw
+        snapshot_storage path may exist on the host but still fail subagent
+        validation if passed directly, so prefer the temp-workspace copy.
+        """
+        snapshot_trace = self._get_execution_trace_path_for_agent(agent_id)
+        if not snapshot_trace:
+            return None
+
+        temp_roots: list[Path] = []
+
+        if temp_workspace_path:
+            temp_roots.append(Path(temp_workspace_path))
+
+        agent = self.agents.get(agent_id)
+        fs_mgr = getattr(
+            getattr(agent, "backend", None),
+            "filesystem_manager",
+            None,
+        )
+        for candidate_root in (
+            getattr(fs_mgr, "agent_temporary_workspace", None),
+            getattr(self, "_agent_temporary_workspace", None),
+        ):
+            if candidate_root:
+                temp_roots.append(Path(candidate_root))
+
+        anon_id = agent_id
+        tracker = getattr(self, "coordination_tracker", None)
+        if tracker and hasattr(tracker, "get_reverse_agent_mapping"):
+            try:
+                anon_id = tracker.get_reverse_agent_mapping().get(agent_id, agent_id)
+            except Exception:
+                anon_id = agent_id
+
+        seen: set[Path] = set()
+        for temp_root in temp_roots:
+            try:
+                resolved_root = temp_root.resolve()
+            except OSError:
+                continue
+            if resolved_root in seen:
+                continue
+            seen.add(resolved_root)
+            trace_path = resolved_root / anon_id / "execution_trace.md"
+            if trace_path.exists():
+                return trace_path
+
+        return None
+
     def _build_trace_analyzer_task(
         self,
         agent_id: str,
@@ -12760,7 +12837,7 @@ Your answer:"""
         """Background worker: spawn trace analyzer and process result."""
         from .subagent.models import SubagentResult
 
-        subagent_id = f"trace_analyzer_r{round_number}"
+        subagent_id = f"trace_analyzer_{parent_agent_id}_r{round_number}"
         # Default 5 min, capped at half of subsequent_round_timeout_seconds
         trace_timeout = 300
         coord = getattr(self.config, "coordination_config", None)
@@ -12836,10 +12913,18 @@ Your answer:"""
         # Parse result
         results = normalized.get("results")
         if not isinstance(results, list) or not results:
+            error = normalized.get("error", "")
+            summary = normalized.get("summary", {})
             logger.warning(
-                "[Orchestrator] Trace analyzer for %s r%d returned no results",
+                "[Orchestrator] Trace analyzer for %s r%d returned no results "
+                "(success=%s, error=%s, summary=%s). "
+                "Check that 'execution_trace_analyzer' is in subagent_types "
+                "and its SUBAGENT.md is written to the workspace.",
                 parent_agent_id,
                 round_number,
+                success,
+                error,
+                summary,
             )
             return
 
@@ -12882,13 +12967,42 @@ Your answer:"""
         restart_count = getattr(state, "restart_count", 0) if state else 0
         round_number = max(1, restart_count + 1)
 
-        trace_path = self._get_execution_trace_path_for_agent(parent_agent_id)
-        if not trace_path:
+        snapshot_trace_path = self._get_execution_trace_path_for_agent(parent_agent_id)
+        if not snapshot_trace_path:
             logger.debug(
                 "[Orchestrator] No execution trace available for %s, " "skipping trace analyzer",
                 parent_agent_id,
             )
             return
+
+        temp_workspace_path = await self._copy_all_snapshots_to_temp_workspace(parent_agent_id)
+        trace_path = self._get_execution_trace_context_path_for_agent(
+            parent_agent_id,
+            temp_workspace_path=temp_workspace_path,
+        )
+        if not trace_path:
+            logger.warning(
+                "[Orchestrator] Execution trace exists for %s at %s but no " "subagent-readable temp-workspace copy was available; " "skipping trace analyzer",
+                parent_agent_id,
+                snapshot_trace_path,
+            )
+            return
+
+        # Pre-flight: verify execution_trace_analyzer type dir exists in the
+        # workspace so the spawn doesn't silently produce empty results.
+        agent = self.agents.get(parent_agent_id)
+        fs_mgr = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+        if fs_mgr and fs_mgr.cwd:
+            type_dir = Path(fs_mgr.cwd) / ".massgen" / "subagent_types" / "execution_trace_analyzer"
+            if not type_dir.exists():
+                # Write it now — may have been missing from DEFAULT_SUBAGENT_TYPES
+                self._write_subagent_type_dirs(Path(fs_mgr.cwd))
+                if not type_dir.exists():
+                    logger.warning(
+                        "[Orchestrator] execution_trace_analyzer type dir " "not found in workspace for %s — skipping. " "Add 'execution_trace_analyzer' to subagent_types " "in coordination config.",
+                        parent_agent_id,
+                    )
+                    return
 
         task = asyncio.create_task(
             self._run_trace_analyzer(

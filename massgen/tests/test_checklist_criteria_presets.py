@@ -232,15 +232,15 @@ class TestPresetContentSanity:
 
     def test_planning_preset_exists(self):
         criteria = get_criteria_for_preset("planning")
-        assert len(criteria) == 10
+        assert len(criteria) == 7
         standard_count = sum(1 for c in criteria if c.category in ("primary", "standard"))
         stretch_count = sum(1 for c in criteria if c.category == "stretch")
-        assert standard_count == 10  # all planning criteria are standard
+        assert standard_count == 7  # all planning criteria are standard or primary
         assert stretch_count == 0
 
     def test_spec_preset_exists(self):
         criteria = get_criteria_for_preset("spec")
-        assert len(criteria) == 7
+        assert len(criteria) == 6
         assert all(c.category in ("primary", "standard") for c in criteria)
 
     def test_round_evaluator_preset_exists(self):
