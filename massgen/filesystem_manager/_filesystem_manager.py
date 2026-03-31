@@ -2059,6 +2059,11 @@ class FilesystemManager:
                 if item.name == ".massgen":
                     logger.debug(f"[FilesystemManager] Preserving .massgen directory during clear: {item}")
                     continue
+                # Preserve memory directory — short_term and long_term memories
+                # must accumulate across rounds (trace analysis, learnings, etc.).
+                if item.name == "memory":
+                    logger.debug(f"[FilesystemManager] Preserving memory directory during clear: {item}")
+                    continue
                 if item.is_file():
                     item.unlink()
                 elif item.is_dir():

@@ -4133,11 +4133,10 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
             evaluation_section += """
 
 **TRACE ANALYSIS (round 2+):**
-Before starting work this round, spawn an `execution_trace_analyzer` subagent \
-to analyze your previous round's execution trace. Give it your execution trace \
-from the previous round. Read its findings — they contain specific DO/DON'T \
-guidance based on what worked and what was wasted effort. Apply those learnings \
-to this round's execution strategy."""
+A background execution trace analyzer is automatically analyzing your \
+previous round's execution trace. Its DO/DON'T guidance will be injected \
+into your context when ready. Apply those learnings to this round's \
+execution strategy when they appear."""
 
         if self.fast_iteration_mode:
             _iteration_guidance = (

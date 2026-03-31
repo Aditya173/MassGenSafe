@@ -393,6 +393,8 @@ class Orchestrator(ChatAgent):
         # Stores pending results for each parent agent until they can be injected
         # Format: {parent_agent_id: [(subagent_id, SubagentResult), ...]}
         self._pending_subagent_results: dict[str, list[tuple[str, "SubagentResult"]]] = {}
+        # Background trace analyzer tasks (asyncio.Task per agent)
+        self._background_trace_tasks: dict[str, "asyncio.Task[None]"] = {}
         # Latest answer-label tuples already critiqued by the orchestrator-owned
         # round_evaluator gate. Prevents duplicate launches for unchanged revisions.
         self._round_evaluator_completed_labels: dict[str, tuple[str, ...]] = {}
@@ -6364,6 +6366,13 @@ Your answer:"""
                                     self,
                                 )
                             await self._cancel_running_background_work_for_agent(agent_id)
+
+                            # Trigger B: auto trace analysis for non-evaluator-gated configs.
+                            # When the round evaluator gate is enabled, Trigger A (inside
+                            # _run_round_evaluator_pre_round_if_needed) handles this instead.
+                            if not self._is_round_evaluator_gate_enabled() and self._should_spawn_trace_analyzer(agent_id):
+                                await self._spawn_trace_analyzer_background(agent_id)
+
                             restart_triggered_id = agent_id  # Last agent to provide new answer
                             reset_signal = True
 
@@ -8209,12 +8218,20 @@ Your answer:"""
                     exc_info=True,
                 )
 
-        if cancelled_subagents or cancelled_background_jobs:
+        # Cancel in-flight trace analyzer task
+        cancelled_trace = False
+        trace_task = self._background_trace_tasks.pop(agent_id, None)
+        if trace_task and not trace_task.done():
+            trace_task.cancel()
+            cancelled_trace = True
+
+        if cancelled_subagents or cancelled_background_jobs or cancelled_trace:
             logger.info(
-                "[Orchestrator] Round-end cleanup for %s: cancelled_subagents=%s, cancelled_background_jobs=%s",
+                "[Orchestrator] Round-end cleanup for %s: " "cancelled_subagents=%s, cancelled_background_jobs=%s, " "cancelled_trace_analyzer=%s",
                 agent_id,
                 cancelled_subagents,
                 cancelled_background_jobs,
+                cancelled_trace,
             )
 
     def _get_pending_subagent_results(
@@ -9646,27 +9663,31 @@ Your answer:"""
         configured_timeout = getattr(coord_cfg, "subagent_default_timeout", 600) if coord_cfg else 600
 
         # --- Configure MCP module globals and spawn ---
-        saved = mcp_mod.configure_direct_spawn(
-            workspace_path=ws_root,
-            parent_agent_id=parent_agent_id,
-            orchestrator_id=getattr(self, "orchestrator_id", "unknown"),
-            parent_agent_configs=agent_configs,
-            subagent_orchestrator_config=sub_orch_config,
-            log_directory=log_dir,
-            agent_temporary_workspace=orch_temp_resolved,
-            parent_context_paths=parent_context_paths,
-            parent_coordination_config=(coord_cfg.__dict__ if coord_cfg and hasattr(coord_cfg, "__dict__") else None),
-            default_timeout=configured_timeout,
-            max_timeout=int(configured_timeout * 1.5),
-        )
-        try:
-            return await mcp_mod.spawn_subagents_direct(
-                tasks=tasks,
-                refine=refine,
-                timeout_override=configured_timeout,
+        # Acquire lock to prevent concurrent direct spawns from corrupting
+        # the shared module-level globals (configure → spawn → reset).
+        lock = mcp_mod._get_direct_spawn_lock()
+        async with lock:
+            saved = mcp_mod.configure_direct_spawn(
+                workspace_path=ws_root,
+                parent_agent_id=parent_agent_id,
+                orchestrator_id=getattr(self, "orchestrator_id", "unknown"),
+                parent_agent_configs=agent_configs,
+                subagent_orchestrator_config=sub_orch_config,
+                log_directory=log_dir,
+                agent_temporary_workspace=orch_temp_resolved,
+                parent_context_paths=parent_context_paths,
+                parent_coordination_config=(coord_cfg.__dict__ if coord_cfg and hasattr(coord_cfg, "__dict__") else None),
+                default_timeout=configured_timeout,
+                max_timeout=int(configured_timeout * 1.5),
             )
-        finally:
-            mcp_mod.reset_direct_spawn(saved)
+            try:
+                return await mcp_mod.spawn_subagents_direct(
+                    tasks=tasks,
+                    refine=refine,
+                    timeout_override=configured_timeout,
+                )
+            finally:
+                mcp_mod.reset_direct_spawn(saved)
 
     def _send_runtime_message_via_direct_inbox_write(
         self,
@@ -12640,6 +12661,250 @@ Your answer:"""
         frontmatter = "---\n" f"name: execution_trace_round_{round_number}\n" f"description: Process learnings from round {round_number}" " execution trace analysis\n" "tier: short_term\n" "---\n"
         return f"{frontmatter}\n{report_text}"
 
+    # ------------------------------------------------------------------
+    # Auto trace analysis (background execution_trace_analyzer)
+    # ------------------------------------------------------------------
+
+    def _should_spawn_trace_analyzer(self, agent_id: str) -> bool:
+        """Return True if auto_trace_analysis should spawn for this agent."""
+        coord = getattr(self.config, "coordination_config", None)
+        if not coord:
+            return False
+        if not getattr(coord, "auto_trace_analysis", False):
+            return False
+        # Must be round 2+ (restart_count >= 1)
+        state = self.agent_states.get(agent_id)
+        if not state or getattr(state, "restart_count", 0) < 1:
+            return False
+        # Must not already have an in-flight trace task
+        existing = self._background_trace_tasks.get(agent_id)
+        if existing and not existing.done():
+            return False
+        return True
+
+    def _get_execution_trace_path_for_agent(self, agent_id: str) -> Path | None:
+        """Return the path to the latest execution_trace.md, or None."""
+        agent = self.agents.get(agent_id)
+        if not agent:
+            return None
+        fs_mgr = getattr(
+            getattr(agent, "backend", None),
+            "filesystem_manager",
+            None,
+        )
+        if not fs_mgr or not fs_mgr.snapshot_storage:
+            return None
+        trace_path = fs_mgr.snapshot_storage / "execution_trace.md"
+        return trace_path if trace_path.exists() else None
+
+    def _build_trace_analyzer_task(
+        self,
+        agent_id: str,
+        round_number: int,
+        trace_path: str,
+    ) -> str:
+        """Build the task string for the execution_trace_analyzer subagent."""
+        original_task = getattr(self, "_original_task", None) or getattr(self, "current_task", None) or "Task coordination"
+        return (
+            f"Analyze the execution trace from round {round_number - 1} "
+            "and extract specific DO/DON'T guidance about the agent's "
+            "EXECUTION PROCESS for the next round.\n\n"
+            f"ORIGINAL TASK (for context only):\n{original_task}\n\n"
+            f"The execution trace file is at: {trace_path}\n"
+            "Read it and analyze HOW the agent worked — tool strategy, "
+            "wasted effort, wrong assumptions, missing context gathering, "
+            "backtracking, scope drift. Do NOT critique the deliverable "
+            "quality (that is the round_evaluator's job). Focus on "
+            "behavioral patterns that cost time or led the agent in "
+            "wrong directions.\n\n"
+            "Write your analysis directly in your answer text using "
+            "the DO / DON'T / CRITICAL ERRORS format from your "
+            "instructions."
+        )
+
+    def _write_trace_analysis_to_memory(
+        self,
+        agent_id: str,
+        round_number: int,
+        memory_block: str,
+    ) -> None:
+        """Write trace analysis to agent's memory/short_term/ directory."""
+        agent = self.agents.get(agent_id)
+        if not agent:
+            return
+        fs_mgr = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+        if not fs_mgr or not fs_mgr.cwd:
+            return
+        memory_dir = fs_mgr.cwd / "memory" / "short_term"
+        try:
+            memory_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        target = memory_dir / f"trace_analysis_round_{round_number}.md"
+        try:
+            target.write_text(memory_block, encoding="utf-8")
+            logger.info(
+                "[Orchestrator] Wrote trace analysis to %s for %s",
+                target,
+                agent_id,
+            )
+        except OSError as exc:
+            logger.warning("[Orchestrator] Failed to write trace analysis memory: %s", exc)
+
+    async def _run_trace_analyzer(
+        self,
+        parent_agent_id: str,
+        round_number: int,
+        trace_path: Path,
+    ) -> None:
+        """Background worker: spawn trace analyzer and process result."""
+        from .subagent.models import SubagentResult
+
+        subagent_id = f"trace_analyzer_r{round_number}"
+        # Default 5 min, capped at half of subsequent_round_timeout_seconds
+        trace_timeout = 300
+        coord = getattr(self.config, "coordination_config", None)
+        timeout_cfg = getattr(self.config, "timeout_config", None)
+        subsequent_timeout = getattr(timeout_cfg, "subsequent_round_timeout_seconds", None)
+        if not subsequent_timeout and coord:
+            subsequent_timeout = getattr(coord, "subsequent_round_timeout_seconds", None)
+        if subsequent_timeout and subsequent_timeout > 0:
+            trace_timeout = min(trace_timeout, int(subsequent_timeout // 2))
+
+        task_payload: dict[str, Any] = {
+            "subagent_id": subagent_id,
+            "task": self._build_trace_analyzer_task(
+                parent_agent_id,
+                round_number,
+                str(trace_path),
+            ),
+            "subagent_type": "execution_trace_analyzer",
+            "timeout_seconds": trace_timeout,
+            "context_paths": [str(trace_path)],
+        }
+
+        tool_call_id = f"trace_analyzer_{parent_agent_id}_r{round_number}" f"_{int(time.time() * 1000)}"
+        display_round = self._get_round_evaluator_display_round(parent_agent_id) if hasattr(self, "_get_round_evaluator_display_round") else round_number
+
+        # Emit TUI spawn event
+        self._emit_round_evaluator_spawn_event(
+            phase="start",
+            agent_id=parent_agent_id,
+            tool_call_id=tool_call_id,
+            round_number=display_round,
+            args={"tasks": [task_payload], "background": True},
+        )
+
+        started_at = time.time()
+        try:
+            raw_result = await self._direct_spawn_subagents(
+                parent_agent_id=parent_agent_id,
+                tasks=[task_payload],
+                refine=False,
+            )
+        except asyncio.CancelledError:
+            elapsed = time.time() - started_at
+            self._emit_round_evaluator_spawn_event(
+                phase="complete",
+                agent_id=parent_agent_id,
+                tool_call_id=tool_call_id,
+                round_number=display_round,
+                args={"tasks": [task_payload], "background": True},
+                result={"success": False, "error": "cancelled"},
+                elapsed_seconds=elapsed,
+                is_error=True,
+                status="cancelled",
+            )
+            return
+
+        elapsed = time.time() - started_at
+        normalized = raw_result if isinstance(raw_result, dict) else {}
+        success = bool(normalized.get("success"))
+
+        self._emit_round_evaluator_spawn_event(
+            phase="complete",
+            agent_id=parent_agent_id,
+            tool_call_id=tool_call_id,
+            round_number=display_round,
+            args={"tasks": [task_payload], "background": True},
+            result=normalized,
+            elapsed_seconds=elapsed,
+            is_error=not success,
+            status="success" if success else "error",
+        )
+
+        # Parse result
+        results = normalized.get("results")
+        if not isinstance(results, list) or not results:
+            logger.warning(
+                "[Orchestrator] Trace analyzer for %s r%d returned no results",
+                parent_agent_id,
+                round_number,
+            )
+            return
+
+        try:
+            trace_result = SubagentResult.from_dict(results[0])
+        except Exception:
+            logger.warning(
+                "[Orchestrator] Failed to parse trace analyzer result for %s",
+                parent_agent_id,
+                exc_info=True,
+            )
+            return
+
+        # Write to memory (short_term)
+        memory_block = self._format_trace_analyzer_for_memory_static(
+            trace_result,
+            round_number,
+        )
+        if memory_block:
+            self._write_trace_analysis_to_memory(
+                parent_agent_id,
+                round_number,
+                memory_block,
+            )
+
+        # Enqueue for SubagentCompleteHook injection
+        if trace_result.answer and trace_result.answer.strip():
+            self._on_background_subagent_complete(
+                parent_agent_id,
+                subagent_id,
+                trace_result,
+            )
+
+    async def _spawn_trace_analyzer_background(
+        self,
+        parent_agent_id: str,
+    ) -> None:
+        """Spawn background trace analyzer for the given agent at round 2+."""
+        state = self.agent_states.get(parent_agent_id)
+        restart_count = getattr(state, "restart_count", 0) if state else 0
+        round_number = max(1, restart_count + 1)
+
+        trace_path = self._get_execution_trace_path_for_agent(parent_agent_id)
+        if not trace_path:
+            logger.debug(
+                "[Orchestrator] No execution trace available for %s, " "skipping trace analyzer",
+                parent_agent_id,
+            )
+            return
+
+        task = asyncio.create_task(
+            self._run_trace_analyzer(
+                parent_agent_id,
+                round_number,
+                trace_path,
+            ),
+            name=f"trace_analyzer_{parent_agent_id}_r{round_number}",
+        )
+        self._background_trace_tasks[parent_agent_id] = task
+        logger.info(
+            "[Orchestrator] Spawned background trace analyzer for %s r%d",
+            parent_agent_id,
+            round_number,
+        )
+
     async def _run_round_evaluator_pre_round_if_needed(
         self,
         answers: dict[str, str],
@@ -12796,7 +13061,7 @@ Your answer:"""
                             )
                             salvaged = True
                         elif first_result.status == "timeout" and evaluator_result.status == "degraded":
-                            return self._handle_round_evaluator_timeout_degraded(
+                            degraded_ok = self._handle_round_evaluator_timeout_degraded(
                                 parent_agent_id=parent_agent_id,
                                 latest_labels=latest_labels,
                                 display_round=display_round,
@@ -12805,6 +13070,9 @@ Your answer:"""
                                 first_result=first_result,
                                 evaluator_result=evaluator_result,
                             )
+                            if degraded_ok is True and self._should_spawn_trace_analyzer(parent_agent_id):
+                                await self._spawn_trace_analyzer_background(parent_agent_id)
+                            return degraded_ok
                 except Exception:
                     logger.warning(
                         "[Orchestrator] Failed to parse salvage result for %s",
@@ -12961,6 +13229,11 @@ Your answer:"""
 
         self._round_evaluator_launch_failures.pop((parent_agent_id, latest_labels), None)
         self._round_evaluator_completed_labels[parent_agent_id] = latest_labels
+
+        # Auto-spawn background trace analyzer for the upcoming round.
+        if self._should_spawn_trace_analyzer(parent_agent_id):
+            await self._spawn_trace_analyzer_background(parent_agent_id)
+
         return True
 
     def _get_buffer_content(self, agent: "ChatAgent") -> tuple[str | None, int]:
