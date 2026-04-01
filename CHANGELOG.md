@@ -9,14 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
+Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning. Fixes for final injection, eval criteria GPT pre-collab, trace analyzer launch, and trace memory.
+
 **v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
 Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
 
 **v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
 WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework, Workspace Browser expansion, and flexible evaluation criteria field names.
 
-**v0.1.68 (March 25, 2026)** - Checkpoint Mode
-New checkpoint coordination mode with delegator pattern — main agent plans solo then delegates to team via `checkpoint()` tool. LLM API circuit breaker for 429 handling. WebUI checkpoint support. LiteLLM supply chain fix.
+---
+
+## [0.1.71] - 2026-04-01
+
+### Changed
+- **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
+- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
+
+### Fixed
+- **Final Injection Fix**: Corrected injection behavior at the final stage
+- **Eval Criteria GPT Pre-Collab Fix**: Resolved evaluation criteria issues with GPT models during pre-collaboration phase
+- **Execution Trace Analyzer Launch Fix**: Trace analyzer now starts correctly
+- **Trace Memory Fix**: Corrected memory handling in execution traces
+- **Auto Round Memory Fix**: Fixed automatic round handling for memory
+
+### Documentation, Configurations and Resources
+- **Updated Log Analyzer Skill**: Updated `massgen/skills/massgen-log-analyzer/SKILL.md`
+- **Updated Execution Trace Analyzer**: Updated `massgen/subagent_types/execution_trace_analyzer/SUBAGENT.md`
+
+### Technical Details
+- **Major Focus**: Stability and polish for v0.1.70's evaluation criteria system
+- **Contributors**: @ncrispino, @HenryQi and the MassGen team
 
 ---
 

@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.70 Features](#-latest-features-v0170)
+- [v0.1.71 Features](#-latest-features-v0171)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.70)](#recent-achievements-v0170)
-- [Previous Achievements (v0.0.3 - v0.1.69)](#previous-achievements-v003---v0169)
+- [Recent Achievements (v0.1.71)](#recent-achievements-v0171)
+- [Previous Achievements (v0.0.3 - v0.1.70)](#previous-achievements-v003---v0170)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.71 Roadmap](#v0171-roadmap)
+- [v0.1.72 Roadmap](#v0172-roadmap)
 </details>
 
 <details open>
@@ -154,21 +154,20 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.70)
+## 🆕 Latest Features (v0.1.71)
 
-**🎉 Released: March 30, 2026**
+**🎉 Released: April 1, 2026**
 
-**What's New in v0.1.70:**
-- **📋 Evaluation Criteria Redesign** - Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements.
-- **🔄 Improved Checklist-Gated Evaluation** - Tighter iterative submission cycles with improved scoring and improvement proposals.
-- **⚡ Fast Iteration Mode** - Streamlined multi-round submission phases via `fast_iteration.yaml`.
-- **🔍 WebUI Review Modal** - Approve and comment on outputs directly in the browser.
+**What's New in v0.1.71:**
+- **🔍 Trace Analyzer Subagents** - Launch in the background after each round to write insights from execution traces into memory.
+- **📋 Better Evaluation Criteria** - Improved criteria generation for higher-quality, more opinionated output.
+- **🧠 System Prompt Tuning** - Adjusted system prompts for better agent performance across coordination rounds.
+- **🔧 Stability Fixes** - Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, and memory handling.
 
-**Try v0.1.70 Features:**
+**Try v0.1.71 Features:**
 ```bash
-pip install massgen==0.1.70
-# Try fast iteration with redesigned evaluation criteria
-uv run massgen --config @examples/features/fast_iteration.yaml "Create an svg of an AI agent coding."
+pip install massgen==0.1.71
+uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1240,18 +1239,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.70)
+### Recent Achievements (v0.1.71)
 
-**🎉 Released: March 30, 2026**
+**🎉 Released: April 1, 2026**
 
-#### Evaluation Criteria Redesign
-- **Evaluation Criteria Redesign** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements
-- **Improved Checklist-Gated Evaluation** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Tighter iterative submission cycles with improved scoring and improvement proposals
-- **Fast Iteration Mode** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Streamlined multi-round submission phases via `fast_iteration.yaml`
-- **WebUI Review Modal** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Approve and comment on outputs directly in the browser when working in git
-- **Background Trace Analysis** ([#1035](https://github.com/massgen/MassGen/pull/1035)): Execution trace analyzer starts automatically from round 2
+#### Trace Memory & Evaluation Polish
+- **Trace Analyzer Subagents**: Background trace analysis after each round — writes insights from execution traces into memory for next-round continuity
+- **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
+- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
+- **Stability Fixes**: Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, trace memory, and auto round memory
 
-### Previous Achievements (v0.0.3 - v0.1.69)
+### Previous Achievements (v0.0.3 - v0.1.70)
+
+✅ **Evaluation Criteria Redesign (v0.1.70)**: Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation. Fast iteration mode, WebUI review modal, and background trace analysis.
 
 ✅ **WebUI Automation & Improved Skill (v0.1.69)**: WebUI automation auto-starts without browser interaction. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework and Workspace Browser expansion.
 
@@ -1536,9 +1536,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.71 Roadmap
+### v0.1.72 Roadmap
 
-Version 0.1.71 focuses on cloud execution:
+Version 0.1.72 focuses on cloud execution:
 
 #### Planned Features
 - **Cloud Modal MVP** ([#982](https://github.com/massgen/MassGen/issues/982)): Run MassGen as a cloud job on Modal — progress streams to terminal, results saved locally under `.massgen/cloud_jobs/`

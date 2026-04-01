@@ -1,4 +1,4 @@
-# MassGen v0.1.70 Release Announcement
+# MassGen v0.1.71 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 Redesigned three-tier evaluation criteria system with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
+We're excited to release MassGen v0.1.71 — Trace Memory & Evaluation Polish! 🚀 Trace analyzer subagents now launch in the background after each round to write insights from the previous round's execution trace into memory. Plus: improved evaluation criteria generation, system prompt tuning, and stability fixes.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.70
+pip install massgen==0.1.71
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.70
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.71
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,34 +29,32 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.70 — Evaluation Criteria Redesign! 🚀 Redesigned three-tier evaluation criteria system with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles, scoring, and improvement proposals before final voting.
+We're excited to release MassGen v0.1.71 — Trace Memory & Evaluation Polish! 🚀 Trace analyzer subagents now launch in the background after each round to write insights from the previous round's execution trace into memory. Plus: improved evaluation criteria generation, system prompt tuning, and stability fixes.
 
 **Key Improvements:**
 
-📋 **Evaluation Criteria Redesign** — Three-tier categorization with anti-patterns:
-- `primary` (ONE — where the model needs most push), `standard` (must-pass), `stretch` (nice-to-have)
-- Anti-pattern definitions per criterion for sharper evaluation
-- Aspiration statements to set the quality bar
+🔍 **Trace Analyzer Subagents** — Background intelligence from execution traces:
+- Automatically launches after each round to analyze the previous round's execution trace
+- Writes insights into memory for next-round continuity
+- Fixes for trace memory handling and analyzer launch issues
 
-🔄 **Improved Checklist-Gated Evaluation** — Tighter iterative refinement before voting:
-- Agents submit, get scored against the checklist, receive improvement proposals, and resubmit
-- Scoring and gap analysis drive meaningful iteration
+📋 **Better Evaluation Criteria** — Improved criteria generation for higher-quality, more opinionated output
+
+🧠 **System Prompt Tuning** — Adjusted system prompts for better agent performance across coordination rounds
 
 **Plus:**
-- ⚡ **Fast iteration mode** — Streamlined multi-round submission phases via `fast_iteration.yaml`
-- 🔍 **WebUI review modal** — Approve and comment on outputs directly in the browser
-- 📊 **Background trace analysis** — Execution trace analyzer starts automatically from round 2
-- 🧹 **Workspace cleanup** — Enhanced isolation between rounds
+- 🔧 **Fix final injection** — Corrected injection behavior at the final stage
+- 🔧 **Fix eval criteria GPT pre-collab** — Resolved evaluation criteria issues with GPT models during pre-collaboration phase
+- 🔧 **Auto round fix for memory** — Fixed automatic round handling for memory
 
 **Getting Started:**
 
 ```bash
-pip install massgen==0.1.70
-# Try fast iteration with redesigned evaluation criteria
-uv run massgen --config @examples/features/fast_iteration.yaml "Create an svg of an AI agent coding."
+pip install massgen==0.1.71
+uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
 ```
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.70
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.71
 
 Feature highlights:
 

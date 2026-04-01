@@ -200,6 +200,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
+
+Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning. Stability fixes for injection, trace analyzer launch, and memory handling.
+
 **v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
 
 Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis.
@@ -207,10 +211,6 @@ Redesigned three-tier evaluation criteria with anti-pattern definitions and aspi
 **v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
 
 WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework and Workspace Browser expansion.
-
-**v0.1.68 (March 25, 2026)** - Checkpoint Mode
-
-New checkpoint coordination mode with delegator pattern — main agent plans solo then delegates to team via ``checkpoint()`` tool. WebUI checkpoint support. LiteLLM supply chain fix.
 
 :doc:`Full changelog → <changelog>`
 
