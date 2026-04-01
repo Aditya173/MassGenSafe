@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.70
+**Current Version:** v0.1.71
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** March 30, 2026
+**Last Updated:** April 1, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,11 +42,23 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.71** | 04/02/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
-| **v0.1.72** | 04/04/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
-| **v0.1.73** | 04/07/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
+| **v0.1.72** | 04/04/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
+| **v0.1.73** | 04/07/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
+| **v0.1.74** | 04/09/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
 
 *All releases ship on MWF @ 9am PT when ready*
+
+---
+
+## ✅ v0.1.71 - Trace Memory & Evaluation Polish (Completed)
+
+**Released:** April 1, 2026
+
+### Features
+- **Trace Analyzer Subagents**: Background trace analysis after each round — writes insights from execution traces into memory for next-round continuity
+- **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
+- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
+- **Stability Fixes**: Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, trace memory, and auto round memory
 
 ---
 
@@ -63,7 +75,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.71 - Cloud Modal MVP
+## 📋 v0.1.72 - Cloud Modal MVP
 
 ### Features
 
@@ -79,7 +91,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.72 - OpenAI Audio API
+## 📋 v0.1.73 - OpenAI Audio API
 
 ### Features
 
@@ -95,7 +107,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.73 - Image/Video Edit Capabilities
+## 📋 v0.1.74 - Image/Video Edit Capabilities
 
 ### Features
 

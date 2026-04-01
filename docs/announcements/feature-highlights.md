@@ -13,7 +13,7 @@ Update this when major new features ship.
 
 🧠Supports diverse backends — Access open-source and proprietary models (local, Gemini 3.1 Pro, GPT-5.4, Claude 4.6 Opus/Sonnet, GLM-5, Grok 4.1) and agents (Claude Code, Codex, Gemini CLI, GitHub Copilot). 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/backends.html
 
-🤖Build collaborative multi-agent teams — Run agents in parallel with shared workspaces, voting, and consensus — or decompose tasks into owned subtasks. Checklist-gated quality rounds with three-tier evaluation criteria and anti-pattern definitions drive iterative refinement. Spawn subagents for focused background work. Checkpoint mode lets a main agent delegate to the team. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
+🤖Build collaborative multi-agent teams — Agents work in parallel, share workspaces, and vote to converge on the best solution. Checklist-gated quality rounds with opinionated evaluation criteria drive iterative refinement. Subagents, decomposition, and checkpoint delegation for complex tasks. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/task_planning.html
 
@@ -23,11 +23,11 @@ Update this when major new features ship.
 
 🖼️Multi-modal support — Agents can understand and generate images, videos, and audio collaboratively. Multiple providers (OpenAI, Google, ElevenLabs, Grok) with multi-turn editing and reusable media generation skills. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/advanced/multimodal.html
 
-🐳Code execution — Run commands with Docker support and code mode for efficient filesystem-based tool execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/code_execution.html
+🐳Code execution — Run commands with Docker isolation and a filesystem-based code mode for efficient tool execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/code_execution.html
 
 🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, and skill integration. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
 
-🪪Trace workflows — Orchestration logs, execution traces, workspace history, cost tracking, and Logfire integration for full observability. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#logging-directory-structure
+🪪Trace workflows — Orchestration logs, execution traces with background trace analysis that feeds insights into memory, workspace snapshots, cost tracking, and Logfire integration. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#logging-directory-structure
 
 📤Session sharing — Export sessions to GitHub Gist and view in the MassGen Viewer web app with artifact previews. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#sharing-sessions
 
@@ -35,7 +35,7 @@ Update this when major new features ship.
 
 🧠Supports diverse backends — Access open-source and proprietary models (local, Gemini 3.1 Pro, GPT-5.4, Claude 4.6 Opus/Sonnet, GLM-5, Grok 4.1) and agents (Claude Code, Codex, Gemini CLI, GitHub Copilot). 👉 More Info: https://lnkd.in/gdXw-ZiN
 
-🤖Build collaborative multi-agent teams — Run agents in parallel with shared workspaces, voting, and consensus — or decompose tasks into owned subtasks. Checklist-gated quality rounds with three-tier evaluation criteria and anti-pattern definitions drive iterative refinement. Spawn subagents for focused background work. Checkpoint mode lets a main agent delegate to the team. 👉 More Info: https://lnkd.in/gTH5prec
+🤖Build collaborative multi-agent teams — Agents work in parallel, share workspaces, and vote to converge on the best solution. Checklist-gated quality rounds with opinionated evaluation criteria drive iterative refinement. Subagents, decomposition, and checkpoint delegation for complex tasks. 👉 More Info: https://lnkd.in/gTH5prec
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://lnkd.in/gy5qtbau
 
@@ -45,10 +45,10 @@ Update this when major new features ship.
 
 🖼️Multi-modal support — Agents can understand and generate images, videos, and audio collaboratively. Multiple providers (OpenAI, Google, ElevenLabs, Grok) with multi-turn editing and reusable media generation skills. 👉 More Info: https://lnkd.in/gHNVdTKa
 
-🐳Code execution — Run commands with Docker support and code mode for efficient filesystem-based tool execution. 👉 More Info: https://lnkd.in/gDy5imFE
+🐳Code execution — Run commands with Docker isolation and a filesystem-based code mode for efficient tool execution. 👉 More Info: https://lnkd.in/gDy5imFE
 
 🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, and skill integration. 👉 More Info: https://lnkd.in/gxWNKCB6
 
-🪪Trace workflows — Orchestration logs, execution traces, workspace history, cost tracking, and Logfire integration for full observability. 👉 More Info: https://lnkd.in/gecFJE2z
+🪪Trace workflows — Orchestration logs, execution traces with background trace analysis that feeds insights into memory, workspace snapshots, cost tracking, and Logfire integration. 👉 More Info: https://lnkd.in/gecFJE2z
 
 📤Session sharing — Export sessions to GitHub Gist and view in the MassGen Viewer web app with artifact previews. 👉 More Info: https://lnkd.in/gsBjn7Zt

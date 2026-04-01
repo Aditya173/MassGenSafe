@@ -227,21 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.70 - Latest
+### v0.1.71 - Latest
+**New Features:** Trace Memory & Evaluation Polish
+
+**Key Features:**
+- **Trace Analyzer Subagents**: Background trace analysis after each round — writes insights from execution traces into memory
+- **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
+- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
+- **Stability Fixes**: Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, and memory handling
+
+**Try It:**
+```bash
+pip install massgen==0.1.71
+uv run massgen --web
+```
+
+### v0.1.70
 **New Features:** Evaluation Criteria Redesign
 
 **Key Features:**
 - **Evaluation Criteria Redesign**: Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements
 - **Improved Checklist-Gated Evaluation**: Tighter iterative submission cycles with improved scoring and improvement proposals
 - **Fast Iteration Mode**: Streamlined multi-round submission phases via `fast_iteration.yaml`
-- **WebUI Review Modal**: Approve and comment on outputs directly in the browser
-
-**Try It:**
-```bash
-pip install massgen==0.1.70
-# Try fast iteration with redesigned evaluation criteria
-uv run massgen --config @examples/features/fast_iteration.yaml "Create an svg of an AI agent coding."
-```
 
 ### v0.1.69
 **New Features:** WebUI Automation & Improved Skill
