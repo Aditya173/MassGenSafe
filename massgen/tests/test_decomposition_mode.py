@@ -1052,7 +1052,7 @@ class TestDecompositionPromptGuidance:
         )
         orchestrator._agent_subtasks["frontend"] = "Build the timeline section and keep shared navigation aligned."
 
-        items, categories, _, _anti = orchestrator._get_active_criteria("frontend")
+        items, categories, _, _anti, _anchors = orchestrator._get_active_criteria("frontend")
 
         assert items is not None
         assert "Build the timeline section" in items[0]
@@ -1083,7 +1083,7 @@ class TestDecompositionPromptGuidance:
             ],
         }
 
-        frontend_items, frontend_categories, frontend_verify_by, _anti = orchestrator._get_active_criteria("frontend")
+        frontend_items, frontend_categories, frontend_verify_by, _anti, _anchors = orchestrator._get_active_criteria("frontend")
         message = orchestrator._get_system_message_builder().build_coordination_message(
             agent=orchestrator.agents["frontend"],
             agent_id="frontend",

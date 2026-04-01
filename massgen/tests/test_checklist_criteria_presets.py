@@ -232,15 +232,15 @@ class TestPresetContentSanity:
 
     def test_planning_preset_exists(self):
         criteria = get_criteria_for_preset("planning")
-        assert len(criteria) == 10
+        assert len(criteria) == 7
         standard_count = sum(1 for c in criteria if c.category in ("primary", "standard"))
         stretch_count = sum(1 for c in criteria if c.category == "stretch")
-        assert standard_count == 10  # all planning criteria are standard
+        assert standard_count == 7  # all planning criteria are standard or primary
         assert stretch_count == 0
 
     def test_spec_preset_exists(self):
         criteria = get_criteria_for_preset("spec")
-        assert len(criteria) == 7
+        assert len(criteria) == 6
         assert all(c.category in ("primary", "standard") for c in criteria)
 
     def test_round_evaluator_preset_exists(self):
@@ -478,7 +478,7 @@ class TestGetActiveCriteria:
     def test_inline_criteria_returned(self):
         """Inline criteria should be returned when set."""
         orch = self._make_orch(inline=_SAMPLE_INLINE)
-        items, categories, verify_by, _anti = orch._get_active_criteria()
+        items, categories, verify_by, _anti, _anchors = orch._get_active_criteria()
         assert len(items) == 3
         assert items[0] == "Visual design is cohesive and polished"
         assert categories["E1"] in ("primary", "standard")
@@ -490,7 +490,7 @@ class TestGetActiveCriteria:
             GeneratedCriterion(id="E1", text="Generated criterion", category="must"),
         ]
         orch = self._make_orch(inline=_SAMPLE_INLINE, generated=generated)
-        items, _, _vb, _anti = orch._get_active_criteria()
+        items, _, _vb, _anti, _anchors = orch._get_active_criteria()
         assert len(items) == 3
         assert "Generated criterion" not in items
 
@@ -500,7 +500,7 @@ class TestGetActiveCriteria:
             GeneratedCriterion(id="E1", text="Generated criterion", category="must"),
         ]
         orch = self._make_orch(generated=generated)
-        items, categories, verify_by, _anti = orch._get_active_criteria()
+        items, categories, verify_by, _anti, _anchors = orch._get_active_criteria()
         assert items == ["Generated criterion"]
         assert categories == {"E1": "must"}
         assert verify_by is None  # no verify_by on this criterion
@@ -508,14 +508,14 @@ class TestGetActiveCriteria:
     def test_preset_returned_when_no_inline_or_generated(self):
         """Preset criteria returned when no inline or generated."""
         orch = self._make_orch(preset="persona")
-        items, _, _vb, _anti = orch._get_active_criteria()
+        items, _, _vb, _anti, _anchors = orch._get_active_criteria()
         # Persona preset has 5 items
         assert len(items) == 5
 
     def test_none_returned_when_nothing_configured(self):
-        """Returns (None, None, None) when no criteria source is available."""
+        """Returns (None, None, None, None, None) when no criteria source is available."""
         orch = self._make_orch(changedoc=False)
-        items, categories, verify_by, _anti = orch._get_active_criteria()
+        items, categories, verify_by, _anti, _anchors = orch._get_active_criteria()
         assert items is None
         assert categories is None
         assert verify_by is None

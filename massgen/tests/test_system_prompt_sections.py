@@ -2,6 +2,7 @@
 
 from massgen.system_prompt_sections import (
     _CHECKLIST_ITEMS,
+    CommandExecutionSection,
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
     MemorySection,
@@ -477,3 +478,55 @@ def test_filesystem_best_practices_evaluator_uses_prior_outputs_as_starting_poin
     assert "new" in lower or "unverified" in lower or "failing" in lower
     # Must not say "always verify independently" (that discourages reuse)
     assert "always verify independently" not in content
+
+
+def test_evaluation_guidance_reuse_existing_verification_artifacts():
+    """Evaluation guidance should tell agents to reuse prior round's verification
+    artifacts rather than re-rendering from scratch."""
+    section = FilesystemBestPracticesSection()
+    content = section.build_content()
+    lower = content.lower()
+    assert "reuse existing verification artifacts" in lower
+    assert "re-rendering from scratch" in lower
+    assert "only re-capture if" in lower
+
+
+def test_verification_replay_memories_discourage_redundant_recapture():
+    """Verification replay injection should tell agents not to re-render
+    artifacts that were already captured in the prior round."""
+    section = MemorySection(
+        memory_config={
+            "short_term": {"content": ""},
+            "long_term": [],
+            "temp_workspace_memories": [
+                {
+                    "agent_label": "agent1",
+                    "memories": {
+                        "short_term": {
+                            "verification_latest": {
+                                "name": "verification_latest",
+                                "content": "## Verify\n- rendered SVG and captured screenshots",
+                            },
+                        },
+                        "long_term": {},
+                    },
+                },
+            ],
+            "archived_memories": {"short_term": {}, "long_term": {}},
+        },
+    )
+    content = section.build_content()
+    lower = content.lower()
+    assert "do not re-render or re-capture" in lower
+    assert "unless you spot a gap" in lower
+
+
+def test_background_tool_guidance_discourages_immediate_wait():
+    """Background tool section should tell agents to continue working
+    after starting a background job, not immediately wait."""
+    section = CommandExecutionSection(docker_mode=False)
+    content = section.build_content()
+    lower = content.lower()
+    assert "continue with your next task" in lower
+    assert "do not immediately call" in lower
+    assert "exhausted all" in lower or "genuinely need the result" in lower

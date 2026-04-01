@@ -55,6 +55,30 @@ class TestScoreCalibration:
         )
         assert "MUST be consistent with" in result
 
+    def test_scored_decision_displays_score_anchors(self):
+        """Score anchors should appear in the scored decision prompt."""
+        items = ["Visual craft: Design feels authored", "Content depth"]
+        anchors = {
+            "E1": {
+                "3": "Generic template with no custom styling",
+                "5": "Some custom colors but layout is cookie-cutter",
+                "7": "Cohesive color system and typography",
+                "9": "Every visual choice is intentional",
+            },
+        }
+        result = _build_checklist_scored_decision(
+            threshold=5,
+            remaining=3,
+            total=5,
+            checklist_items=items,
+            item_score_anchors=anchors,
+        )
+        assert "Score anchors:" in result
+        assert "3/10: Generic template" in result
+        assert "9/10: Every visual choice is intentional" in result
+        # E2 has no anchors, should not show anchor section for it
+        assert result.count("Score anchors:") == 1
+
     def test_gated_decision_has_recalibrated_anchors(self):
         """Gated decision also has recalibrated score anchors."""
         items = ["E1 criterion", "E2 criterion"]
@@ -356,11 +380,12 @@ class TestDefaultCriteriaTiers:
 
     def test_default_categories_have_one_primary(self):
         """Default categories have exactly one 'primary' (E3 per-part depth)."""
-        from massgen.evaluation_criteria_generator import _DEFAULT_CATEGORIES
+        from massgen.evaluation_criteria_generator import _DEFAULT_CRITERIA
 
-        assert _DEFAULT_CATEGORIES.count("primary") == 1
-        assert _DEFAULT_CATEGORIES[2] == "primary"  # E3
-        assert all(c == "standard" for i, c in enumerate(_DEFAULT_CATEGORIES) if i != 2)
+        categories = [c.category for c in _DEFAULT_CRITERIA]
+        assert categories.count("primary") == 1
+        assert categories[2] == "primary"  # E3
+        assert all(c == "standard" for i, c in enumerate(categories) if i != 2)
 
     def test_default_criteria_have_one_primary(self):
         """get_default_criteria returns criteria with E3 as primary."""
@@ -385,39 +410,39 @@ class TestPresetsTiers:
     """Tests for presets using new tier names."""
 
     def test_persona_preset_uses_new_tiers(self):
-        """Persona preset uses must/should/could."""
+        """Persona preset uses standard/primary only."""
         from massgen.evaluation_criteria_generator import _CRITERIA_PRESETS
 
-        categories = {cat for _, cat in _CRITERIA_PRESETS["persona"]}
+        categories = {c.category for c in _CRITERIA_PRESETS["persona"]}
         assert "core" not in categories
         assert "stretch" not in categories
 
     def test_decomposition_preset_uses_new_tiers(self):
-        """Decomposition preset uses must/should/could."""
+        """Decomposition preset uses standard/primary only."""
         from massgen.evaluation_criteria_generator import _CRITERIA_PRESETS
 
-        categories = {cat for _, cat in _CRITERIA_PRESETS["decomposition"]}
+        categories = {c.category for c in _CRITERIA_PRESETS["decomposition"]}
         assert "core" not in categories
 
     def test_evaluation_preset_uses_new_tiers(self):
-        """Evaluation preset uses must/should/could."""
+        """Evaluation preset uses standard/primary only."""
         from massgen.evaluation_criteria_generator import _CRITERIA_PRESETS
 
-        categories = {cat for _, cat in _CRITERIA_PRESETS["evaluation"]}
+        categories = {c.category for c in _CRITERIA_PRESETS["evaluation"]}
         assert "core" not in categories
 
     def test_prompt_preset_uses_new_tiers(self):
-        """Prompt preset uses must/should/could."""
+        """Prompt preset uses standard/primary only."""
         from massgen.evaluation_criteria_generator import _CRITERIA_PRESETS
 
-        categories = {cat for _, cat in _CRITERIA_PRESETS["prompt"]}
+        categories = {c.category for c in _CRITERIA_PRESETS["prompt"]}
         assert "core" not in categories
 
     def test_analysis_preset_uses_new_tiers(self):
-        """Analysis preset uses must/should/could."""
+        """Analysis preset uses standard/primary only."""
         from massgen.evaluation_criteria_generator import _CRITERIA_PRESETS
 
-        categories = {cat for _, cat in _CRITERIA_PRESETS["analysis"]}
+        categories = {c.category for c in _CRITERIA_PRESETS["analysis"]}
         assert "core" not in categories
 
 

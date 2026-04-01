@@ -1321,7 +1321,7 @@ class CoordinationTracker:
             eval_criteria_list = None
             if orchestrator and hasattr(orchestrator, "_get_active_criteria"):
                 try:
-                    texts, categories, _verify_by = orchestrator._get_active_criteria()
+                    texts, categories, _verify_by, _anti, _anchors = orchestrator._get_active_criteria()
                     if texts and categories:
                         eval_criteria_list = [
                             {

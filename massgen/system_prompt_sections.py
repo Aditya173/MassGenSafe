@@ -18,6 +18,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from massgen.evaluation_criteria_generator import _CHANGEDOC_CRITERIA, _DEFAULT_CRITERIA
+
 # ---------------------------------------------------------------------------
 # ROI evaluation shared helpers
 #
@@ -139,88 +141,18 @@ Calibration rule: your score for each criterion MUST be consistent with the
 weaknesses in your diagnostic report. If your report identifies significant
 gaps but your scores are 8+, your scores are inflated — lower them to match."""
 
-_CHECKLIST_ITEMS = [
-    (
-        "Requirements fidelity: The output achieves what was specifically asked"
-        " for — each stated requirement is met as described, not approximated or"
-        " reinterpreted. Missing requirements, partially implemented features, or"
-        " creative substitutions for what was actually requested count as failures."
-    ),
-    (
-        "Multi-level correctness: The output works correctly as experienced, not"
-        " just as inspected. Structural correctness (valid format, runnable code,"
-        " proper syntax), content correctness (accurate information, right"
-        " computations), and experiential correctness (renders properly,"
-        " interactions work, no visual defects) are all required. A file that"
-        " opens but displays incorrectly is wrong, not merely unpolished."
-    ),
-    (
-        "Per-part depth: Every significant component of the output independently"
-        " meets a quality bar — no section is filler, placeholder, or carried by"
-        " the strength of others. Evaluate the weakest part, not the average. A"
-        " brilliant introduction with thin body sections, or a strong"
-        " implementation with stub tests, fails this criterion."
-    ),
-    (
-        "Intentional craft: The output shows evidence of deliberate, thoughtful"
-        " choices — not minimum viable execution assembled from defaults."
-        " Structure, style, and detail reflect someone who cared about the"
-        " result, not someone who satisfied requirements and stopped. A"
-        " knowledgeable person in the domain would recognize quality, not just"
-        " correctness."
-    ),
-]
+# Derive checklist items from the canonical criteria definitions in
+# evaluation_criteria_generator.py.  This eliminates duplication and ensures
+# anti_patterns / score_anchors are available to the fallback paths.
+_CHECKLIST_ITEMS = [c.text for c in _DEFAULT_CRITERIA]
+_CHECKLIST_ITEM_CATEGORIES = {c.id: c.category for c in _DEFAULT_CRITERIA}
+_CHECKLIST_ITEM_ANTI_PATTERNS = {c.id: c.anti_patterns for c in _DEFAULT_CRITERIA if c.anti_patterns}
+_CHECKLIST_ITEM_SCORE_ANCHORS = {c.id: c.score_anchors for c in _DEFAULT_CRITERIA if c.score_anchors}
 
-# Category tags for default checklist items.
-# E3 (per-part depth) is PRIMARY — this is where default model behavior is
-# weakest. Models produce uneven output where some parts are strong and others
-# are filler, placeholder, or superficial.
-_CHECKLIST_ITEM_CATEGORIES = {
-    "E1": "standard",
-    "E2": "standard",
-    "E3": "primary",
-    "E4": "standard",
-}
-
-_CHECKLIST_ITEMS_CHANGEDOC = [
-    (
-        "Spec fidelity: The output implements what the changedoc specifies —"
-        " each goal and requirement is addressed as described, not approximated"
-        " or reinterpreted. Missing goals, partially implemented requirements,"
-        " or creative substitutions for what was specified count as failures."
-    ),
-    (
-        "Multi-level correctness: The output works correctly as experienced, not"
-        " just as inspected. Structural correctness (valid format, runnable code,"
-        " proper syntax), content correctness (accurate information, right"
-        " computations), and experiential correctness (renders properly,"
-        " interactions work, no visual defects) are all required. A deliverable"
-        " that passes structural checks but fails experientially is wrong, not"
-        " merely unpolished."
-    ),
-    (
-        "Per-part depth: Every significant component independently meets a"
-        " quality bar — no section is filler, placeholder, or carried by the"
-        " strength of others. Evaluate the weakest part, not the average. A"
-        " brilliant first section with thin remaining sections, or strong core"
-        " logic with stub supporting pieces, fails this criterion."
-    ),
-    (
-        "Intentional craft: The output shows evidence of deliberate choices —"
-        " not minimum viable execution assembled from defaults. Structure,"
-        " style, and detail reflect care about the result. A knowledgeable"
-        " person in the domain would recognize quality, not just correctness."
-    ),
-]
-
-# Category tags for changedoc checklist items.
-# E3 (per-part depth) is PRIMARY — same rationale as the generic set.
-_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC = {
-    "E1": "standard",
-    "E2": "standard",
-    "E3": "primary",
-    "E4": "standard",
-}
+_CHECKLIST_ITEMS_CHANGEDOC = [c.text for c in _CHANGEDOC_CRITERIA]
+_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC = {c.id: c.category for c in _CHANGEDOC_CRITERIA}
+_CHECKLIST_ITEM_ANTI_PATTERNS_CHANGEDOC = {c.id: c.anti_patterns for c in _CHANGEDOC_CRITERIA if c.anti_patterns}
+_CHECKLIST_ITEM_SCORE_ANCHORS_CHANGEDOC = {c.id: c.score_anchors for c in _CHANGEDOC_CRITERIA if c.score_anchors}
 
 
 def _checklist_budget_context(remaining: int, total: int) -> str:
@@ -650,6 +582,7 @@ def _build_checklist_scored_decision(
     iterate_action: str = "new_answer",
     item_categories: dict[str, str] | None = None,
     item_anti_patterns: dict[str, list[str]] | None = None,
+    item_score_anchors: dict[str, dict[str, str]] | None = None,
 ) -> str:
     """Build checklist_scored decision section (0-10 confidence, visible cutoff)."""
     effective_t = _checklist_effective_threshold(threshold, remaining, total)
@@ -657,14 +590,22 @@ def _build_checklist_scored_decision(
     cutoff = _checklist_confidence_cutoff(effective_t)
     budget = _checklist_budget_context(remaining, total)
 
-    # Build numbered checklist with confidence instructions, E-prefix, PRIMARY marker, and anti-patterns
+    # Build numbered checklist with confidence instructions, E-prefix, PRIMARY marker,
+    # anti-patterns, and score anchors
     numbered_lines = []
     for i, item in enumerate(checklist_items):
         eid = f"E{i + 1}"
         primary = " **[PRIMARY]**" if (item_categories or {}).get(eid) == "primary" else ""
         anti = (item_anti_patterns or {}).get(eid)
         anti_line = f"\n    Anti-patterns: {', '.join(anti)}" if anti else ""
-        numbered_lines.append(f"  {eid}.{primary} {item}  → **___/10**{anti_line}")
+        anchors = (item_score_anchors or {}).get(eid)
+        anchor_lines = ""
+        if anchors:
+            anchor_lines = "\n    Score anchors:"
+            for level in ("3", "5", "7", "9"):
+                if level in anchors:
+                    anchor_lines += f"\n      {level}/10: {anchors[level]}"
+        numbered_lines.append(f"  {eid}.{primary} {item}  → **___/10**{anti_line}{anchor_lines}")
     numbered = "\n".join(numbered_lines)
 
     force_terminate = ""
@@ -2565,8 +2506,11 @@ class MemorySection(SystemPromptSection):
             content_parts.append("\n### Verification Replay Memories (Auto-Injected)\n")
             content_parts.append(
                 "These memories capture how the prior answer was verified — they reflect the state at submission. "
-                "Use them as your baseline and generally trust their results. Only run additional verification "
-                "if you spot an error or omission in the prior check, or need evidence for a new comparison.\n\n"
+                "Use them as your baseline and trust their results. The prior round already rendered, captured, "
+                "and analyzed these artifacts — do NOT re-render or re-capture them unless you spot a gap "
+                "(e.g. the memo says rendering was not attempted, or a specific aspect was not checked). "
+                "Use the existing artifacts in `.massgen_scratch/verification/` — screenshots, recordings, "
+                "test outputs, logs — directly for your own evaluation.\n\n"
                 "**Reuse verification scripts.** When evaluating a prior answer, run its existing "
                 "verification script directly — it has working selectors, timing, and patterns that "
                 "cost multiple iterations to get right. Review the results critically (prior verification "
@@ -3093,7 +3037,10 @@ class CommandExecutionSection(SystemPromptSection):
         )
         parts.append("- Block until next completion (when idle): `custom_tool__wait_for_background_tool`")
         parts.append(
-            "If no meaningful work remains while waiting on background jobs, " "call `custom_tool__wait_for_background_tool` instead of tight polling loops.",
+            "After starting a background job (especially `read_media`), continue with your next task — "
+            "do NOT immediately call `wait_for_background_tool`. Write files, run commands, start "
+            "other analysis. Only call `wait_for_background_tool` when you have exhausted all "
+            "other productive work and genuinely need the result to proceed.",
         )
         parts.append(
             "The wait call may return early with `interrupted: true` and `injected_content` " "when runtime input or completion updates are ready; treat that payload as new context and continue.",
@@ -3427,6 +3374,14 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "outputs alongside the existing ones. "
             "Save your own verification evidence to `.massgen_scratch/verification/{agentN}/` "
             "(create subdirs as needed per agent you're evaluating).\n"
+            "- **Reuse existing verification artifacts**: When evaluating a peer answer in a "
+            "non-initial round, check their `.massgen_scratch/verification/` first. If screenshots, "
+            "renders, or test outputs already exist from the prior round, use those directly "
+            "rather than re-rendering from scratch. Only re-capture if: (a) the prior "
+            "round's verification memo indicates the artifact was NOT rendered/captured, (b) you've "
+            "made changes to the deliverable and need to verify your modifications, (c) the prior "
+            "verification missed an important mechanism or was done incorrectly, or (d) you need "
+            "a specific comparison the prior evidence doesn't cover.\n"
             "- **Focus verification**: Prioritize critical functionality and substantial differences "
             "rather than exhaustively reviewing every file\n"
             "- **Don't rely solely on answer text**: Ensure the actual work matches their claims\n"
@@ -3821,6 +3776,7 @@ class EvaluationSection(SystemPromptSection):
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
         item_anti_patterns: dict[str, list[str]] | None = None,
+        item_score_anchors: dict[str, dict[str, str]] | None = None,
         has_existing_answers: bool = True,
         builder_enabled: bool = True,
         regression_guard_enabled: bool = False,
@@ -3853,6 +3809,7 @@ class EvaluationSection(SystemPromptSection):
         self.item_categories = item_categories
         self.item_verify_by = item_verify_by
         self.item_anti_patterns = item_anti_patterns
+        self.item_score_anchors = item_score_anchors
         self.has_existing_answers = has_existing_answers
         self.builder_enabled = builder_enabled
         self.regression_guard_enabled = regression_guard_enabled
@@ -3990,6 +3947,7 @@ Your goal is to iteratively refine answers until they meet the quality bar.
                     items,
                     item_categories=self.item_categories,
                     item_anti_patterns=self.item_anti_patterns,
+                    item_score_anchors=self.item_score_anchors,
                 )
             evaluation_section = f"""{analysis}
 
@@ -4121,11 +4079,10 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
             evaluation_section += """
 
 **TRACE ANALYSIS (round 2+):**
-Before starting work this round, spawn an `execution_trace_analyzer` subagent \
-to analyze your previous round's execution trace. Give it your execution trace \
-from the previous round. Read its findings — they contain specific DO/DON'T \
-guidance based on what worked and what was wasted effort. Apply those learnings \
-to this round's execution strategy."""
+A background execution trace analyzer is automatically analyzing your \
+previous round's execution trace. Its DO/DON'T guidance will be injected \
+into your context when ready. Apply those learnings to this round's \
+execution strategy when they appear."""
 
         if self.fast_iteration_mode:
             _iteration_guidance = (
@@ -4215,6 +4172,7 @@ class DecompositionSection(SystemPromptSection):
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
         item_anti_patterns: dict[str, list[str]] | None = None,
+        item_score_anchors: dict[str, dict[str, str]] | None = None,
         improvements_cfg: dict | None = None,
         fast_iteration_mode: bool = False,
     ):
@@ -4235,6 +4193,7 @@ class DecompositionSection(SystemPromptSection):
         self.item_categories = item_categories
         self.item_verify_by = item_verify_by
         self.item_anti_patterns = item_anti_patterns
+        self.item_score_anchors = item_score_anchors
         self.improvements_cfg = improvements_cfg
         self.fast_iteration_mode = fast_iteration_mode
 
@@ -4270,6 +4229,7 @@ class DecompositionSection(SystemPromptSection):
                         iterate_action="new_answer",
                         item_categories=self.item_categories,
                         item_anti_patterns=self.item_anti_patterns,
+                        item_score_anchors=self.item_score_anchors,
                     )
                 return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round.

@@ -414,6 +414,18 @@ _DIRECT_SPAWN_GLOBALS = [
     "_deferred_configs_loaded",
 ]
 
+# Lock to serialise concurrent _direct_spawn_subagents calls.  Lazy-init
+# because the module may be imported before an event loop exists.
+_direct_spawn_lock: asyncio.Lock | None = None
+
+
+def _get_direct_spawn_lock() -> asyncio.Lock:
+    """Return (and lazily create) the direct-spawn asyncio lock."""
+    global _direct_spawn_lock
+    if _direct_spawn_lock is None:
+        _direct_spawn_lock = asyncio.Lock()
+    return _direct_spawn_lock
+
 
 def configure_direct_spawn(
     *,
@@ -720,6 +732,13 @@ async def spawn_subagents_direct(
             refine=refine,
         )
         result_payloads = [_attach_timeout_seconds(r.to_dict(), effective_timeout) for r in results]
+
+        # Write registry so list_subagents can discover direct-spawned
+        # subagents (trace analyzer, round evaluator, etc.).
+        try:
+            _save_subagents_to_filesystem()
+        except Exception:
+            logger.debug("[SubagentMCP] Registry write after direct spawn failed", exc_info=True)
 
         completed = sum(1 for r in results if r.status in ("completed", "completed_but_timeout", "partial"))
         failed = sum(1 for r in results if r.status == "error")

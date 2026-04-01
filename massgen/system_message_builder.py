@@ -207,6 +207,7 @@ class SystemMessageBuilder:
         item_categories: dict[str, str] | None = None,
         item_verify_by: dict[str, str] | None = None,
         item_anti_patterns: dict[str, list[str]] | None = None,
+        item_score_anchors: dict[str, dict[str, str]] | None = None,
         builder_enabled: bool = True,
         regression_guard_enabled: bool = False,
         essential_files_active: bool = False,
@@ -307,6 +308,7 @@ class SystemMessageBuilder:
                     item_categories=item_categories,
                     item_verify_by=item_verify_by,
                     item_anti_patterns=item_anti_patterns,
+                    item_score_anchors=item_score_anchors,
                     fast_iteration_mode=getattr(
                         getattr(self.config, "coordination_config", None),
                         "fast_iteration_mode",
@@ -344,6 +346,7 @@ class SystemMessageBuilder:
                     item_categories=item_categories,
                     item_verify_by=item_verify_by,
                     item_anti_patterns=item_anti_patterns,
+                    item_score_anchors=item_score_anchors,
                     has_existing_answers=bool(answers) or answers_used > 0,
                     builder_enabled=builder_enabled,
                     regression_guard_enabled=regression_guard_enabled,

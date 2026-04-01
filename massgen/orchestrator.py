@@ -393,6 +393,8 @@ class Orchestrator(ChatAgent):
         # Stores pending results for each parent agent until they can be injected
         # Format: {parent_agent_id: [(subagent_id, SubagentResult), ...]}
         self._pending_subagent_results: dict[str, list[tuple[str, "SubagentResult"]]] = {}
+        # Background trace analyzer tasks (asyncio.Task per agent)
+        self._background_trace_tasks: dict[str, "asyncio.Task[None]"] = {}
         # Latest answer-label tuples already critiqued by the orchestrator-owned
         # round_evaluator gate. Prevents duplicate launches for unchanged revisions.
         self._round_evaluator_completed_labels: dict[str, tuple[str, ...]] = {}
@@ -874,22 +876,23 @@ class Orchestrator(ChatAgent):
     def _get_active_criteria(
         self,
         agent_id: str | None = None,
-    ) -> tuple[list[str] | None, dict[str, str] | None, dict[str, str] | None, dict[str, list[str]] | None]:
-        """Return (items, categories, verify_by, anti_patterns) using the criteria priority waterfall.
+    ) -> tuple[list[str] | None, dict[str, str] | None, dict[str, str] | None, dict[str, list[str]] | None, dict[str, dict[str, str]] | None]:
+        """Return (items, categories, verify_by, anti_patterns, score_anchors) using the criteria priority waterfall.
 
         Priority: inline > decomposition-agent > generated > preset > None.
-        Returns (None, None, None, None) when no custom criteria source is configured.
+        Returns (None, None, None, None, None) when no custom criteria source is configured.
         This is used by both _init_checklist_tool and the system prompt builder
         to ensure criteria are consistent across the checklist MCP tool and
         the system prompt shown to the model.
         """
 
-        def _to_tuple(criteria: list) -> tuple[list[str], dict[str, str], dict[str, str] | None, dict[str, list[str]] | None]:
+        def _to_tuple(criteria: list) -> tuple[list[str], dict[str, str], dict[str, str] | None, dict[str, list[str]] | None, dict[str, dict[str, str]] | None]:
             texts = [c.text for c in criteria]
             cats = {c.id: c.category for c in criteria}
             vby = {c.id: c.verify_by for c in criteria if c.verify_by}
             anti = {c.id: c.anti_patterns for c in criteria if getattr(c, "anti_patterns", None)}
-            return texts, cats, vby or None, anti or None
+            anchors = {c.id: c.score_anchors for c in criteria if getattr(c, "score_anchors", None)}
+            return texts, cats, vby or None, anti or None, anchors or None
 
         inline = getattr(
             getattr(self.config, "coordination_config", None),
@@ -918,25 +921,29 @@ class Orchestrator(ChatAgent):
 
             return _to_tuple(get_criteria_for_preset(preset))
 
-        return None, None, None, None
+        return None, None, None, None, None
 
     def _resolve_effective_checklist_criteria(
         self,
         agent_id: str | None = None,
-    ) -> tuple[list[str], dict[str, str], dict[str, str] | None, str, dict[str, list[str]] | None]:
+    ) -> tuple[list[str], dict[str, str], dict[str, str] | None, str, dict[str, list[str]] | None, dict[str, dict[str, str]] | None]:
         """Return checklist criteria with changedoc/generic fallback plus source.
 
         Returns:
-            (items, categories, verify_by, source, anti_patterns)
+            (items, categories, verify_by, source, anti_patterns, score_anchors)
         """
         from massgen.system_prompt_sections import (
+            _CHECKLIST_ITEM_ANTI_PATTERNS,
+            _CHECKLIST_ITEM_ANTI_PATTERNS_CHANGEDOC,
             _CHECKLIST_ITEM_CATEGORIES,
             _CHECKLIST_ITEM_CATEGORIES_CHANGEDOC,
+            _CHECKLIST_ITEM_SCORE_ANCHORS,
+            _CHECKLIST_ITEM_SCORE_ANCHORS_CHANGEDOC,
             _CHECKLIST_ITEMS,
             _CHECKLIST_ITEMS_CHANGEDOC,
         )
 
-        custom_items, item_categories, item_verify_by, item_anti_patterns = self._get_active_criteria(agent_id)
+        custom_items, item_categories, item_verify_by, item_anti_patterns, item_score_anchors = self._get_active_criteria(agent_id)
         if custom_items is not None:
             inline = getattr(
                 getattr(self.config, "coordination_config", None),
@@ -951,7 +958,7 @@ class Orchestrator(ChatAgent):
                 source = "generated"
             else:
                 source = "preset"
-            return custom_items, item_categories or {}, item_verify_by, source, item_anti_patterns
+            return custom_items, item_categories or {}, item_verify_by, source, item_anti_patterns, item_score_anchors
 
         if self._is_changedoc_enabled():
             return (
@@ -959,10 +966,18 @@ class Orchestrator(ChatAgent):
                 dict(_CHECKLIST_ITEM_CATEGORIES_CHANGEDOC),
                 None,
                 "changedoc",
-                None,
+                dict(_CHECKLIST_ITEM_ANTI_PATTERNS_CHANGEDOC),
+                dict(_CHECKLIST_ITEM_SCORE_ANCHORS_CHANGEDOC),
             )
 
-        return list(_CHECKLIST_ITEMS), dict(_CHECKLIST_ITEM_CATEGORIES), None, "generic", None
+        return (
+            list(_CHECKLIST_ITEMS),
+            dict(_CHECKLIST_ITEM_CATEGORIES),
+            None,
+            "generic",
+            dict(_CHECKLIST_ITEM_ANTI_PATTERNS),
+            dict(_CHECKLIST_ITEM_SCORE_ANCHORS),
+        )
 
     def _push_cached_criteria_to_display(self, *, force: bool = False) -> None:
         """Push cached evaluation criteria to the active display when available."""
@@ -1012,7 +1027,7 @@ class Orchestrator(ChatAgent):
         for agent_id, agent in self.agents.items():
             backend = agent.backend
             criteria_agent_id = agent_id if self._is_decomposition_mode() else None
-            items, item_categories, item_verify_by, criteria_source, _anti = self._resolve_effective_checklist_criteria(
+            items, item_categories, item_verify_by, criteria_source, _anti, item_score_anchors = self._resolve_effective_checklist_criteria(
                 criteria_agent_id,
             )
 
@@ -1103,6 +1118,7 @@ class Orchestrator(ChatAgent):
                 # Dynamic core/stretch categories for convergence off-ramp
                 "item_categories": item_categories,
                 "item_verify_by": item_verify_by or {},
+                "item_score_anchors": item_score_anchors or {},
                 "criteria_source": criteria_source,
                 # Novelty subagent guidance only when novelty type is available
                 "novelty_subagent_enabled": "novelty" in _lowered_types,
@@ -1882,7 +1898,7 @@ class Orchestrator(ChatAgent):
         state = agent.backend._checklist_state
         agent_state = self.agent_states.get(agent_id)
         criteria_agent_id = agent_id if self._is_decomposition_mode() else None
-        active_items, active_categories, active_verify_by, criteria_source, _anti = self._resolve_effective_checklist_criteria(
+        active_items, active_categories, active_verify_by, criteria_source, _anti, _score_anchors = self._resolve_effective_checklist_criteria(
             criteria_agent_id,
         )
         current_items = getattr(agent.backend, "_checklist_items", None)
@@ -6361,6 +6377,15 @@ Your answer:"""
                                     self,
                                 )
                             await self._cancel_running_background_work_for_agent(agent_id)
+
+                            # Trigger B: auto trace analysis per agent on new_answer.
+                            # Trigger A (inside _run_round_evaluator_pre_round_if_needed)
+                            # only fires for single-agent configs.  For multi-agent,
+                            # this is the only trigger.  _should_spawn_trace_analyzer
+                            # prevents double-spawning if Trigger A already fired.
+                            if self._should_spawn_trace_analyzer(agent_id):
+                                await self._spawn_trace_analyzer_background(agent_id)
+
                             restart_triggered_id = agent_id  # Last agent to provide new answer
                             reset_signal = True
 
@@ -7132,6 +7157,116 @@ Your answer:"""
             f"[Orchestrator] Restored {items_restored} items from latest answer dir " f"{latest_workspace} to workspace for {agent_id}",
         )
         return items_restored > 0
+
+    def _sync_applied_context_files_into_final_artifacts(
+        self,
+        agent_id: str,
+        target_path: str,
+        relative_paths: list[str],
+    ) -> None:
+        """Mirror approved context-path changes into saved final artifacts.
+
+        Final presentation snapshots the agent workspace before isolated
+        context-path changes are reviewed and copied back to the real target.
+        After apply, overlay the delivered files into the persisted final
+        artifacts so logs and snapshot_storage reflect what actually landed.
+        """
+        if not relative_paths:
+            return
+
+        agent = self.agents.get(agent_id)
+        if not agent or not hasattr(agent, "backend"):
+            return
+
+        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+        if filesystem_manager is None:
+            return
+
+        source_root = Path(target_path)
+        normalized_rel_paths: list[str] = []
+        seen_rel_paths: set[str] = set()
+        for rel_path in relative_paths:
+            if not isinstance(rel_path, str):
+                continue
+            normalized = rel_path.replace("\\", "/").strip()
+            if not normalized:
+                normalized = source_root.name
+            rel_obj = Path(normalized)
+            if rel_obj.is_absolute() or ".." in rel_obj.parts:
+                logger.warning(
+                    "[Orchestrator] Skipping unsafe applied context path %r for %s",
+                    rel_path,
+                    agent_id,
+                )
+                continue
+            rel_key = rel_obj.as_posix()
+            if rel_key in seen_rel_paths:
+                continue
+            seen_rel_paths.add(rel_key)
+            normalized_rel_paths.append(rel_key)
+
+        if not normalized_rel_paths:
+            return
+
+        destination_roots: list[Path] = []
+        log_session_dir = get_log_session_dir()
+        if log_session_dir:
+            destination_roots.append(Path(log_session_dir) / "final" / agent_id / "workspace")
+
+        snapshot_storage = getattr(filesystem_manager, "snapshot_storage", None)
+        if snapshot_storage:
+            destination_roots.append(Path(snapshot_storage))
+
+        if not destination_roots:
+            return
+
+        copied_count = 0
+        removed_count = 0
+        for destination_root in destination_roots:
+            destination_root.mkdir(parents=True, exist_ok=True)
+
+            for normalized in normalized_rel_paths:
+                rel_obj = Path(normalized)
+                source_path = source_root if source_root.is_file() else source_root / rel_obj
+                destination_path = destination_root / rel_obj
+
+                try:
+                    if source_path.exists():
+                        destination_path.parent.mkdir(parents=True, exist_ok=True)
+                        if source_path.is_file():
+                            shutil.copy2(source_path, destination_path)
+                        elif source_path.is_dir():
+                            shutil.copytree(
+                                source_path,
+                                destination_path,
+                                dirs_exist_ok=True,
+                                symlinks=True,
+                                ignore_dangling_symlinks=True,
+                            )
+                        copied_count += 1
+                    else:
+                        if destination_path.is_file() or destination_path.is_symlink():
+                            destination_path.unlink()
+                            removed_count += 1
+                        elif destination_path.is_dir():
+                            shutil.rmtree(destination_path)
+                            removed_count += 1
+                except Exception as exc:
+                    logger.warning(
+                        "[Orchestrator] Failed to sync applied context file %s into %s for %s: %s",
+                        normalized,
+                        destination_root,
+                        agent_id,
+                        exc,
+                    )
+
+        logger.info(
+            "[Orchestrator] Synced applied context files into final artifacts for %s: copied=%d removed=%d paths=%s",
+            agent_id,
+            copied_count,
+            removed_count,
+            normalized_rel_paths,
+        )
 
     async def _save_agent_snapshot(
         self,
@@ -8034,6 +8169,41 @@ Your answer:"""
         logger.info(
             f"[Orchestrator] Background subagent {subagent_id} completed for {parent_agent_id} " f"(status={result.status}, success={result.success})",
         )
+        self._schedule_background_wait_interrupt_for_agent(
+            parent_agent_id,
+            trigger="background_subagent_complete",
+        )
+
+    def _on_background_subagent_complete(
+        self,
+        parent_agent_id: str,
+        subagent_id: str,
+        result: "SubagentResult",
+    ) -> None:
+        """Compatibility wrapper for orchestrator-owned background subagent completions."""
+        self._on_subagent_complete(
+            parent_agent_id,
+            subagent_id,
+            result,
+        )
+
+    def _schedule_background_wait_interrupt_for_agent(
+        self,
+        agent_id: str,
+        trigger: str = "background_subagent_complete",
+    ) -> None:
+        """Best-effort scheduling for runtime wait interruption delivery."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        loop.create_task(
+            self._maybe_interrupt_background_wait_for_agent(
+                agent_id,
+                trigger=trigger,
+            ),
+        )
 
     async def _get_pending_subagent_results_async(
         self,
@@ -8125,6 +8295,30 @@ Your answer:"""
             logger.error(f"[Orchestrator] Error polling for completed subagents: {e}", exc_info=True)
             return []
 
+    async def _collect_pending_subagent_results_async(
+        self,
+        agent_id: str,
+    ) -> list[tuple[str, "SubagentResult"]]:
+        """Return deduplicated pending subagent results from local and MCP queues."""
+        pending_subagent_results: list[tuple[str, "SubagentResult"]] = []
+
+        local_pending = list(self._pending_subagent_results.get(agent_id, []))
+        if local_pending:
+            pending_subagent_results.extend(local_pending)
+
+        polled_pending = await self._get_pending_subagent_results_async(agent_id)
+        if polled_pending:
+            pending_subagent_results.extend(polled_pending)
+
+        if not pending_subagent_results:
+            return []
+
+        deduped_results: dict[str, "SubagentResult"] = {}
+        for subagent_id, result in pending_subagent_results:
+            deduped_results[subagent_id] = result
+
+        return list(deduped_results.items())
+
     async def _cancel_running_subagents_for_agent(
         self,
         agent_id: str,
@@ -8206,12 +8400,20 @@ Your answer:"""
                     exc_info=True,
                 )
 
-        if cancelled_subagents or cancelled_background_jobs:
+        # Cancel in-flight trace analyzer task
+        cancelled_trace = False
+        trace_task = self._background_trace_tasks.pop(agent_id, None)
+        if trace_task and not trace_task.done():
+            trace_task.cancel()
+            cancelled_trace = True
+
+        if cancelled_subagents or cancelled_background_jobs or cancelled_trace:
             logger.info(
-                "[Orchestrator] Round-end cleanup for %s: cancelled_subagents=%s, cancelled_background_jobs=%s",
+                "[Orchestrator] Round-end cleanup for %s: " "cancelled_subagents=%s, cancelled_background_jobs=%s, " "cancelled_trace_analyzer=%s",
                 agent_id,
                 cancelled_subagents,
                 cancelled_background_jobs,
+                cancelled_trace,
             )
 
     def _get_pending_subagent_results(
@@ -8601,6 +8803,7 @@ Your answer:"""
             return
 
         injection_parts: list[str] = []
+        wrote_subagent_payload = False
 
         # 0. Poll runtime inbox for messages from parent (subagent mode)
         self._poll_runtime_inbox()
@@ -8634,12 +8837,13 @@ Your answer:"""
                     self._codex_pending_inject_confirmation[agent_id] = result.inject["content"]
 
         # 2. Check for subagent completions
-        if self._background_subagents_enabled and self._pending_subagent_results.get(agent_id):
-            pending = await self._get_pending_subagent_results_async(agent_id)
+        if self._background_subagents_enabled:
+            pending = await self._collect_pending_subagent_results_async(agent_id)
             if pending:
                 from massgen.subagent.result_formatter import format_batch_results
 
                 injection_parts.append(format_batch_results(pending))
+                wrote_subagent_payload = True
 
         # 3. Check for background tool completions
         if hasattr(agent.backend, "get_pending_background_tool_results"):
@@ -8730,6 +8934,8 @@ Your answer:"""
         if injection_parts:
             combined = "\n".join(injection_parts)
             agent.backend.write_post_tool_use_hook(combined)
+            if wrote_subagent_payload:
+                self._pending_subagent_results.pop(agent_id, None)
             logger.info(
                 "[Orchestrator] Wrote %d chars to hook file for %s (%d parts)",
                 len(combined),
@@ -8827,23 +9033,10 @@ Your answer:"""
                     )
 
         # 2) Background subagent completions
-        pending_subagent_results: list[tuple[str, "SubagentResult"]] = []
-        # Peek (copy) instead of pop — only clear after successful delivery.
-        local_pending = list(self._pending_subagent_results.get(agent_id, []))
-        if local_pending:
-            pending_subagent_results.extend(local_pending)
-        polled_pending = await self._get_pending_subagent_results_async(agent_id)
-        if polled_pending:
-            pending_subagent_results.extend(polled_pending)
-
+        pending_subagent_results = await self._collect_pending_subagent_results_async(agent_id)
         if pending_subagent_results:
-            # De-duplicate by subagent id while preserving latest payload.
-            deduped_results: dict[str, "SubagentResult"] = {}
-            for subagent_id, result in pending_subagent_results:
-                deduped_results[subagent_id] = result
-
             subagent_hook = SubagentCompleteHook(
-                get_pending_results=lambda: list(deduped_results.items()),
+                get_pending_results=lambda: list(pending_subagent_results),
                 injection_strategy=self._background_subagent_injection_strategy,
             )
             subagent_result = await subagent_hook.execute(
@@ -9585,6 +9778,13 @@ Your answer:"""
             agent_cfg: dict[str, Any] = {"id": aid}
             if hasattr(a.backend, "config"):
                 backend_cfg = {k: v for k, v in a.backend.config.items() if k not in ("mcp_servers", "_config_path")}
+                # The 'type' key is consumed by create_backend() and not
+                # stored in self.config.  Inject it so subagent configs
+                # inherit the correct backend type.
+                if "type" not in backend_cfg and hasattr(a.backend, "get_provider_name"):
+                    from .backend.capabilities import normalize_backend_type
+
+                    backend_cfg["type"] = normalize_backend_type(a.backend.get_provider_name())
                 agent_cfg["backend"] = backend_cfg
             agent_configs.append(agent_cfg)
 
@@ -9643,27 +9843,31 @@ Your answer:"""
         configured_timeout = getattr(coord_cfg, "subagent_default_timeout", 600) if coord_cfg else 600
 
         # --- Configure MCP module globals and spawn ---
-        saved = mcp_mod.configure_direct_spawn(
-            workspace_path=ws_root,
-            parent_agent_id=parent_agent_id,
-            orchestrator_id=getattr(self, "orchestrator_id", "unknown"),
-            parent_agent_configs=agent_configs,
-            subagent_orchestrator_config=sub_orch_config,
-            log_directory=log_dir,
-            agent_temporary_workspace=orch_temp_resolved,
-            parent_context_paths=parent_context_paths,
-            parent_coordination_config=(coord_cfg.__dict__ if coord_cfg and hasattr(coord_cfg, "__dict__") else None),
-            default_timeout=configured_timeout,
-            max_timeout=int(configured_timeout * 1.5),
-        )
-        try:
-            return await mcp_mod.spawn_subagents_direct(
-                tasks=tasks,
-                refine=refine,
-                timeout_override=configured_timeout,
+        # Acquire lock to prevent concurrent direct spawns from corrupting
+        # the shared module-level globals (configure → spawn → reset).
+        lock = mcp_mod._get_direct_spawn_lock()
+        async with lock:
+            saved = mcp_mod.configure_direct_spawn(
+                workspace_path=ws_root,
+                parent_agent_id=parent_agent_id,
+                orchestrator_id=getattr(self, "orchestrator_id", "unknown"),
+                parent_agent_configs=agent_configs,
+                subagent_orchestrator_config=sub_orch_config,
+                log_directory=log_dir,
+                agent_temporary_workspace=orch_temp_resolved,
+                parent_context_paths=parent_context_paths,
+                parent_coordination_config=(coord_cfg.__dict__ if coord_cfg and hasattr(coord_cfg, "__dict__") else None),
+                default_timeout=configured_timeout,
+                max_timeout=int(configured_timeout * 1.5),
             )
-        finally:
-            mcp_mod.reset_direct_spawn(saved)
+            try:
+                return await mcp_mod.spawn_subagents_direct(
+                    tasks=tasks,
+                    refine=refine,
+                    timeout_override=configured_timeout,
+                )
+            finally:
+                mcp_mod.reset_direct_spawn(saved)
 
     def _send_runtime_message_via_direct_inbox_write(
         self,
@@ -11868,7 +12072,7 @@ Your answer:"""
     ) -> str:
         """Build the orchestrator-owned round_evaluator task brief."""
         criteria_agent_id = parent_agent_id if self._is_decomposition_mode() else None
-        checklist_items, _, verify_by, _, _anti = self._resolve_effective_checklist_criteria(criteria_agent_id)
+        checklist_items, _, verify_by, _, _anti, _score_anchors = self._resolve_effective_checklist_criteria(criteria_agent_id)
 
         criteria_lines: list[str] = []
         for idx, item in enumerate(checklist_items or [], start=1):
@@ -12637,6 +12841,594 @@ Your answer:"""
         frontmatter = "---\n" f"name: execution_trace_round_{round_number}\n" f"description: Process learnings from round {round_number}" " execution trace analysis\n" "tier: short_term\n" "---\n"
         return f"{frontmatter}\n{report_text}"
 
+    @staticmethod
+    def _strip_memory_frontmatter(content: str) -> str:
+        """Return the body of a memory file, dropping YAML frontmatter when present."""
+        normalized = content.strip()
+        if not normalized.startswith("---"):
+            return normalized
+
+        lines = normalized.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return normalized
+
+        for index in range(1, len(lines)):
+            if lines[index].strip() == "---":
+                body = "\n".join(lines[index + 1 :]).strip()
+                return body or normalized
+
+        return normalized
+
+    def _build_trace_analysis_injection_text(
+        self,
+        round_number: int,
+        content: str,
+    ) -> str | None:
+        """Build the mid-stream injection payload for trace-analysis guidance."""
+        body = self._strip_memory_frontmatter(content)
+        if not body:
+            return None
+
+        return f"Trace analysis completed for round {round_number - 1}. " f"Apply this execution-process guidance immediately in round {round_number}.\n\n" f"{body}"
+
+    def _build_trace_analysis_injection_result(
+        self,
+        trace_result: "SubagentResult",
+        round_number: int,
+        artifact_path: Path | None,
+    ) -> Optional["SubagentResult"]:
+        """Build the result payload queued for background injection."""
+        injection_text: str | None = None
+
+        if artifact_path is not None:
+            try:
+                artifact_content = artifact_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "[Orchestrator] Failed to read trace analysis artifact for injection %s: %s",
+                    artifact_path,
+                    exc,
+                )
+            else:
+                injection_text = self._build_trace_analysis_injection_text(
+                    round_number,
+                    artifact_content,
+                )
+
+        if not injection_text and trace_result.answer:
+            injection_text = self._build_trace_analysis_injection_text(
+                round_number,
+                trace_result.answer,
+            )
+
+        if not injection_text:
+            return None
+
+        return trace_result.__class__(
+            subagent_id=trace_result.subagent_id,
+            status=trace_result.status,
+            success=trace_result.success,
+            answer=injection_text,
+            workspace_path=trace_result.workspace_path,
+            execution_time_seconds=trace_result.execution_time_seconds,
+            error=trace_result.error,
+            token_usage=copy.deepcopy(trace_result.token_usage),
+            log_path=trace_result.log_path,
+            completion_percentage=trace_result.completion_percentage,
+            warning=trace_result.warning,
+        )
+
+    @staticmethod
+    def _get_trace_analysis_memory_filename(round_number: int) -> str:
+        """Return the canonical short-term memory filename for trace analysis."""
+        return f"trace_analysis_round_{round_number}.md"
+
+    @classmethod
+    def _candidate_trace_analysis_artifact_paths(
+        cls,
+        workspace_path: str | os.PathLike[str] | None,
+        round_number: int,
+    ) -> list[Path]:
+        """Return likely locations for the analyzer's authoritative memory artifact."""
+        if not workspace_path:
+            return []
+
+        filename = cls._get_trace_analysis_memory_filename(round_number)
+        workspace = Path(workspace_path)
+        candidates: list[tuple[int, float, Path]] = []
+        seen: set[str] = set()
+
+        def _add(path: Path, priority: int) -> None:
+            if not path.exists() or not path.is_file():
+                return
+            try:
+                key = str(path.resolve())
+            except OSError:
+                key = str(path)
+            if key in seen:
+                return
+            seen.add(key)
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            candidates.append((priority, -mtime, path))
+
+        _add(workspace / "deliverable" / filename, priority=0)
+        _add(workspace / filename, priority=5)
+
+        for pattern, priority in (
+            (f"agent_*/deliverable/{filename}", 10),
+            (f"agent_*/{filename}", 15),
+            (f".massgen/sessions/*/turn_*/workspace/deliverable/{filename}", 20),
+            (f".massgen/sessions/*/turn_*/workspace/{filename}", 25),
+            (f".massgen/massgen_logs/*/turn_*/final/*/workspace/deliverable/{filename}", 30),
+            (f".massgen/massgen_logs/*/turn_*/final/*/workspace/{filename}", 35),
+        ):
+            for candidate in workspace.glob(pattern):
+                _add(candidate, priority=priority)
+
+        candidates.sort(key=lambda item: (item[0], item[1], str(item[2])))
+        return [path for _, _, path in candidates]
+
+    @classmethod
+    def _resolve_trace_analysis_artifact_path(
+        cls,
+        workspace_path: str | os.PathLike[str] | None,
+        round_number: int,
+    ) -> Path | None:
+        """Return the first non-empty trace-analysis artifact with memory frontmatter."""
+        for candidate in cls._candidate_trace_analysis_artifact_paths(
+            workspace_path=workspace_path,
+            round_number=round_number,
+        ):
+            try:
+                content = candidate.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "[Orchestrator] Failed to read trace analysis artifact %s: %s",
+                    candidate,
+                    exc,
+                )
+                continue
+
+            stripped = content.strip()
+            if not stripped:
+                logger.warning(
+                    "[Orchestrator] Trace analysis artifact is empty at %s",
+                    candidate,
+                )
+                continue
+            if not stripped.startswith("---") or "tier: short_term" not in content or "name:" not in content:
+                logger.warning(
+                    "[Orchestrator] Trace analysis artifact at %s is missing required memory frontmatter",
+                    candidate,
+                )
+                continue
+            return candidate
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Auto trace analysis (background execution_trace_analyzer)
+    # ------------------------------------------------------------------
+
+    def _should_spawn_trace_analyzer(self, agent_id: str) -> bool:
+        """Return True if auto_trace_analysis should spawn for this agent."""
+        coord = getattr(self.config, "coordination_config", None)
+        if not coord:
+            return False
+        if not getattr(coord, "auto_trace_analysis", False):
+            return False
+        # Must be round 2+ (restart_count >= 1)
+        state = self.agent_states.get(agent_id)
+        if not state or getattr(state, "restart_count", 0) < 1:
+            return False
+        # Must not already have an in-flight trace task
+        existing = self._background_trace_tasks.get(agent_id)
+        if existing and not existing.done():
+            return False
+        return True
+
+    def _get_execution_trace_path_for_agent(self, agent_id: str) -> Path | None:
+        """Return the path to the latest execution_trace.md, or None."""
+        agent = self.agents.get(agent_id)
+        if not agent:
+            return None
+        fs_mgr = getattr(
+            getattr(agent, "backend", None),
+            "filesystem_manager",
+            None,
+        )
+        if not fs_mgr or not fs_mgr.snapshot_storage:
+            return None
+        trace_path = fs_mgr.snapshot_storage / "execution_trace.md"
+        return trace_path if trace_path.exists() else None
+
+    def _get_execution_trace_context_path_for_agent(
+        self,
+        agent_id: str,
+        temp_workspace_path: str | os.PathLike[str] | None = None,
+    ) -> Path | None:
+        """Return a subagent-readable execution trace path for the agent.
+
+        Direct-spawned subagents can only read files mounted from the parent
+        workspace and the agent temp-workspace shared-reference tree. The raw
+        snapshot_storage path may exist on the host but still fail subagent
+        validation if passed directly, so prefer the temp-workspace copy.
+        """
+        snapshot_trace = self._get_execution_trace_path_for_agent(agent_id)
+        if not snapshot_trace:
+            return None
+
+        temp_roots: list[Path] = []
+
+        if temp_workspace_path:
+            temp_roots.append(Path(temp_workspace_path))
+
+        agent = self.agents.get(agent_id)
+        fs_mgr = getattr(
+            getattr(agent, "backend", None),
+            "filesystem_manager",
+            None,
+        )
+        for candidate_root in (
+            getattr(fs_mgr, "agent_temporary_workspace", None),
+            getattr(self, "_agent_temporary_workspace", None),
+        ):
+            if candidate_root:
+                temp_roots.append(Path(candidate_root))
+
+        anon_id = agent_id
+        tracker = getattr(self, "coordination_tracker", None)
+        if tracker and hasattr(tracker, "get_reverse_agent_mapping"):
+            try:
+                anon_id = tracker.get_reverse_agent_mapping().get(agent_id, agent_id)
+            except Exception:
+                anon_id = agent_id
+
+        seen: set[Path] = set()
+        for temp_root in temp_roots:
+            try:
+                resolved_root = temp_root.resolve()
+            except OSError:
+                continue
+            if resolved_root in seen:
+                continue
+            seen.add(resolved_root)
+            trace_path = resolved_root / anon_id / "execution_trace.md"
+            if trace_path.exists():
+                return trace_path
+
+        return None
+
+    def _build_trace_analyzer_task(
+        self,
+        agent_id: str,
+        round_number: int,
+        trace_path: str,
+    ) -> str:
+        """Build the task string for the execution_trace_analyzer subagent."""
+        original_task = getattr(self, "_original_task", None) or getattr(self, "current_task", None) or "Task coordination"
+        memory_filename = self._get_trace_analysis_memory_filename(round_number)
+        memory_artifact_path = f"deliverable/{memory_filename}"
+        frontmatter = "---\n" f"name: execution_trace_round_{round_number}\n" f"description: Process learnings from round {round_number} execution trace analysis\n" "tier: short_term\n" "---"
+        return (
+            f"Analyze the execution trace from round {round_number - 1} "
+            "and extract specific DO/DON'T guidance about the agent's "
+            "EXECUTION PROCESS for the next round.\n\n"
+            f"ORIGINAL TASK (for context only):\n{original_task}\n\n"
+            f"The execution trace file is at: {trace_path}\n"
+            "Read it and analyze HOW the agent worked — tool strategy, "
+            "wasted effort, wrong assumptions, missing context gathering, "
+            "backtracking, scope drift. Do NOT critique the deliverable "
+            "quality (that is the round_evaluator's job). Focus on "
+            "behavioral patterns that cost time or led the agent in "
+            "wrong directions.\n\n"
+            "Authoritative output contract:\n"
+            f"1. If `deliverable/` does not exist in your workspace, create it.\n"
+            f"2. Write the final memory artifact to `{memory_artifact_path}`.\n"
+            "3. That file will be copied directly into the parent agent's "
+            "`memory/short_term/`, so it must already contain valid YAML "
+            "frontmatter exactly like this:\n"
+            f"{frontmatter}\n\n"
+            "4. After writing the file, keep your answer text brief: say "
+            "whether you created the file and state its path. Do not paste "
+            "the full report into the answer.\n\n"
+            "Criticality rules:\n"
+            "- Be skeptical. Bias toward DON'T / CRITICAL ERRORS unless the "
+            "trace clearly proves a behavior helped.\n"
+            "- Only put an item in `DO` when the trace shows direct evidence "
+            "that it worked (for example: successful verification, later reuse "
+            "without rollback, or avoided repeated failure).\n"
+            "- If an action was merely attempted, completed once without proof, "
+            "or only seems plausible, Do NOT promote it to `DO`.\n"
+            "- If nothing is confidently confirmed, say so explicitly under "
+            "`DO` instead of inventing a positive.\n"
+            "- Every item must cite specific trace evidence: tool names, file "
+            "paths, repeated commands, or exact error messages.\n\n"
+            "Use the DO / DON'T / CRITICAL ERRORS section format from your "
+            "instructions inside the artifact."
+        )
+
+    def _write_trace_analysis_to_memory(
+        self,
+        agent_id: str,
+        round_number: int,
+        memory_block: str,
+    ) -> None:
+        """Write trace analysis to agent's memory/short_term/ directory."""
+        agent = self.agents.get(agent_id)
+        if not agent:
+            return
+        fs_mgr = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+        if not fs_mgr or not fs_mgr.cwd:
+            return
+        memory_dir = fs_mgr.cwd / "memory" / "short_term"
+        try:
+            memory_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        target = memory_dir / self._get_trace_analysis_memory_filename(round_number)
+        try:
+            target.write_text(memory_block, encoding="utf-8")
+            logger.info(
+                "[Orchestrator] Wrote trace analysis to %s for %s",
+                target,
+                agent_id,
+            )
+        except OSError as exc:
+            logger.warning("[Orchestrator] Failed to write trace analysis memory: %s", exc)
+
+    def _copy_trace_analysis_artifact_to_memory(
+        self,
+        agent_id: str,
+        round_number: int,
+        source_path: Path,
+    ) -> None:
+        """Copy the authoritative trace-analysis artifact into short-term memory."""
+        agent = self.agents.get(agent_id)
+        if not agent:
+            return
+        fs_mgr = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+        if not fs_mgr or not fs_mgr.cwd:
+            return
+        memory_dir = fs_mgr.cwd / "memory" / "short_term"
+        try:
+            memory_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+
+        target = memory_dir / self._get_trace_analysis_memory_filename(round_number)
+        try:
+            if source_path.resolve() == target.resolve():
+                return
+        except OSError:
+            pass
+
+        try:
+            shutil.copy2(source_path, target)
+            logger.info(
+                "[Orchestrator] Copied trace analysis artifact %s to %s for %s",
+                source_path,
+                target,
+                agent_id,
+            )
+        except OSError as exc:
+            logger.warning("[Orchestrator] Failed to copy trace analysis artifact to memory: %s", exc)
+
+    async def _run_trace_analyzer(
+        self,
+        parent_agent_id: str,
+        round_number: int,
+        trace_path: Path,
+    ) -> None:
+        """Background worker: spawn trace analyzer and process result."""
+        from .subagent.models import SubagentResult
+
+        subagent_id = f"trace_analyzer_{parent_agent_id}_r{round_number}"
+        # Default 5 min, capped at half of subsequent_round_timeout_seconds
+        trace_timeout = 300
+        coord = getattr(self.config, "coordination_config", None)
+        timeout_cfg = getattr(self.config, "timeout_config", None)
+        subsequent_timeout = getattr(timeout_cfg, "subsequent_round_timeout_seconds", None)
+        if not subsequent_timeout and coord:
+            subsequent_timeout = getattr(coord, "subsequent_round_timeout_seconds", None)
+        if subsequent_timeout and subsequent_timeout > 0:
+            trace_timeout = min(trace_timeout, int(subsequent_timeout // 2))
+
+        task_payload: dict[str, Any] = {
+            "subagent_id": subagent_id,
+            "task": self._build_trace_analyzer_task(
+                parent_agent_id,
+                round_number,
+                str(trace_path),
+            ),
+            "subagent_type": "execution_trace_analyzer",
+            "timeout_seconds": trace_timeout,
+            "context_paths": [str(trace_path)],
+        }
+
+        tool_call_id = f"trace_analyzer_{parent_agent_id}_r{round_number}" f"_{int(time.time() * 1000)}"
+        display_round = self._get_round_evaluator_display_round(parent_agent_id) if hasattr(self, "_get_round_evaluator_display_round") else round_number
+
+        # Emit TUI spawn event
+        self._emit_round_evaluator_spawn_event(
+            phase="start",
+            agent_id=parent_agent_id,
+            tool_call_id=tool_call_id,
+            round_number=display_round,
+            args={"tasks": [task_payload], "background": True},
+        )
+
+        started_at = time.time()
+        try:
+            raw_result = await self._direct_spawn_subagents(
+                parent_agent_id=parent_agent_id,
+                tasks=[task_payload],
+                refine=False,
+            )
+        except asyncio.CancelledError:
+            elapsed = time.time() - started_at
+            self._emit_round_evaluator_spawn_event(
+                phase="complete",
+                agent_id=parent_agent_id,
+                tool_call_id=tool_call_id,
+                round_number=display_round,
+                args={"tasks": [task_payload], "background": True},
+                result={"success": False, "error": "cancelled"},
+                elapsed_seconds=elapsed,
+                is_error=True,
+                status="cancelled",
+            )
+            return
+
+        elapsed = time.time() - started_at
+        normalized = raw_result if isinstance(raw_result, dict) else {}
+        success = bool(normalized.get("success"))
+
+        self._emit_round_evaluator_spawn_event(
+            phase="complete",
+            agent_id=parent_agent_id,
+            tool_call_id=tool_call_id,
+            round_number=display_round,
+            args={"tasks": [task_payload], "background": True},
+            result=normalized,
+            elapsed_seconds=elapsed,
+            is_error=not success,
+            status="success" if success else "error",
+        )
+
+        # Parse result
+        results = normalized.get("results")
+        if not isinstance(results, list) or not results:
+            error = normalized.get("error", "")
+            summary = normalized.get("summary", {})
+            logger.warning(
+                "[Orchestrator] Trace analyzer for %s r%d returned no results "
+                "(success=%s, error=%s, summary=%s). "
+                "Check that 'execution_trace_analyzer' is in subagent_types "
+                "and its SUBAGENT.md is written to the workspace.",
+                parent_agent_id,
+                round_number,
+                success,
+                error,
+                summary,
+            )
+            return
+
+        try:
+            trace_result = SubagentResult.from_dict(results[0])
+        except Exception:
+            logger.warning(
+                "[Orchestrator] Failed to parse trace analyzer result for %s",
+                parent_agent_id,
+                exc_info=True,
+            )
+            return
+
+        artifact_path = self._resolve_trace_analysis_artifact_path(
+            workspace_path=trace_result.workspace_path,
+            round_number=round_number,
+        )
+        if artifact_path:
+            self._copy_trace_analysis_artifact_to_memory(
+                parent_agent_id,
+                round_number,
+                artifact_path,
+            )
+        else:
+            logger.warning(
+                "[Orchestrator] Trace analyzer for %s r%d produced no authoritative artifact; " "falling back to answer text for memory persistence",
+                parent_agent_id,
+                round_number,
+            )
+            memory_block = self._format_trace_analyzer_for_memory_static(
+                trace_result,
+                round_number,
+            )
+            if memory_block:
+                self._write_trace_analysis_to_memory(
+                    parent_agent_id,
+                    round_number,
+                    memory_block,
+                )
+
+        # Enqueue the completed guidance so the running parent can receive it
+        # immediately via the existing subagent-completion injection path.
+        injection_result = self._build_trace_analysis_injection_result(
+            trace_result,
+            round_number,
+            artifact_path=artifact_path,
+        )
+        if injection_result is not None:
+            self._on_background_subagent_complete(
+                parent_agent_id,
+                subagent_id,
+                injection_result,
+            )
+
+    async def _spawn_trace_analyzer_background(
+        self,
+        parent_agent_id: str,
+    ) -> None:
+        """Spawn background trace analyzer for the given agent at round 2+."""
+        state = self.agent_states.get(parent_agent_id)
+        restart_count = getattr(state, "restart_count", 0) if state else 0
+        round_number = max(1, restart_count + 1)
+
+        snapshot_trace_path = self._get_execution_trace_path_for_agent(parent_agent_id)
+        if not snapshot_trace_path:
+            logger.debug(
+                "[Orchestrator] No execution trace available for %s, " "skipping trace analyzer",
+                parent_agent_id,
+            )
+            return
+
+        temp_workspace_path = await self._copy_all_snapshots_to_temp_workspace(parent_agent_id)
+        trace_path = self._get_execution_trace_context_path_for_agent(
+            parent_agent_id,
+            temp_workspace_path=temp_workspace_path,
+        )
+        if not trace_path:
+            logger.warning(
+                "[Orchestrator] Execution trace exists for %s at %s but no " "subagent-readable temp-workspace copy was available; " "skipping trace analyzer",
+                parent_agent_id,
+                snapshot_trace_path,
+            )
+            return
+
+        # Pre-flight: verify execution_trace_analyzer type dir exists in the
+        # workspace so the spawn doesn't silently produce empty results.
+        agent = self.agents.get(parent_agent_id)
+        fs_mgr = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+        if fs_mgr and fs_mgr.cwd:
+            type_dir = Path(fs_mgr.cwd) / ".massgen" / "subagent_types" / "execution_trace_analyzer"
+            if not type_dir.exists():
+                # Write it now — may have been missing from DEFAULT_SUBAGENT_TYPES
+                self._write_subagent_type_dirs(Path(fs_mgr.cwd))
+                if not type_dir.exists():
+                    logger.warning(
+                        "[Orchestrator] execution_trace_analyzer type dir " "not found in workspace for %s — skipping. " "Add 'execution_trace_analyzer' to subagent_types " "in coordination config.",
+                        parent_agent_id,
+                    )
+                    return
+
+        task = asyncio.create_task(
+            self._run_trace_analyzer(
+                parent_agent_id,
+                round_number,
+                trace_path,
+            ),
+            name=f"trace_analyzer_{parent_agent_id}_r{round_number}",
+        )
+        self._background_trace_tasks[parent_agent_id] = task
+        logger.info(
+            "[Orchestrator] Spawned background trace analyzer for %s r%d",
+            parent_agent_id,
+            round_number,
+        )
+
     async def _run_round_evaluator_pre_round_if_needed(
         self,
         answers: dict[str, str],
@@ -12793,7 +13585,7 @@ Your answer:"""
                             )
                             salvaged = True
                         elif first_result.status == "timeout" and evaluator_result.status == "degraded":
-                            return self._handle_round_evaluator_timeout_degraded(
+                            degraded_ok = self._handle_round_evaluator_timeout_degraded(
                                 parent_agent_id=parent_agent_id,
                                 latest_labels=latest_labels,
                                 display_round=display_round,
@@ -12802,6 +13594,9 @@ Your answer:"""
                                 first_result=first_result,
                                 evaluator_result=evaluator_result,
                             )
+                            if degraded_ok is True and self._should_spawn_trace_analyzer(parent_agent_id):
+                                await self._spawn_trace_analyzer_background(parent_agent_id)
+                            return degraded_ok
                 except Exception:
                     logger.warning(
                         "[Orchestrator] Failed to parse salvage result for %s",
@@ -12958,6 +13753,11 @@ Your answer:"""
 
         self._round_evaluator_launch_failures.pop((parent_agent_id, latest_labels), None)
         self._round_evaluator_completed_labels[parent_agent_id] = latest_labels
+
+        # Auto-spawn background trace analyzer for the upcoming round.
+        if self._should_spawn_trace_analyzer(parent_agent_id):
+            await self._spawn_trace_analyzer_background(parent_agent_id)
+
         return True
 
     def _get_buffer_content(self, agent: "ChatAgent") -> tuple[str | None, int]:
@@ -13683,7 +14483,7 @@ Your answer:"""
 
             # Resolve active criteria once for both system prompt and checklist tool state.
             criteria_agent_id = agent_id if self._is_decomposition_mode() else None
-            _active_items, _active_categories, _active_verify_by, _criteria_source, _active_anti_patterns = self._resolve_effective_checklist_criteria(
+            _active_items, _active_categories, _active_verify_by, _criteria_source, _active_anti_patterns, _active_score_anchors = self._resolve_effective_checklist_criteria(
                 criteria_agent_id,
             )
 
@@ -13768,6 +14568,7 @@ Your answer:"""
                 item_categories=_active_categories,
                 item_verify_by=_active_verify_by,
                 item_anti_patterns=_active_anti_patterns,
+                item_score_anchors=_active_score_anchors,
                 builder_enabled=self._is_builder_subagent_enabled(),
                 regression_guard_enabled=self._is_regression_guard_subagent_enabled(),
                 essential_files_active=_essential_files_active,
@@ -17404,6 +18205,12 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         blocked_files=blocked_files,
                         combined_diff=plan_entry["combined_diff"],
                     )
+                    if files:
+                        self._sync_applied_context_files_into_final_artifacts(
+                            agent_id=selected_agent_id,
+                            target_path=plan_entry["target_path"],
+                            relative_paths=files,
+                        )
                     applied_files.extend(files)
 
             if applied_files:

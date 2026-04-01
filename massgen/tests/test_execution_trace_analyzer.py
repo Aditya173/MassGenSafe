@@ -244,6 +244,20 @@ def test_delegate_targets_exclude_trace_analyzer(mock_orchestrator):
     assert "builder" in target_names_lower, "Worker-type subagents (builder) should be included"
 
 
+def test_execution_trace_analyzer_subagent_md_requires_artifact_and_strict_do_threshold():
+    """Trace analyzer prompt should require an artifact file and conservative DO guidance."""
+    from pathlib import Path
+
+    subagent_md = Path(__file__).parent.parent / "subagent_types" / "execution_trace_analyzer" / "SUBAGENT.md"
+    content = subagent_md.read_text(encoding="utf-8")
+    lower = content.lower()
+
+    assert "deliverable/" in content
+    assert "authoritative" in lower
+    assert "if you are not certain" in lower or "if the trace does not clearly prove it worked" in lower
+    assert "do not promote it to `do`" in lower or "do not put it in `do`" in lower
+
+
 # ---------------------------------------------------------------------------
 # Part D: next_tasks.json validation robustness
 # ---------------------------------------------------------------------------

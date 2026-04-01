@@ -243,6 +243,26 @@ def test_on_subagent_complete_queues_pending_results(mock_orchestrator):
     assert orchestrator._pending_subagent_results[agent_id][0][1] == result
 
 
+def test_on_subagent_complete_schedules_background_wait_interrupt(mock_orchestrator):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    result = SubagentResult(
+        subagent_id="sub-1",
+        status="completed",
+        success=True,
+        answer="done",
+        workspace_path="/tmp/sub-1",
+        execution_time_seconds=1.2,
+    )
+    scheduled: list[tuple[str, str]] = []
+
+    orchestrator._schedule_background_wait_interrupt_for_agent = lambda aid, trigger="background_subagent_complete": scheduled.append((aid, trigger))
+
+    orchestrator._on_subagent_complete(agent_id, "sub-1", result)
+
+    assert scheduled == [(agent_id, "background_subagent_complete")]
+
+
 def test_get_pending_subagent_results_polls_mcp_and_deduplicates(mock_orchestrator):
     orchestrator = mock_orchestrator(num_agents=1)
     agent_id = "agent_a"
