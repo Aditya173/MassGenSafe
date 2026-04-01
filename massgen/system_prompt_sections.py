@@ -3039,8 +3039,9 @@ class CommandExecutionSection(SystemPromptSection):
         parts.append(
             "After starting a background job (especially `read_media`), continue with your next task — "
             "do NOT immediately call `wait_for_background_tool`. Write files, run commands, start "
-            "other analysis. Only call `wait_for_background_tool` when you have exhausted all "
-            "other productive work and genuinely need the result to proceed.",
+            "other analysis. If no meaningful work remains while waiting on background jobs, call "
+            "`custom_tool__wait_for_background_tool`. Only call `wait_for_background_tool` when "
+            "you have exhausted all other productive work and genuinely need the result to proceed.",
         )
         parts.append(
             "The wait call may return early with `interrupted: true` and `injected_content` " "when runtime input or completion updates are ready; treat that payload as new context and continue.",
