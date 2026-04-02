@@ -674,12 +674,21 @@ class AgentConfig:
         return cls(backend_params=backend_params)
 
     @classmethod
-    def create_grok_config(cls, model: str = "grok-2-1212", enable_web_search: bool = False, **kwargs) -> "AgentConfig":
+    def create_grok_config(
+        cls,
+        model: str = "grok-2-1212",
+        enable_web_search: bool = False,
+        enable_x_search: bool = False,
+        enable_code_execution: bool = False,
+        **kwargs,
+    ) -> "AgentConfig":
         """Create xAI Grok configuration.
 
         Args:
             model: Grok model name
-            enable_web_search: Enable Live Search feature
+            enable_web_search: Enable xAI web search
+            enable_x_search: Enable xAI X search
+            enable_code_execution: Enable xAI code execution
             **kwargs: Additional backend parameters
         """
         backend_params = {"model": model, **kwargs}
@@ -687,6 +696,10 @@ class AgentConfig:
         # Add tool enablement to backend_params
         if enable_web_search:
             backend_params["enable_web_search"] = True
+        if enable_x_search:
+            backend_params["enable_x_search"] = True
+        if enable_code_execution:
+            backend_params["enable_code_execution"] = True
 
         return cls(backend_params=backend_params)
 
@@ -945,6 +958,8 @@ class AgentConfig:
         """
         if backend == "openai":
             return cls.create_openai_config(model, enable_code_interpreter=True)
+        elif backend == "grok":
+            return cls.create_grok_config(model, enable_code_execution=True)
         elif backend == "claude":
             return cls.create_claude_config(model, enable_code_execution=True)
         elif backend == "gemini":

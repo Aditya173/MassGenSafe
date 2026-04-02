@@ -614,6 +614,7 @@ class ConfigValidator:
         # Validate boolean fields
         boolean_fields = [
             "enable_web_search",
+            "enable_x_search",
             "enable_code_execution",
             "enable_code_interpreter",
             "enable_programmatic_flow",

@@ -72,6 +72,7 @@ class TestBackendCapabilitiesRegistry:
         """Ensure capability strings follow conventions."""
         valid_capabilities = {
             "web_search",
+            "x_search",
             "code_execution",
             "bash",
             "multimodal",  # Legacy - being phased out
@@ -222,6 +223,23 @@ class TestBackendValidation:
         errors = validate_backend_config("claude", config_claude)
         assert len(errors) == 0
 
+        # Grok now supports enable_code_execution through xAI Responses
+        config_grok = {"type": "grok", "enable_code_execution": True}
+        errors = validate_backend_config("grok", config_grok)
+        assert len(errors) == 0
+
+    def test_validate_grok_x_search(self):
+        """Grok should accept X search as a backend-specific builtin tool."""
+        config = {"type": "grok", "enable_x_search": True}
+        errors = validate_backend_config("grok", config)
+        assert len(errors) == 0
+
+    def test_validate_x_search_rejected_for_non_grok(self):
+        """X search is currently Grok-specific."""
+        config = {"type": "openai", "enable_x_search": True}
+        errors = validate_backend_config("openai", config)
+        assert any("enable_x_search" in error for error in errors)
+
     def test_validate_mcp_servers(self):
         """Test validation of MCP server configuration."""
         # Valid MCP config for backend that supports it
@@ -318,6 +336,18 @@ class TestSpecificBackends:
         # Every model in the list should have a release date
         for model in caps.models:
             assert model in caps.model_release_dates, f"Model {model} missing from model_release_dates"
+
+    def test_grok_capabilities(self):
+        """Grok should advertise the xAI Responses search/code surface."""
+        caps = get_capabilities("grok")
+        assert "web_search" in caps.supported_capabilities
+        assert "x_search" in caps.supported_capabilities
+        assert "code_execution" in caps.supported_capabilities
+        assert "mcp" in caps.supported_capabilities
+        assert caps.filesystem_support == "mcp"
+        assert caps.env_var == "XAI_API_KEY"
+        assert "web_search" in caps.builtin_tools
+        assert "x_search" in caps.builtin_tools
 
     def test_gemini_cli_builtin_tools_use_actual_names(self):
         """Test Gemini CLI builtin_tools use actual Gemini CLI tool names."""
