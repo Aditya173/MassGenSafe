@@ -43,6 +43,11 @@ from .base_with_custom_tool_and_mcp import (
     CustomToolChunk,
     ToolExecutionConfig,
 )
+from .llm_circuit_breaker import (
+    CircuitBreakerOpenError,
+    LLMCircuitBreaker,
+    LLMCircuitBreakerConfig,
+)
 
 
 class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
@@ -58,6 +63,8 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """
 
     def __init__(self, api_key: str | None = None, **kwargs):
+        # Extract circuit breaker config before passing to super
+        cb_config = self._build_circuit_breaker_config(kwargs)
         super().__init__(api_key, **kwargs)
         # Backend name is already set in MCPBackend, but we may need to override it
         self.backend_name = self.get_provider_name()
@@ -72,6 +79,27 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         self._stream_usage_received: bool = True  # True = no pending estimation needed
         # Track reasoning state for streaming (needed for reasoning_done transition)
         self._reasoning_active: bool = False
+        self.circuit_breaker = LLMCircuitBreaker(
+            config=cb_config,
+            backend_name=self.get_provider_name(),
+        )
+
+    @staticmethod
+    def _build_circuit_breaker_config(
+        kwargs: dict[str, Any],
+    ) -> LLMCircuitBreakerConfig:
+        """Extract circuit breaker settings from kwargs and build config."""
+        cb_kwargs: dict[str, Any] = {}
+        prefix = "llm_circuit_breaker_"
+        keys_to_pop: list[str] = []
+        for key in kwargs:
+            if key.startswith(prefix):
+                param = key[len(prefix) :]
+                cb_kwargs[param] = kwargs[key]
+                keys_to_pop.append(key)
+        for key in keys_to_pop:
+            kwargs.pop(key)
+        return LLMCircuitBreakerConfig(**cb_kwargs)
 
     def finalize_token_tracking(self) -> None:
         """Finalize token tracking by estimating tokens for any interrupted streams.
@@ -276,9 +304,19 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
             model=model,
             operation="stream",
         ) as llm_span:
-            # Start streaming - wrap in try/except for context length errors
+            # Start streaming - wrap with circuit breaker + context length handling
             try:
-                stream = await client.chat.completions.create(**api_params)
+
+                async def _make_api_call():
+                    return await client.chat.completions.create(**api_params)
+
+                stream = await self.circuit_breaker.call_with_retry(
+                    _make_api_call,
+                    agent_id=agent_id,
+                )
+            except CircuitBreakerOpenError:
+                self.end_api_call_timing(success=False, error="circuit_breaker_open")
+                raise
             except Exception as e:
                 if is_context_length_error(e) and not _compression_retry:
                     # Context length exceeded on initial request - compress and retry
