@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.71
+**Current Version:** v0.1.72
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** April 1, 2026
+**Last Updated:** April 3, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,40 +42,26 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.72** | 04/04/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
-| **v0.1.73** | 04/07/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
-| **v0.1.74** | 04/09/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
+| **v0.1.73** | 04/07/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
+| **v0.1.74** | 04/09/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
+| **v0.1.75** | 04/11/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.71 - Trace Memory & Evaluation Polish (Completed)
+## ✅ v0.1.72 - Grok Backend Update & Circuit Breaker Phase 2 (Completed)
 
-**Released:** April 1, 2026
+**Released:** April 3, 2026 | PRs: [#1038](https://github.com/massgen/MassGen/pull/1038), [#1044](https://github.com/massgen/MassGen/pull/1044)
 
 ### Features
-- **Trace Analyzer Subagents**: Background trace analysis after each round — writes insights from execution traces into memory for next-round continuity
-- **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
-- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
-- **Stability Fixes**: Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, trace memory, and auto round memory
+- **Grok Backend Update**: Updated Grok backend with latest improvements
+- **Circuit Breaker Phase 2**: LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only); Gemini also handles 503
+- **Config Plumbing Smoke Tests**: Verify circuit breaker wiring for all backends
 
 ---
 
-## ✅ v0.1.70 - Evaluation Criteria Redesign (Completed)
-
-**Released:** March 30, 2026 | PRs: [#1035](https://github.com/massgen/MassGen/pull/1035)
-
-### Features
-- **Evaluation Criteria Redesign**: Three-tier categorization (`primary`, `standard`, `stretch`) with anti-pattern definitions and aspiration statements
-- **Improved Checklist-Gated Evaluation**: Tighter iterative submission cycles with improved scoring and improvement proposals before final voting
-- **Fast Iteration Mode**: Streamlined multi-round submission phases via `fast_iteration.yaml`
-- **WebUI Review Modal**: Approve and comment on outputs in the browser when working in git
-- **Background Trace Analysis**: Execution trace analyzer starts automatically from round 2
-
----
-
-## 📋 v0.1.72 - Cloud Modal MVP
+## 📋 v0.1.73 - Cloud Modal MVP
 
 ### Features
 
@@ -91,7 +77,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.73 - OpenAI Audio API
+## 📋 v0.1.74 - OpenAI Audio API
 
 ### Features
 
@@ -107,7 +93,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.74 - Image/Video Edit Capabilities
+## 📋 v0.1.75 - Image/Video Edit Capabilities
 
 ### Features
 

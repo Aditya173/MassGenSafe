@@ -200,17 +200,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.72 (April 3, 2026)** - Grok Backend Update & Circuit Breaker Phase 2
+
+Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only). Config plumbing smoke tests for all backends.
+
 **v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
 
-Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning. Stability fixes for injection, trace analyzer launch, and memory handling.
+Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning.
 
 **v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
 
 Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis.
-
-**v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
-
-WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework and Workspace Browser expansion.
 
 :doc:`Full changelog → <changelog>`
 

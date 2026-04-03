@@ -9,14 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.72 (April 3, 2026)** - Grok Backend Update & Circuit Breaker Phase 2
+Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only). Config plumbing smoke tests for all backends.
+
 **v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
 Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning. Fixes for final injection, eval criteria GPT pre-collab, trace analyzer launch, and trace memory.
 
 **v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
 Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
 
-**v0.1.69 (March 27, 2026)** - WebUI Automation & Improved Skill
-WebUI automation now auto-starts without browser interaction — open the URL at any point mid-run to monitor progress. MassGen skill redesign for increased usability and WebUI integration. Quickstart Wizard rework, Workspace Browser expansion, and flexible evaluation criteria field names.
+---
+
+## [0.1.72] - 2026-04-03
+
+### Changed
+- **Grok Backend Update** ([#1044](https://github.com/massgen/MassGen/pull/1044)): Updated Grok backend with latest improvements
+
+### Added
+- **Circuit Breaker Phase 2** ([#1038](https://github.com/massgen/MassGen/pull/1038)): LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only in v0.1.68); Gemini also handles 503 errors
+- **Config Plumbing Smoke Tests** ([#1038](https://github.com/massgen/MassGen/pull/1038)): Smoke tests verify circuit breaker wiring and API call timing for all backends
+
+### Fixed
+- **Response API Timing** ([#1038](https://github.com/massgen/MassGen/pull/1038)): Added start/end API call timing to ResponseBackend non-MCP path
+
+### Technical Details
+- **Major Focus**: Circuit Breaker Phase 2 — rate limit protection across all major backends
+- **PRs Merged**: [#1038](https://github.com/massgen/MassGen/pull/1038), [#1044](https://github.com/massgen/MassGen/pull/1044)
+- **Contributors**: @amabito, @HenryQi, @ncrispino and the MassGen team
 
 ---
 

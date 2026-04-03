@@ -227,20 +227,26 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.71 - Latest
+### v0.1.72 - Latest
+**New Features:** Grok Backend Update & Circuit Breaker Phase 2
+
+**Key Features:**
+- **Grok Backend Update**: Updated Grok backend with latest improvements
+- **Circuit Breaker Phase 2**: LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only)
+- **Config Plumbing Smoke Tests**: Verify circuit breaker wiring for all backends
+
+**Try It:**
+```bash
+pip install massgen==0.1.72
+uv run massgen --config @examples/providers/others/grok_x_search.yaml "Research the latest posts and news about AI agents in the last week, and summarize the key trends and insights."
+```
+
+### v0.1.71
 **New Features:** Trace Memory & Evaluation Polish
 
 **Key Features:**
 - **Trace Analyzer Subagents**: Background trace analysis after each round — writes insights from execution traces into memory
 - **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
-- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
-- **Stability Fixes**: Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, and memory handling
-
-**Try It:**
-```bash
-pip install massgen==0.1.71
-uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
-```
 
 ### v0.1.70
 **New Features:** Evaluation Criteria Redesign

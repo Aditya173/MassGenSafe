@@ -1,4 +1,4 @@
-# MassGen v0.1.71 Release Announcement
+# MassGen v0.1.72 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.71 — Trace Memory & Evaluation Polish! 🚀 Trace analyzer subagents now launch in the background after each round to write insights from the previous round's execution trace into memory. Plus: improved evaluation criteria generation, system prompt tuning, and stability fixes.
+We're excited to release MassGen v0.1.72 — Grok Backend Update & Circuit Breaker Phase 2! 🚀 Updated Grok backend with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only).
 
 ## Install
 
 ```bash
-pip install massgen==0.1.71
+pip install massgen==0.1.72
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.71
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.72
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,32 +29,24 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.71 — Trace Memory & Evaluation Polish! 🚀 Trace analyzer subagents now launch in the background after each round to write insights from the previous round's execution trace into memory. Plus: improved evaluation criteria generation, system prompt tuning, and stability fixes.
+We're excited to release MassGen v0.1.72 — Grok Backend Update & Circuit Breaker Phase 2! 🚀 Updated Grok backend with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only).
 
 **Key Improvements:**
 
-🔍 **Trace Analyzer Subagents** — Background intelligence from execution traces:
-- Automatically launches after each round to analyze the previous round's execution trace
-- Writes insights into memory for next-round continuity
-- Fixes for trace memory handling and analyzer launch issues
+🦎 **Grok Backend Update** — Updated Grok backend with latest improvements
 
-📋 **Better Evaluation Criteria** — Improved criteria generation for higher-quality, more opinionated output
-
-🧠 **System Prompt Tuning** — Adjusted system prompts for better agent performance across coordination rounds
-
-**Plus:**
-- 🔧 **Fix final injection** — Corrected injection behavior at the final stage
-- 🔧 **Fix eval criteria GPT pre-collab** — Resolved evaluation criteria issues with GPT models during pre-collaboration phase
-- 🔧 **Auto round fix for memory** — Fixed automatic round handling for memory
+⚡ **Circuit Breaker Phase 2** — Rate limit protection across all major backends:
+- Extended to ChatCompletions, Response API, and Gemini backends (previously Claude-only)
+- Gemini backend also handles 503 errors
 
 **Getting Started:**
 
 ```bash
-pip install massgen==0.1.71
-uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
+pip install massgen==0.1.72
+uv run massgen --config @examples/providers/others/grok_x_search.yaml "Research the latest posts and news about AI agents in the last week, and summarize the key trends and insights."
 ```
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.71
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.72
 
 Feature highlights:
 

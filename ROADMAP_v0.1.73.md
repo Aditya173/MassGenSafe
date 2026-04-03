@@ -1,10 +1,10 @@
-# MassGen v0.1.72 Roadmap
+# MassGen v0.1.73 Roadmap
 
-**Target Release:** April 4, 2026
+**Target Release:** April 7, 2026
 
 ## Overview
 
-Version 0.1.72 focuses on running MassGen as a cloud job on Modal.
+Version 0.1.73 focuses on running MassGen as a cloud job on Modal.
 
 ---
 
@@ -27,5 +27,5 @@ Version 0.1.72 focuses on running MassGen as a cloud job on Modal.
 
 ## Related Tracks
 
-- **v0.1.71**: Trace Memory & Evaluation Polish — better eval criteria, system prompt tuning, stability fixes
-- **v0.1.73**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))
+- **v0.1.72**: Grok Backend Update & Circuit Breaker Phase 2 — circuit breaker across all backends, Grok improvements ([#1038](https://github.com/massgen/MassGen/pull/1038), [#1044](https://github.com/massgen/MassGen/pull/1044))
+- **v0.1.74**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))

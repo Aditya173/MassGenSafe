@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.71 Features](#-latest-features-v0171)
+- [v0.1.72 Features](#-latest-features-v0172)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.71)](#recent-achievements-v0171)
-- [Previous Achievements (v0.0.3 - v0.1.70)](#previous-achievements-v003---v0170)
+- [Recent Achievements (v0.1.72)](#recent-achievements-v0172)
+- [Previous Achievements (v0.0.3 - v0.1.71)](#previous-achievements-v003---v0171)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.72 Roadmap](#v0172-roadmap)
+- [v0.1.73 Roadmap](#v0173-roadmap)
 </details>
 
 <details open>
@@ -154,20 +154,19 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.71)
+## 🆕 Latest Features (v0.1.72)
 
-**🎉 Released: April 1, 2026**
+**🎉 Released: April 3, 2026**
 
-**What's New in v0.1.71:**
-- **🔍 Trace Analyzer Subagents** - Launch in the background after each round to write insights from execution traces into memory.
-- **📋 Better Evaluation Criteria** - Improved criteria generation for higher-quality, more opinionated output.
-- **🧠 System Prompt Tuning** - Adjusted system prompts for better agent performance across coordination rounds.
-- **🔧 Stability Fixes** - Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, and memory handling.
+**What's New in v0.1.72:**
+- **🦎 Grok Backend Update** - Updated Grok backend with latest improvements.
+- **⚡ Circuit Breaker Phase 2** - LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only).
+- **🧪 Config Plumbing Smoke Tests** - Verify circuit breaker wiring for all backends.
 
-**Try v0.1.71 Features:**
+**Try v0.1.72 Features:**
 ```bash
-pip install massgen==0.1.71
-uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
+pip install massgen==0.1.72
+uv run massgen --config @examples/providers/others/grok_x_search.yaml "Research the latest posts and news about AI agents in the last week, and summarize the key trends and insights."
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1239,17 +1238,18 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.71)
+### Recent Achievements (v0.1.72)
 
-**🎉 Released: April 1, 2026**
+**🎉 Released: April 3, 2026**
 
-#### Trace Memory & Evaluation Polish
-- **Trace Analyzer Subagents**: Background trace analysis after each round — writes insights from execution traces into memory for next-round continuity
-- **Better Evaluation Criteria**: Improved criteria generation for higher-quality, more opinionated output
-- **System Prompt Tuning**: Adjusted system prompts for better agent performance across coordination rounds
-- **Stability Fixes**: Fixed final injection, eval criteria GPT pre-collab, trace analyzer launch, trace memory, and auto round memory
+#### Grok Backend Update & Circuit Breaker Phase 2
+- **Grok Backend Update** ([#1044](https://github.com/massgen/MassGen/pull/1044)): Updated Grok backend with latest improvements
+- **Circuit Breaker Phase 2** ([#1038](https://github.com/massgen/MassGen/pull/1038)): LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only); Gemini also handles 503
+- **Config Plumbing Smoke Tests** ([#1038](https://github.com/massgen/MassGen/pull/1038)): Verify circuit breaker wiring for all backends
 
-### Previous Achievements (v0.0.3 - v0.1.70)
+### Previous Achievements (v0.0.3 - v0.1.71)
+
+✅ **Trace Memory & Evaluation Polish (v0.1.71)**: Trace analyzer subagents launch in background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning.
 
 ✅ **Evaluation Criteria Redesign (v0.1.70)**: Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation. Fast iteration mode, WebUI review modal, and background trace analysis.
 
@@ -1536,9 +1536,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.72 Roadmap
+### v0.1.73 Roadmap
 
-Version 0.1.72 focuses on cloud execution:
+Version 0.1.73 focuses on cloud execution:
 
 #### Planned Features
 - **Cloud Modal MVP** ([#982](https://github.com/massgen/MassGen/issues/982)): Run MassGen as a cloud job on Modal — progress streams to terminal, results saved locally under `.massgen/cloud_jobs/`
