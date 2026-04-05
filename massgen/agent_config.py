@@ -248,6 +248,11 @@ class CoordinationConfig:
     enable_novelty_on_iteration: bool = False  # Auto-inject novelty/quality spawn task on iteration 2+
     enable_execution_trace_analyzer: bool = False  # Run execution_trace_analyzer in parallel with round_evaluator
     auto_trace_analysis: bool = False  # Auto-spawn background trace analyzer at round 2+ start
+    evolving_criteria: bool = False  # Evolve evaluation criteria between rounds based on score trends
+    evolving_criteria_score_threshold: int = 8  # Min score to flag a criterion as "too easy"
+    evolving_criteria_max_evolutions: int = 2  # Hard cap on total criteria evolutions per session
+    evolving_criteria_min_high_score_count: int = 2  # Min number of criteria at threshold to trigger evolution
+    evolving_criteria_timeout: int = 300  # Seconds for the full evolution gate (proposals + synthesis)
     enable_evaluator_personas: bool = False  # Expose set_evaluator_personas tool for agent-driven evaluator diversity
     novelty_injection: str = "none"  # "none" | "gentle" | "moderate" | "aggressive"
     improvements: dict[str, Any] = field(default_factory=dict)  # Quality gate config for draft_approach
