@@ -146,6 +146,7 @@ class EventType:
     # Configuration events (personas, criteria, subtasks)
     PERSONAS_SET = "personas_set"
     EVALUATION_CRITERIA_SET = "evaluation_criteria_set"
+    EVALUATION_CRITERIA_EVOLVED = "evaluation_criteria_evolved"
     SUBTASKS_SET = "subtasks_set"
 
     # Timeout events

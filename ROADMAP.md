@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.72
+**Current Version:** v0.1.73
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** April 3, 2026
+**Last Updated:** April 6, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,11 +42,22 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.73** | 04/07/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
-| **v0.1.74** | 04/09/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
-| **v0.1.75** | 04/11/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
+| **v0.1.74** | 04/09/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
+| **v0.1.75** | 04/11/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
+| **v0.1.76** | 04/13/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
 
 *All releases ship on MWF @ 9am PT when ready*
+
+---
+
+## ✅ v0.1.73 - Eval Criteria Evolver & Checkpoint Objectives (Completed)
+
+**Released:** April 6, 2026 | PRs: [#1047](https://github.com/massgen/MassGen/pull/1047)
+
+### Features
+- **Eval Criteria Evolver Subagent**: New subagent type that evolves evaluation criteria across rounds — sharper, more opinionated criteria as the run progresses
+- **Checkpoint Objective Mode (Initial Draft)**: Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions
+- **Improved Eval Criteria Visibility**: Clearer visibility into what criteria agents are working against
 
 ---
 
@@ -61,7 +72,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.73 - Cloud Modal MVP
+## 📋 v0.1.74 - Cloud Modal MVP
 
 ### Features
 
@@ -77,7 +88,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.74 - OpenAI Audio API
+## 📋 v0.1.75 - OpenAI Audio API
 
 ### Features
 
@@ -93,7 +104,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.75 - Image/Video Edit Capabilities
+## 📋 v0.1.76 - Image/Video Edit Capabilities
 
 ### Features
 

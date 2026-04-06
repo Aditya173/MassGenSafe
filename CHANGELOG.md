@@ -9,14 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.73 (April 6, 2026)** - Eval Criteria Evolver & Checkpoint Objectives
+New eval criteria evolver subagent that evolves criteria across rounds. Initial draft of checkpoint objective mode for safety planning of irreversible actions. Improved visibility of evaluation criteria.
+
 **v0.1.72 (April 3, 2026)** - Grok Backend Update & Circuit Breaker Phase 2
 Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only). Config plumbing smoke tests for all backends.
 
 **v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
 Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning. Fixes for final injection, eval criteria GPT pre-collab, trace analyzer launch, and trace memory.
 
-**v0.1.70 (March 30, 2026)** - Evaluation Criteria Redesign
-Redesigned three-tier evaluation criteria with anti-pattern definitions and aspiration statements. Improved checklist-gated evaluation with tighter iterative submission cycles. Fast iteration mode, WebUI review modal, and background trace analysis from round 2.
+---
+
+## [0.1.73] - 2026-04-06
+
+### Added
+- **Eval Criteria Evolver Subagent** ([#1047](https://github.com/massgen/MassGen/pull/1047)): New subagent type that evolves evaluation criteria across rounds — sharper, more opinionated criteria as the run progresses
+- **Checkpoint Objective Mode (Initial Draft)** ([#1047](https://github.com/massgen/MassGen/pull/1047)): Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions (deletions, deployments, financial operations); returns ordered plan with per-step constraints and recursive recovery trees
+
+### Changed
+- **Improved Eval Criteria Visibility**: See what criteria agents are working against, more clearly
+- **Trace Analyzer Improvements**: Refinements to trace analyzer subagent behavior
+
+### Fixed
+- **Evolver Fixes**: Stability fixes for the criteria evolver subagent
+
+### Documentation, Configurations and Resources
+- **Updated Checkpoint Module**: Updated `docs/modules/checkpoint.md` with objective mode documentation
+- **OpenSpec Change**: New `openspec/changes/update-checkpoint-coordination-objectives/` proposal and spec for objective mode
+
+### Technical Details
+- **Major Focus**: Eval Criteria Evolver & Checkpoint Objectives — self-improving criteria and safety planning
+- **PRs Merged**: [#1047](https://github.com/massgen/MassGen/pull/1047)
+- **Contributors**: @ncrispino, @HenryQi and the MassGen team
 
 ---
 

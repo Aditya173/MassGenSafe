@@ -1620,6 +1620,176 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
         return None
 
 
+def parse_evolution_response(
+    response: str,
+    current_criteria: list["GeneratedCriterion"],
+    min_criteria: int = 4,
+    max_criteria: int = 7,
+) -> tuple[list["GeneratedCriterion"] | None, str | None, bool]:
+    """Parse a criteria evolution synthesizer response.
+
+    Uses the same multi-strategy JSON extraction as ``_parse_criteria_response``.
+    Handles the ``{"status": "UNCHANGED"}`` sentinel, merges unchanged criteria
+    from *current_criteria* with any evolved criteria, and re-assigns E1..EN IDs.
+
+    Returns:
+        (evolved_criteria, evolution_summary, is_unchanged)
+        - If *is_unchanged* is True, criteria and summary are None.
+        - On parse failure, returns (None, None, False).
+    """
+    json_str = response.strip()
+    data = _try_parse_json(json_str)
+
+    if data is None and "```" in json_str:
+        for fence in ("```json", "```"):
+            start = json_str.find(fence) + len(fence)
+            end = json_str.find("```", start)
+            if end > start:
+                data = _try_parse_json(json_str[start:end].strip())
+                if data is not None:
+                    break
+
+    if data is None:
+        for search_key in ('{"status"', '{"evolved_criteria"', '{"unchanged_ids"'):
+            idx = json_str.find(search_key)
+            if idx >= 0:
+                brace_count = 0
+                json_end = -1
+                for i, ch in enumerate(json_str[idx:]):
+                    if ch == "{":
+                        brace_count += 1
+                    elif ch == "}":
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = idx + i + 1
+                            break
+                if json_end > idx:
+                    data = _try_parse_json(json_str[idx:json_end])
+                    if data is not None:
+                        break
+
+    if data is None:
+        logger.warning("[parse_evolution_response] Failed to extract JSON")
+        return None, None, False
+
+    # Sentinel: synthesizer decided no evolution needed
+    if data.get("status") == "UNCHANGED":
+        return None, None, True
+
+    raw_evolved = data.get("evolved_criteria")
+    if not isinstance(raw_evolved, list):
+        logger.warning("[parse_evolution_response] No evolved_criteria list in response")
+        return None, None, False
+
+    evolution_summary: str | None = data.get("evolution_summary") or data.get("analysis") or None
+
+    # Collect all criteria: evolved first (preserving order), then unchanged in
+    # original order if they weren't already covered
+    evolved_by_id: dict[str, dict[str, Any]] = {}
+    for item in raw_evolved:
+        cid = item.get("id", "")
+        evolved_by_id[cid] = item
+
+    merged: list["GeneratedCriterion"] = []
+
+    # Walk original order, replacing evolved criteria and keeping unchanged ones
+    for c in current_criteria:
+        if c.id in evolved_by_id:
+            item = evolved_by_id[c.id]
+            raw_cat = str(item.get("category", "standard")).strip().lower()
+            if raw_cat in ("must", "core", "should"):
+                cat = "standard"
+            elif raw_cat == "primary":
+                cat = "primary"
+            elif raw_cat in ("could", "stretch"):
+                cat = "stretch"
+            else:
+                cat = "standard"
+            raw_anti = item.get("anti_patterns")
+            anti = raw_anti if isinstance(raw_anti, list) and all(isinstance(a, str) for a in raw_anti) else None
+            raw_anchors = item.get("score_anchors")
+            anchors = raw_anchors if isinstance(raw_anchors, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in raw_anchors.items()) else None
+            merged.append(
+                GeneratedCriterion(
+                    id=c.id,
+                    text=item.get("text", c.text),
+                    category=cat,
+                    verify_by=item.get("verify_by") or c.verify_by,
+                    anti_patterns=anti,
+                    score_anchors=anchors,
+                ),
+            )
+        else:
+            # Keep unchanged
+            merged.append(c)
+
+    # Append any newly added criteria (id not in current_criteria)
+    existing_ids = {c.id for c in current_criteria}
+    for item in raw_evolved:
+        cid = item.get("id", "")
+        if cid not in existing_ids:
+            raw_cat = str(item.get("category", "standard")).strip().lower()
+            if raw_cat in ("must", "core", "should"):
+                cat = "standard"
+            elif raw_cat == "primary":
+                cat = "primary"
+            elif raw_cat in ("could", "stretch"):
+                cat = "stretch"
+            else:
+                cat = "standard"
+            raw_anti = item.get("anti_patterns")
+            anti = raw_anti if isinstance(raw_anti, list) and all(isinstance(a, str) for a in raw_anti) else None
+            raw_anchors = item.get("score_anchors")
+            anchors = raw_anchors if isinstance(raw_anchors, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in raw_anchors.items()) else None
+            merged.append(
+                GeneratedCriterion(
+                    id=cid,
+                    text=item.get("text", ""),
+                    category=cat,
+                    verify_by=item.get("verify_by"),
+                    anti_patterns=anti,
+                    score_anchors=anchors,
+                ),
+            )
+
+    if not merged:
+        logger.warning("[parse_evolution_response] No criteria after merge")
+        return None, None, False
+
+    # Use the current criteria count as the lower bound for evolution merges
+    # (caller may pass 3 criteria even though normal generation requires 4+)
+    effective_min = min(min_criteria, len(current_criteria)) if current_criteria else min_criteria
+    if len(merged) < effective_min or len(merged) > max_criteria:
+        logger.warning(
+            "[parse_evolution_response] Criteria count %d out of bounds [%d, %d]",
+            len(merged),
+            effective_min,
+            max_criteria,
+        )
+        # Clamp silently if slightly over; hard-fail if too few
+        if len(merged) > max_criteria:
+            merged = merged[:max_criteria]
+        if len(merged) < effective_min:
+            return None, None, False
+
+    # Enforce at most one primary
+    primary_count = sum(1 for c in merged if c.category == "primary")
+    if primary_count > 1:
+        seen_primary = False
+        for c in merged:
+            if c.category == "primary":
+                if seen_primary:
+                    c.category = "standard"
+                else:
+                    seen_primary = True
+
+    # Re-assign IDs E1..EN to maintain consistent ordering
+    for i, c in enumerate(merged):
+        c.id = f"E{i + 1}"
+
+    return merged, evolution_summary, False
+
+
 class EvaluationCriteriaGenerator:
     """Generates task-specific evaluation criteria via subagent coordination.
 

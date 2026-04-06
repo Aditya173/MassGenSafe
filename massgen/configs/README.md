@@ -227,19 +227,26 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.72 - Latest
+### v0.1.73 - Latest
+**New Features:** Eval Criteria Evolver & Checkpoint Objectives
+
+**Key Features:**
+- **Eval Criteria Evolver Subagent**: New subagent type that evolves evaluation criteria across rounds — sharper, more opinionated criteria as the run progresses
+- **Checkpoint Objective Mode (Initial Draft)**: Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions
+- **Improved Eval Criteria Visibility**: Clearer visibility into what criteria agents are working against
+
+**Try It:**
+```bash
+pip install massgen==0.1.73
+uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
+```
+
+### v0.1.72
 **New Features:** Grok Backend Update & Circuit Breaker Phase 2
 
 **Key Features:**
 - **Grok Backend Update**: Updated Grok backend with latest improvements
 - **Circuit Breaker Phase 2**: LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only)
-- **Config Plumbing Smoke Tests**: Verify circuit breaker wiring for all backends
-
-**Try It:**
-```bash
-pip install massgen==0.1.72
-uv run massgen --config @examples/providers/others/grok_x_search.yaml "Research the latest posts and news about AI agents in the last week, and summarize the key trends and insights."
-```
 
 ### v0.1.71
 **New Features:** Trace Memory & Evaluation Polish

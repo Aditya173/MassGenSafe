@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.72 Features](#-latest-features-v0172)
+- [v0.1.73 Features](#-latest-features-v0173)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.72)](#recent-achievements-v0172)
-- [Previous Achievements (v0.0.3 - v0.1.71)](#previous-achievements-v003---v0171)
+- [Recent Achievements (v0.1.73)](#recent-achievements-v0173)
+- [Previous Achievements (v0.0.3 - v0.1.72)](#previous-achievements-v003---v0172)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.73 Roadmap](#v0173-roadmap)
+- [v0.1.74 Roadmap](#v0174-roadmap)
 </details>
 
 <details open>
@@ -155,19 +155,19 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.72)
+## 🆕 Latest Features (v0.1.73)
 
-**🎉 Released: April 3, 2026**
+**🎉 Released: April 6, 2026**
 
-**What's New in v0.1.72:**
-- **🦎 Grok Backend Update** - Updated Grok backend with latest improvements.
-- **⚡ Circuit Breaker Phase 2** - LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only).
-- **🧪 Config Plumbing Smoke Tests** - Verify circuit breaker wiring for all backends.
+**What's New in v0.1.73:**
+- **🧬 Eval Criteria Evolver Subagent** - New subagent type that evolves evaluation criteria across rounds.
+- **🛡️ Checkpoint Objective Mode** - Initial draft of checkpoint MCP `objective` mode for safety planning of irreversible actions.
+- **👁️ Improved Eval Criteria Visibility** - Clearer visibility into what criteria agents are working against.
 
-**Try v0.1.72 Features:**
+**Try v0.1.73 Features:**
 ```bash
-pip install massgen==0.1.72
-uv run massgen --config @examples/providers/others/grok_x_search.yaml "Research the latest posts and news about AI agents in the last week, and summarize the key trends and insights."
+pip install massgen==0.1.73
+uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1239,16 +1239,18 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.72)
+### Recent Achievements (v0.1.73)
 
-**🎉 Released: April 3, 2026**
+**🎉 Released: April 6, 2026**
 
-#### Grok Backend Update & Circuit Breaker Phase 2
-- **Grok Backend Update** ([#1044](https://github.com/massgen/MassGen/pull/1044)): Updated Grok backend with latest improvements
-- **Circuit Breaker Phase 2** ([#1038](https://github.com/massgen/MassGen/pull/1038)): LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only); Gemini also handles 503
-- **Config Plumbing Smoke Tests** ([#1038](https://github.com/massgen/MassGen/pull/1038)): Verify circuit breaker wiring for all backends
+#### Eval Criteria Evolver & Checkpoint Objectives
+- **Eval Criteria Evolver Subagent** ([#1047](https://github.com/massgen/MassGen/pull/1047)): New subagent type that evolves evaluation criteria across rounds — sharper, more opinionated criteria as the run progresses
+- **Checkpoint Objective Mode (Initial Draft)** ([#1047](https://github.com/massgen/MassGen/pull/1047)): Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions
+- **Improved Eval Criteria Visibility**: Clearer visibility into what criteria agents are working against
 
-### Previous Achievements (v0.0.3 - v0.1.71)
+### Previous Achievements (v0.0.3 - v0.1.72)
+
+✅ **Grok Backend Update & Circuit Breaker Phase 2 (v0.1.72)**: Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only).
 
 ✅ **Trace Memory & Evaluation Polish (v0.1.71)**: Trace analyzer subagents launch in background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning.
 
@@ -1537,9 +1539,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.73 Roadmap
+### v0.1.74 Roadmap
 
-Version 0.1.73 focuses on cloud execution:
+Version 0.1.74 focuses on cloud execution:
 
 #### Planned Features
 - **Cloud Modal MVP** ([#982](https://github.com/massgen/MassGen/issues/982)): Run MassGen as a cloud job on Modal — progress streams to terminal, results saved locally under `.massgen/cloud_jobs/`

@@ -11,9 +11,9 @@ Update this when major new features ship.
 
 ## Feature Highlights
 
-🧠Supports diverse backends — Access open-source and proprietary models (local, Gemini 3.1 Pro, GPT-5.4, Claude 4.6 Opus/Sonnet, GLM-5, Grok 4.1) and agents (Claude Code, Codex, Gemini CLI, GitHub Copilot). 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/backends.html
+🧠Supports diverse backends — Access open-source and proprietary models (local, Gemini 3.1 Pro, GPT-5.4, Claude 4.6 Opus/Sonnet, GLM-5, Grok 4.20) and agents (Claude Code, Codex, Gemini CLI, GitHub Copilot). 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/backends.html
 
-🤖Build collaborative multi-agent teams — Agents work in parallel, share workspaces, and vote to converge on the best solution. Checklist-gated quality rounds with opinionated evaluation criteria drive iterative refinement. Subagents, decomposition, and checkpoint delegation for complex tasks. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
+🤖Build collaborative multi-agent teams — Agents work in parallel, share workspaces, and vote to converge on the best solution. Checklist-gated quality rounds with self-evolving evaluation criteria drive iterative refinement. Subagents, decomposition, and checkpoint modes for delegation and safety planning. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/task_planning.html
 
@@ -33,9 +33,9 @@ Update this when major new features ship.
 
 ## Feature Highlights (LinkedIn)
 
-🧠Supports diverse backends — Access open-source and proprietary models (local, Gemini 3.1 Pro, GPT-5.4, Claude 4.6 Opus/Sonnet, GLM-5, Grok 4.1) and agents (Claude Code, Codex, Gemini CLI, GitHub Copilot). 👉 More Info: https://lnkd.in/gdXw-ZiN
+🧠Supports diverse backends — Access open-source and proprietary models (local, Gemini 3.1 Pro, GPT-5.4, Claude 4.6 Opus/Sonnet, GLM-5, Grok 4.20) and agents (Claude Code, Codex, Gemini CLI, GitHub Copilot). 👉 More Info: https://lnkd.in/gdXw-ZiN
 
-🤖Build collaborative multi-agent teams — Agents work in parallel, share workspaces, and vote to converge on the best solution. Checklist-gated quality rounds with opinionated evaluation criteria drive iterative refinement. Subagents, decomposition, and checkpoint delegation for complex tasks. 👉 More Info: https://lnkd.in/gTH5prec
+🤖Build collaborative multi-agent teams — Agents work in parallel, share workspaces, and vote to converge on the best solution. Checklist-gated quality rounds with self-evolving evaluation criteria drive iterative refinement. Subagents, decomposition, and checkpoint modes for delegation and safety planning. 👉 More Info: https://lnkd.in/gTH5prec
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://lnkd.in/gy5qtbau
 
