@@ -13652,6 +13652,51 @@ Your answer:"""
                 exc_info=True,
             )
 
+    @staticmethod
+    def _read_evolution_json_from_result(entry: dict[str, Any]) -> dict[str, Any] | None:
+        """Read criteria-evolution JSON from a subagent result entry.
+
+        Prefers the workspace file ``deliverable/evolved_criteria.json``
+        (written by the subagent). Falls back to parsing the answer text.
+        """
+        # Prefer workspace file
+        workspace = entry.get("workspace") or ""
+        if workspace:
+            criteria_file = Path(workspace) / "deliverable" / "evolved_criteria.json"
+            if criteria_file.exists():
+                try:
+                    data = json.loads(criteria_file.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        return data
+                except Exception:
+                    pass
+
+        # Fall back to answer text
+        answer_text = entry.get("answer") or ""
+        if not answer_text:
+            return None
+        try:
+            parsed = json.loads(answer_text)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Try markdown fences
+        for fence in ("```json", "```"):
+            start = answer_text.find(fence)
+            if start < 0:
+                continue
+            start += len(fence)
+            end = answer_text.find("```", start)
+            if end > start:
+                try:
+                    parsed = json.loads(answer_text[start:end].strip())
+                    if isinstance(parsed, dict):
+                        return parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        return None
+
     async def _run_criteria_evolution_if_needed(
         self,
         answers: dict[str, str],
@@ -13727,23 +13772,7 @@ Your answer:"""
         proposal_dicts: list[dict[str, Any]] = []
         results = (raw_proposals or {}).get("results") or []
         for entry in results:
-            answer_text = entry.get("answer") or ""
-            if not answer_text:
-                continue
-            parsed = None
-            try:
-                parsed = json.loads(answer_text)
-            except (json.JSONDecodeError, ValueError):
-                # Try extracting from markdown fences
-                for fence in ("```json", "```"):
-                    start = answer_text.find(fence) + len(fence)
-                    end = answer_text.find("```", start)
-                    if end > start:
-                        try:
-                            parsed = json.loads(answer_text[start:end].strip())
-                            break
-                        except (json.JSONDecodeError, ValueError):
-                            pass
+            parsed = self._read_evolution_json_from_result(entry)
             if isinstance(parsed, dict):
                 proposal_dicts.append(parsed)
 
@@ -13786,11 +13815,10 @@ Your answer:"""
             self._criteria_evolution_completed_labels.add(label_tuple)
             return True
 
-        # Parse synthesis result
+        # Parse synthesis result — prefer workspace file, fall back to answer text
         synth_results = (raw_synthesis or {}).get("results") or []
-        synth_answer = ""
-        if synth_results:
-            synth_answer = synth_results[0].get("answer") or ""
+        synth_parsed = self._read_evolution_json_from_result(synth_results[0]) if synth_results else None
+        synth_answer = json.dumps(synth_parsed) if synth_parsed else (synth_results[0].get("answer", "") if synth_results else "")
 
         from .evaluation_criteria_generator import parse_evolution_response
 
