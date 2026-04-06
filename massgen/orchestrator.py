@@ -13659,17 +13659,26 @@ Your answer:"""
         Prefers the workspace file ``deliverable/evolved_criteria.json``
         (written by the subagent). Falls back to parsing the answer text.
         """
-        # Prefer workspace file
+        # Prefer workspace file — search the same nested paths that
+        # subagent workspaces use (inner agent dirs, snapshots, etc.)
+        _FILENAME = "evolved_criteria.json"
         workspace = entry.get("workspace") or ""
         if workspace:
-            criteria_file = Path(workspace) / "deliverable" / "evolved_criteria.json"
-            if criteria_file.exists():
-                try:
-                    data = json.loads(criteria_file.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        return data
-                except Exception:
-                    pass
+            ws = Path(workspace)
+            candidates = [ws / "deliverable" / _FILENAME]
+            for pattern in (
+                f"agent_*/deliverable/{_FILENAME}",
+                f"snapshots/*/*/deliverable/{_FILENAME}",
+            ):
+                candidates.extend(ws.glob(pattern))
+            for candidate in candidates:
+                if candidate.exists():
+                    try:
+                        data = json.loads(candidate.read_text(encoding="utf-8"))
+                        if isinstance(data, dict):
+                            return data
+                    except Exception:
+                        pass
 
         # Fall back to answer text
         answer_text = entry.get("answer") or ""
@@ -13860,16 +13869,31 @@ Your answer:"""
         except Exception:
             logger.warning("[Orchestrator] Failed to re-init checklist tool after criteria evolution", exc_info=True)
 
-        # Emit event
+        # Emit event + push updated criteria to TUI
         try:
             _emitter = get_event_emitter()
+            evolved_count = sum(1 for old_c, new_c in zip(old_criteria, evolved) if old_c.text != new_c.text)
             if _emitter:
                 _emitter.emit_raw(
                     StructuredEventType.EVALUATION_CRITERIA_EVOLVED,
                     evolution_number=self._criteria_evolution_count,
-                    evolved_count=sum(1 for old_c, new_c in zip(old_criteria, evolved) if old_c.text != new_c.text),
+                    evolved_count=evolved_count,
                     total_count=len(evolved),
                     summary=summary or "",
+                )
+            # Re-push updated criteria so Ctrl+E shows the evolved set
+            evolved_payload = [{"id": c.id, "text": c.text, "category": getattr(c, "category", "standard")} for c in evolved]
+            if _emitter:
+                _emitter.emit_raw(
+                    StructuredEventType.EVALUATION_CRITERIA_SET,
+                    criteria=evolved_payload,
+                    source=f"evolved_v{self._criteria_evolution_count}",
+                )
+            display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+            if display and hasattr(display, "set_evaluation_criteria"):
+                display.set_evaluation_criteria(
+                    evolved_payload,
+                    source=f"evolved_v{self._criteria_evolution_count}",
                 )
         except Exception:
             pass
