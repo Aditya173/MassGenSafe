@@ -4680,6 +4680,7 @@ if TEXTUAL_AVAILABLE:
                 "pre_collab_completed",
                 "personas_set",
                 "evaluation_criteria_set",
+                "evaluation_criteria_evolved",
                 "subtasks_set",
                 "orchestrator_timeout",
             },
@@ -5012,6 +5013,21 @@ if TEXTUAL_AVAILABLE:
                     self.set_evaluation_criteria(criteria, source=source)
                 except Exception as e:
                     tui_log(f"[TextualDisplay] evaluation_criteria_set: {e}")
+
+            elif event.event_type == "evaluation_criteria_evolved":
+                try:
+                    evo_num = event.data.get("evolution_number", "?")
+                    evolved_count = event.data.get("evolved_count", 0)
+                    total_count = event.data.get("total_count", 0)
+                    summary = event.data.get("summary", "")
+                    short_summary = (summary[:80] + "...") if len(summary) > 80 else summary
+                    self.notify(
+                        f"Criteria evolved (v{evo_num}): " f"{evolved_count}/{total_count} criteria raised\n" f"{short_summary}",
+                        severity="information",
+                        timeout=10,
+                    )
+                except Exception as e:
+                    tui_log(f"[TextualDisplay] evaluation_criteria_evolved: {e}")
 
             elif event.event_type == "subtasks_set":
                 try:
