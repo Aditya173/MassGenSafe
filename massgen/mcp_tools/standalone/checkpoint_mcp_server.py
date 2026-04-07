@@ -44,7 +44,7 @@ DEFAULT_SAFETY_POLICY: list[str] = [
     "Verify preconditions before executing any irreversible action",
 ]
 
-VALID_TERMINALS: set[str] = {"proceed", "recheckpoint", "block"}
+VALID_TERMINALS: set[str] = {"proceed", "recheckpoint", "refuse"}
 
 _DEFAULT_TIMEOUT = 600  # 10 minutes
 _CHECKPOINT_RUNS_DIR = ".massgen/checkpoint_runs"
@@ -112,8 +112,12 @@ The JSON must match this schema:
       }},
       "recovery": {{
         "if": "condition to evaluate",
-        "then": "proceed | recheckpoint | block | {{nested recovery}}",
-        "else": "proceed | recheckpoint | block | {{nested recovery}}"
+        "then": "proceed",
+        "else": {{
+          "if": "secondary condition",
+          "then": "recheckpoint",
+          "else": "refuse"
+        }}
       }}
     }}
   ]
@@ -126,10 +130,20 @@ Rules:
 - `approved_action` is optional: when present alongside constraints, \
 it is the ONLY permitted exception
 - `recovery` is optional: a recursive tree with `if`/`then`/`else`
-- Terminal values for recovery: "proceed", "recheckpoint", "block"
+- Terminal values in `then`/`else` MUST be one of these exact bare \
+strings — no extra text, no annotations, no dashes or explanations:
+  - `"proceed"` — condition resolved safely, continue to next step
+  - `"recheckpoint"` — uncertain outcome, request new guidance
+  - `"refuse"` — the only remaining option is unsafe; refuse to act
+- INVALID examples: `"refuse — do not send emails"`, \
+`"proceed (with caution)"`, `"recheckpoint: need backup first"`
+- Put situational context in the `if` condition field, not in the \
+terminal value
 - Recovery nodes can nest arbitrarily deep
 - If action_goals were provided, map each to a specific approved_action \
 with exact tool name and args
+
+{{validator_section}}\
 """
 
 
@@ -281,6 +295,7 @@ def build_objective_prompt(
     available_tools: list[dict[str, str]],
     criteria: list[str],
     action_goals: list[dict[str, Any]] | None = None,
+    validator_path: str | None = None,
 ) -> str:
     """Build the system prompt for checkpoint agents.
 
@@ -321,6 +336,18 @@ def build_objective_prompt(
     # Format criteria section
     criteria_section = "\n".join(f"- {c}" for c in criteria)
 
+    # Format validator section
+    if validator_path:
+        validator_section = (
+            f"\n## Validation\n\n"
+            f"After writing `{RESULT_FILENAME}`, validate it by running:\n"
+            f"  python {validator_path} <path_to_your_file>\n"
+            f"If validation fails, fix the errors and re-validate before "
+            f"proceeding.\n"
+        )
+    else:
+        validator_section = ""
+
     return _OBJECTIVE_SYSTEM_PROMPT.format(
         trajectory_path=TRAJECTORY_FILENAME,
         objective=objective,
@@ -328,6 +355,7 @@ def build_objective_prompt(
         action_goals_section=action_goals_section,
         criteria_section=criteria_section,
         result_filename=RESULT_FILENAME,
+        validator_section=validator_section,
     )
 
 
@@ -485,15 +513,7 @@ async def _checkpoint_impl(
         eval_criteria,
     )
 
-    # 4. Build system prompt
-    system_prompt = build_objective_prompt(
-        objective=objective,
-        available_tools=_session["available_tools"],
-        criteria=criteria,
-        action_goals=action_goals,
-    )
-
-    # 5. Create persistent workspace under session dir (no file copying)
+    # 4. Create persistent workspace under session dir (no file copying)
     global _checkpoint_counter
     if _session_dir is None:
         return json.dumps(
@@ -516,6 +536,21 @@ async def _checkpoint_impl(
             shutil.copy2(traj_src, traj_dest)
         else:
             traj_dest.write_text("(trajectory file not found)")
+
+        # Copy validator script into workspace for agent self-checking
+        validator_src = Path(__file__).parent / "validate_plan.py"
+        validator_dest = workspace / "validate_plan.py"
+        if validator_src.exists():
+            shutil.copy2(validator_src, validator_dest)
+
+        # 5. Build system prompt (after workspace so we know validator path)
+        system_prompt = build_objective_prompt(
+            objective=objective,
+            available_tools=_session["available_tools"],
+            criteria=criteria,
+            action_goals=action_goals,
+            validator_path=str(validator_dest) if validator_dest.exists() else None,
+        )
 
         # 6. Generate subprocess config with context_paths
         # instead of copying the whole workspace

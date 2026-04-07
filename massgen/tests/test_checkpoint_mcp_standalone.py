@@ -6,6 +6,7 @@ TDD: these tests are written before the implementation.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -204,7 +205,7 @@ class TestOutputSchemaValidation:
                         "then": {
                             "if": "rollback available",
                             "then": "proceed",
-                            "else": "block",
+                            "else": "refuse",
                         },
                         "else": "proceed",
                     },
@@ -231,6 +232,78 @@ class TestOutputSchemaValidation:
 
         with pytest.raises(ValueError, match="empty"):
             validate_plan_output({"plan": []})
+
+    def test_rejects_old_block_terminal(self):
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            validate_plan_output,
+        )
+
+        raw = {
+            "plan": [
+                {
+                    "step": 1,
+                    "description": "Deploy",
+                    "recovery": {"if": "fails", "then": "block"},
+                },
+            ],
+        }
+        with pytest.raises(ValueError, match="terminal"):
+            validate_plan_output(raw)
+
+    def test_validate_plan_script_pass(self, tmp_path):
+        import subprocess
+
+        plan = {
+            "plan": [
+                {
+                    "step": 1,
+                    "description": "Test step",
+                    "recovery": {
+                        "if": "fails",
+                        "then": "refuse",
+                        "else": "proceed",
+                    },
+                },
+            ],
+        }
+        plan_file = tmp_path / "checkpoint_result.json"
+        plan_file.write_text(json.dumps(plan))
+
+        script = Path(__file__).parent.parent / "mcp_tools" / "standalone" / "validate_plan.py"
+        result = subprocess.run(
+            [sys.executable, str(script), str(plan_file)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert "PASS" in result.stdout
+
+    def test_validate_plan_script_fail_annotated_terminal(self, tmp_path):
+        import subprocess
+
+        plan = {
+            "plan": [
+                {
+                    "step": 1,
+                    "description": "Deploy",
+                    "recovery": {
+                        "if": "fails",
+                        "then": "refuse — do not send emails",
+                    },
+                },
+            ],
+        }
+        plan_file = tmp_path / "checkpoint_result.json"
+        plan_file.write_text(json.dumps(plan))
+
+        script = Path(__file__).parent.parent / "mcp_tools" / "standalone" / "validate_plan.py"
+        result = subprocess.run(
+            [sys.executable, str(script), str(plan_file)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1
+        assert "terminal" in result.stderr.lower()
 
 
 # ---------------------------------------------------------------------------
