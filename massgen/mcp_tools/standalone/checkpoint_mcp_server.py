@@ -36,12 +36,27 @@ logger = logging.getLogger(__name__)
 TRAJECTORY_FILENAME = ".checkpoint/trajectory.log"
 RESULT_FILENAME = "checkpoint_result.json"
 
-DEFAULT_SAFETY_POLICY: list[str] = [
-    "Every irreversible action must have an explicit plan step" " with a recovery tree",
-    "Never run destructive operations without a verified backup",
-    "Never deploy to production without passing tests",
-    "Never send external communications without explicit approval" " in the plan",
-    "Verify preconditions before executing any irreversible action",
+DEFAULT_SAFETY_POLICY: list[dict[str, Any]] = [
+    {
+        "text": ("Every irreversible action must have an explicit plan step " "with a recovery tree"),
+        "category": "primary",
+    },
+    {
+        "text": "Never run destructive operations without a verified backup",
+        "category": "primary",
+    },
+    {
+        "text": "Never deploy to production without passing tests",
+        "category": "primary",
+    },
+    {
+        "text": ("Never send external communications without explicit approval " "in the plan"),
+        "category": "primary",
+    },
+    {
+        "text": "Verify preconditions before executing any irreversible action",
+        "category": "primary",
+    },
 ]
 
 VALID_TERMINALS: set[str] = {"proceed", "recheckpoint", "refuse"}
@@ -61,10 +76,21 @@ _session_dir: Path | None = None  # set by init, timestamped
 
 
 # ---------------------------------------------------------------------------
-# System prompt template
+# Per-call user prompt template
 # ---------------------------------------------------------------------------
+#
+# This is the USER message we hand to MassGen for each checkpoint call. It
+# carries everything the reviewer agents need to act on this specific call:
+# the role framing, trajectory pointer, workspace pointer, objective,
+# available tools, action goals, output schema, and validator hint. We do
+# NOT inject this as system_message on each agent — that's reserved for
+# MassGen's own coordination framing (EvaluationSection, voting machinery,
+# etc.). Putting the per-call task in the user message is the standard
+# convention: stable role/coordination behavior in system, per-turn task
+# in user. The WebUI also surfaces the user message as the "Turn N"
+# header, which is the right place for this content.
 
-_OBJECTIVE_SYSTEM_PROMPT = """\
+_OBJECTIVE_PROMPT_TEMPLATE = """\
 You are a safety checkpoint planner. An AI agent is about to perform \
 a sequence of actions that includes irreversible operations. Your job \
 is to analyze what the agent has done so far, understand its objective, \
@@ -112,12 +138,6 @@ approved_action entries:
 {tools_section}
 
 {action_goals_section}\
-## Safety Criteria
-
-Apply ALL of the following criteria when building the plan:
-
-{criteria_section}
-
 ## Output
 
 Write your result as valid JSON to `{result_filename}` in the workspace \
@@ -179,26 +199,62 @@ with exact tool name and args
 # ---------------------------------------------------------------------------
 
 
+def _normalize_criterion(entry: Any) -> dict[str, Any]:
+    """Coerce a criterion entry to MassGen's checklist_criteria_inline shape.
+
+    Accepts either a plain string (auto-wrapped as `{text: str, category:
+    "primary"}`) or a dict (validated for `text`, `category` defaulted to
+    "primary"). Returns a dict suitable for
+    `checklist_criteria_inline`.
+    """
+    if isinstance(entry, str):
+        text = entry.strip()
+        if not text:
+            raise ValueError("Criterion string is empty")
+        return {"text": text, "category": "primary"}
+    if isinstance(entry, dict):
+        text = str(entry.get("text", "")).strip()
+        if not text:
+            raise ValueError(f"Criterion dict missing non-empty 'text': {entry!r}")
+        normalized = dict(entry)  # shallow copy preserves optional keys
+        normalized["text"] = text
+        normalized.setdefault("category", "primary")
+        return normalized
+    raise ValueError(
+        f"Criterion must be a string or dict, got {type(entry).__name__}: {entry!r}",
+    )
+
+
 def merge_criteria(
-    global_policy: list[str],
-    eval_criteria: list[str] | None,
-) -> list[str]:
+    global_policy: list[Any],
+    eval_criteria: list[Any] | None,
+) -> list[dict[str, Any]]:
     """Merge global safety policy with per-call eval_criteria.
 
-    Global policy entries are always included. Per-call criteria augment
-    but never replace. Duplicates are removed while preserving order.
+    Both inputs may contain plain strings (legacy) or dicts (native MassGen
+    `checklist_criteria_inline` shape). Strings are auto-wrapped as
+    `{text: str, category: "primary"}`. Dicts must have a `text` field.
+
+    Returns the merged list as a list of dicts ready to drop into
+    `config['orchestrator']['coordination']['checklist_criteria_inline']`.
+
+    Global policy entries are always included first. Per-call criteria
+    augment but never replace. Deduplication is by `text`, preserving
+    insertion order.
     """
     seen: set[str] = set()
-    result: list[str] = []
+    result: list[dict[str, Any]] = []
     for entry in global_policy:
-        if entry not in seen:
-            seen.add(entry)
-            result.append(entry)
+        norm = _normalize_criterion(entry)
+        if norm["text"] not in seen:
+            seen.add(norm["text"])
+            result.append(norm)
     if eval_criteria:
         for entry in eval_criteria:
-            if entry not in seen:
-                seen.add(entry)
-                result.append(entry)
+            norm = _normalize_criterion(entry)
+            if norm["text"] not in seen:
+                seen.add(norm["text"])
+                result.append(norm)
     return result
 
 
@@ -320,14 +376,23 @@ def extract_json_from_response(text: str) -> dict[str, Any]:
 def build_objective_prompt(
     objective: str,
     available_tools: list[dict[str, Any]],
-    criteria: list[str],
     workspace_dir: str,
     action_goals: list[dict[str, Any]] | None = None,
     validator_path: str | None = None,
 ) -> str:
-    """Build the system prompt for checkpoint agents.
+    """Build the per-call USER prompt for checkpoint agents.
+
+    Returns a fully-rendered string that should be passed to MassGen as
+    the user message (via `run_massgen_subrun(prompt=...)`), NOT injected
+    as `system_message` on each agent. The system message stays whatever
+    MassGen's default coordination framing produces — that's where the
+    voting machinery and the native EvaluationSection (with our criteria)
+    live.
 
     The trajectory is NOT included — agents read it from the workspace.
+    Safety criteria are NOT included here — they are passed to MassGen as
+    `checklist_criteria_inline` and rendered natively by `EvaluationSection`.
+    See `generate_objective_config`.
     """
     # Format tools section
     if available_tools:
@@ -373,9 +438,6 @@ def build_objective_prompt(
     else:
         action_goals_section = ""
 
-    # Format criteria section
-    criteria_section = "\n".join(f"- {c}" for c in criteria)
-
     # Format validator section
     if validator_path:
         validator_section = (
@@ -388,13 +450,12 @@ def build_objective_prompt(
     else:
         validator_section = ""
 
-    return _OBJECTIVE_SYSTEM_PROMPT.format(
+    return _OBJECTIVE_PROMPT_TEMPLATE.format(
         trajectory_path=TRAJECTORY_FILENAME,
         workspace_dir=workspace_dir,
         objective=objective,
         tools_section=tools_section,
         action_goals_section=action_goals_section,
-        criteria_section=criteria_section,
         result_filename=RESULT_FILENAME,
         validator_section=validator_section,
     )
@@ -403,15 +464,27 @@ def build_objective_prompt(
 def generate_objective_config(
     base_config: dict[str, Any],
     workspace: Path,
-    system_prompt: str,
+    checklist_criteria: list[dict[str, Any]] | None = None,
     context_paths: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Generate a subprocess config for objective mode.
 
-    Wraps generate_subrun_config() and injects:
-    - system_message on each agent
-    - checkpoint_enabled: false (prevent recursion)
-    - context_paths for read access to main workspace (no file copying)
+    Wraps generate_subrun_config() and:
+    - Disables checkpoint recursion (`checkpoint_enabled: false`)
+    - Injects the merged safety criteria via MassGen's native
+      `checklist_criteria_inline` mechanism. The orchestrator config
+      already sets `voting_sensitivity: checklist_gated`, so MassGen
+      picks this up and renders it into each agent's system prompt
+      via its native `EvaluationSection` plus the `submit_checklist`
+      tool automatically.
+    - Adds `context_paths` for read access to the main workspace.
+
+    Note: the checkpoint task description (the per-call objective + tools
+    + action goals + output schema + validator hint) is passed to MassGen
+    as the USER message via `run_massgen_subrun(prompt=...)`, NOT as
+    `system_message` on each agent. We deliberately do NOT touch
+    `system_message` here so MassGen's default coordination framing stays
+    intact. See `build_objective_prompt`.
     """
     config = generate_subrun_config(
         base_config,
@@ -423,19 +496,15 @@ def generate_objective_config(
         ],
     )
 
-    # Inject system prompt into all agents
-    agents_list = config.get("agents", [])
-    if not agents_list and "agent" in config:
-        agents_list = [config["agent"]]
-    for agent_cfg in agents_list:
-        agent_cfg["system_message"] = system_prompt
-
-    # Disable checkpoint recursion
+    # Disable checkpoint recursion AND inject the merged safety criteria
+    # via MassGen's native checklist mechanism.
     coord = config.setdefault("orchestrator", {}).setdefault(
         "coordination",
         {},
     )
     coord["checkpoint_enabled"] = False
+    if checklist_criteria:
+        coord["checklist_criteria_inline"] = checklist_criteria
 
     # Inject context_paths for read access to main workspace
     if context_paths:
@@ -453,9 +522,14 @@ async def _init_impl(
     workspace_dir: str,
     trajectory_path: str,
     available_tools: list[dict[str, Any]],
-    safety_policy: list[str] | None = None,
+    safety_policy: list[Any] | None = None,
 ) -> str:
-    """Store session context for subsequent checkpoint calls."""
+    """Store session context for subsequent checkpoint calls.
+
+    `safety_policy` may contain plain strings or dicts (MassGen's
+    `checklist_criteria_inline` shape). It is merged with
+    `DEFAULT_SAFETY_POLICY` and stored as a list of normalized dicts.
+    """
     from datetime import datetime, timezone
 
     global _checkpoint_counter, _session_dir
@@ -469,11 +543,8 @@ async def _init_impl(
             },
         )
 
-    # Merge custom policy with defaults
-    if safety_policy:
-        merged = merge_criteria(DEFAULT_SAFETY_POLICY, safety_policy)
-    else:
-        merged = list(DEFAULT_SAFETY_POLICY)
+    # Merge custom policy with defaults — always returns list[dict].
+    merged = merge_criteria(DEFAULT_SAFETY_POLICY, safety_policy)
 
     # Create timestamped session directory
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -516,9 +587,16 @@ async def _init_impl(
 async def _checkpoint_impl(
     objective: str,
     action_goals: list[dict[str, Any]] | None = None,
-    eval_criteria: list[str] | None = None,
+    eval_criteria: list[Any] | None = None,
 ) -> str:
-    """Generate a structured safety plan for the given objective."""
+    """Generate a structured safety plan for the given objective.
+
+    `eval_criteria` may contain plain strings or dicts (MassGen
+    `checklist_criteria_inline` shape). They are merged with the session's
+    `safety_policy` and passed to MassGen via
+    `orchestrator.coordination.checklist_criteria_inline`, NOT embedded in
+    the system_message.
+    """
 
     # 1. Validate session
     required = ["workspace_dir", "trajectory_path", "available_tools"]
@@ -584,22 +662,27 @@ async def _checkpoint_impl(
         if validator_src.exists():
             shutil.copy2(validator_src, validator_dest)
 
-        # 5. Build system prompt (after workspace so we know validator path)
-        system_prompt = build_objective_prompt(
+        # 5. Build the per-call USER prompt (after workspace so we know
+        # validator path). This is the full task description that gets
+        # handed to MassGen as the user message — role framing, trajectory
+        # pointer, workspace pointer, objective, tools, action goals,
+        # output schema, validator hint. It is NOT a system prompt; we
+        # leave system_message untouched so MassGen's own coordination
+        # framing (incl. EvaluationSection with our criteria) stays intact.
+        user_prompt = build_objective_prompt(
             objective=objective,
             available_tools=_session["available_tools"],
-            criteria=criteria,
             workspace_dir=_session["workspace_dir"],
             action_goals=action_goals,
             validator_path=str(validator_dest) if validator_dest.exists() else None,
         )
 
-        # 6. Generate subprocess config with context_paths
-        # instead of copying the whole workspace
+        # 6. Generate subprocess config with context_paths and the merged
+        # safety criteria injected as MassGen's native checklist_criteria_inline
         config = generate_objective_config(
             _session["config_dict"],
             workspace,
-            system_prompt,
+            checklist_criteria=criteria,
             context_paths=[
                 {
                     "path": _session["workspace_dir"],
@@ -610,7 +693,11 @@ async def _checkpoint_impl(
         config_path = workspace / "_checkpoint_config.yaml"
         write_subrun_config(config, config_path)
 
-        # 7. Launch subprocess
+        # 7. Launch subprocess. Pass the FULL filled-in user_prompt as the
+        # MassGen `prompt` arg (which becomes the user message) — not just
+        # the bare objective. Agents read everything they need from this
+        # single user message + their stock system framing + the workspace
+        # files they explore via context_paths.
         # Honor timeout_settings.orchestrator_timeout_seconds from the loaded
         # config so the outer wrapper matches the inner MassGen budget. Add a
         # grace buffer (_SUBRUN_TIMEOUT_BUFFER) on top so the inner has time to
@@ -620,7 +707,7 @@ async def _checkpoint_impl(
         orchestrator_timeout = _session["config_dict"].get("timeout_settings", {}).get("orchestrator_timeout_seconds", _DEFAULT_TIMEOUT)
         subrun_timeout = orchestrator_timeout + _SUBRUN_TIMEOUT_BUFFER
         result = await run_massgen_subrun(
-            prompt=objective,
+            prompt=user_prompt,
             config_path=config_path,
             workspace=workspace,
             timeout=subrun_timeout,
@@ -759,7 +846,7 @@ def _create_mcp_server():
         workspace_dir: str,
         trajectory_path: str,
         available_tools: list[dict[str, Any]],
-        safety_policy: list[str] | None = None,
+        safety_policy: list[Any] | None = None,
     ) -> str:
         return await _init_impl(
             workspace_dir,
@@ -913,11 +1000,26 @@ def _create_mcp_server():
             "context. Example: 'Migrate the users table to the new "
             "schema, deploy the updated API, then notify users via "
             "email' \u2014 not just 'send email.'\n\n"
+            "DO NOT restate safety constraints in `objective`. Pass "
+            "those via `eval_criteria` instead \u2014 the team's "
+            "system prompt already has a dedicated section for them "
+            "and they are auto-merged with the global safety policy. "
+            "Putting them in both places creates duplication and "
+            "drift.\n\n"
             "'action_goals': Flag specific actions within the "
             "objective that need explicit tool-level approval in "
             "the returned plan.\n\n"
             "'eval_criteria': Task-specific safety requirements "
-            "beyond the defaults.\n\n"
+            "beyond the defaults. Each entry can be a plain string "
+            "(auto-wrapped as a primary criterion) or a dict with "
+            "the MassGen `checklist_criteria_inline` shape: "
+            "`{text, category: 'primary'|'standard'|'stretch', "
+            "verify_by?, anti_patterns?, score_anchors?}`. The "
+            "merged list (defaults + your entries) is injected into "
+            "MassGen as `orchestrator.coordination."
+            "checklist_criteria_inline` so reviewers see it natively "
+            "in their evaluation rubric and the submit_checklist "
+            "tool. Do NOT also paste these into `objective`.\n\n"
             "Follow the returned plan exactly. Do not skip steps "
             "or substitute alternatives to approved_action entries."
         ),
@@ -925,7 +1027,7 @@ def _create_mcp_server():
     async def checkpoint(
         objective: str,
         action_goals: list[dict[str, Any]] | None = None,
-        eval_criteria: list[str] | None = None,
+        eval_criteria: list[Any] | None = None,
     ) -> str:
         return await _checkpoint_impl(objective, action_goals, eval_criteria)
 

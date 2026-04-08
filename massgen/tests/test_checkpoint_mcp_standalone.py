@@ -49,8 +49,19 @@ def _setup_session(mod: Any, tmp_path: Path, **overrides: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _texts(criteria_list):
+    """Extract `text` fields from a list of merged criteria dicts."""
+    return [c["text"] for c in criteria_list]
+
+
 class TestMergeCriteria:
-    """merge_criteria merges global policy with per-call eval_criteria."""
+    """merge_criteria merges global policy with per-call eval_criteria.
+
+    The function always returns `list[dict]` (MassGen
+    `checklist_criteria_inline` shape), regardless of whether the inputs
+    are strings or dicts. Strings are auto-wrapped as
+    `{text: str, category: "primary"}`.
+    """
 
     def test_policy_only_when_no_eval_criteria(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -60,6 +71,11 @@ class TestMergeCriteria:
 
         result = merge_criteria(DEFAULT_SAFETY_POLICY, None)
         assert result == DEFAULT_SAFETY_POLICY
+        # All entries are dicts with required fields
+        for entry in result:
+            assert isinstance(entry, dict)
+            assert "text" in entry
+            assert "category" in entry
 
     def test_eval_criteria_augments_policy(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -72,8 +88,9 @@ class TestMergeCriteria:
         # All global policy entries present
         for entry in DEFAULT_SAFETY_POLICY:
             assert entry in result
-        # Extra criteria present
-        assert "Migration must be backward-compatible" in result
+        # Extra criterion auto-wrapped and present
+        texts = _texts(result)
+        assert "Migration must be backward-compatible" in texts
 
     def test_eval_criteria_never_removes_global(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -82,9 +99,10 @@ class TestMergeCriteria:
 
         policy = ["Rule A", "Rule B"]
         result = merge_criteria(policy, ["Rule C"])
-        assert "Rule A" in result
-        assert "Rule B" in result
-        assert "Rule C" in result
+        texts = _texts(result)
+        assert "Rule A" in texts
+        assert "Rule B" in texts
+        assert "Rule C" in texts
 
     def test_deduplicates(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -93,7 +111,8 @@ class TestMergeCriteria:
 
         policy = ["Rule A", "Rule B"]
         result = merge_criteria(policy, ["Rule A", "Rule C"])
-        assert result.count("Rule A") == 1
+        texts = _texts(result)
+        assert texts.count("Rule A") == 1
 
     def test_empty_eval_criteria_returns_policy(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -102,7 +121,64 @@ class TestMergeCriteria:
 
         policy = ["Rule A"]
         result = merge_criteria(policy, [])
-        assert result == ["Rule A"]
+        assert result == [{"text": "Rule A", "category": "primary"}]
+
+    def test_string_inputs_are_auto_wrapped(self):
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            merge_criteria,
+        )
+
+        result = merge_criteria(["Rule A"], ["Rule B"])
+        assert result == [
+            {"text": "Rule A", "category": "primary"},
+            {"text": "Rule B", "category": "primary"},
+        ]
+
+    def test_dict_inputs_round_trip_with_extra_fields(self):
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            merge_criteria,
+        )
+
+        rich = {
+            "text": "Backup before delete",
+            "category": "primary",
+            "verify_by": "evidence of create_database_backup call",
+            "anti_patterns": ["delete without dry_run"],
+        }
+        result = merge_criteria([], [rich])
+        assert result == [rich]
+
+    def test_dict_without_category_gets_primary_default(self):
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            merge_criteria,
+        )
+
+        result = merge_criteria([], [{"text": "Rule A"}])
+        assert result == [{"text": "Rule A", "category": "primary"}]
+
+    def test_dict_without_text_raises(self):
+        import pytest
+
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            merge_criteria,
+        )
+
+        with pytest.raises(ValueError, match="text"):
+            merge_criteria([], [{"category": "primary"}])
+
+    def test_string_and_dict_mixed(self):
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            merge_criteria,
+        )
+
+        result = merge_criteria(
+            ["Rule A"],
+            [{"text": "Rule B", "category": "stretch"}],
+        )
+        assert result == [
+            {"text": "Rule A", "category": "primary"},
+            {"text": "Rule B", "category": "stretch"},
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +441,13 @@ class TestExtractJson:
 
 
 class TestBuildObjectivePrompt:
-    """build_objective_prompt assembles the system prompt for checkpoint agents."""
+    """build_objective_prompt assembles the system prompt for checkpoint agents.
+
+    Note: criteria are intentionally NOT in the system prompt anymore. They
+    are passed to MassGen as `checklist_criteria_inline` and rendered by
+    MassGen's native EvaluationSection. See TestGenerateObjectiveConfig
+    for tests covering criteria injection.
+    """
 
     def test_includes_objective(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -375,7 +457,6 @@ class TestBuildObjectivePrompt:
         prompt = build_objective_prompt(
             objective="Deploy to production",
             available_tools=[{"name": "Bash", "description": "Run commands"}],
-            criteria=["No downtime"],
             workspace_dir="/tmp/test-workspace",
         )
         assert "Deploy to production" in prompt
@@ -391,13 +472,18 @@ class TestBuildObjectivePrompt:
                 {"name": "Bash", "description": "Run commands"},
                 {"name": "Read", "description": "Read files"},
             ],
-            criteria=["Be safe"],
             workspace_dir="/tmp/test-workspace",
         )
         assert "Bash" in prompt
         assert "Read" in prompt
 
-    def test_includes_criteria(self):
+    def test_omits_safety_criteria_section(self):
+        """The dropped `## Safety Criteria` block must not reappear.
+
+        Criteria belong in MassGen's checklist_criteria_inline, not in the
+        custom system prompt. If this test fails, the duplicate-rendering
+        bug we refactored away has come back.
+        """
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
             build_objective_prompt,
         )
@@ -405,11 +491,10 @@ class TestBuildObjectivePrompt:
         prompt = build_objective_prompt(
             objective="Deploy",
             available_tools=[],
-            criteria=["No downtime", "Run tests first"],
             workspace_dir="/tmp/test-workspace",
         )
-        assert "No downtime" in prompt
-        assert "Run tests first" in prompt
+        assert "## Safety Criteria" not in prompt
+        assert "Apply ALL of the following criteria" not in prompt
 
     def test_references_trajectory_file(self):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -420,7 +505,6 @@ class TestBuildObjectivePrompt:
         prompt = build_objective_prompt(
             objective="Deploy",
             available_tools=[],
-            criteria=["Be safe"],
             workspace_dir="/tmp/test-workspace",
         )
         assert TRAJECTORY_FILENAME in prompt
@@ -433,7 +517,6 @@ class TestBuildObjectivePrompt:
         prompt = build_objective_prompt(
             objective="Deploy",
             available_tools=[],
-            criteria=["Be safe"],
             workspace_dir="/tmp/test-workspace",
             action_goals=[
                 {"id": "deploy", "goal": "Deploy to Vercel production"},
@@ -450,7 +533,6 @@ class TestBuildObjectivePrompt:
         prompt = build_objective_prompt(
             objective="Deploy",
             available_tools=[],
-            criteria=["Be safe"],
             workspace_dir="/tmp/test-workspace",
             action_goals=None,
         )
@@ -465,7 +547,6 @@ class TestBuildObjectivePrompt:
         prompt = build_objective_prompt(
             objective="Deploy",
             available_tools=[],
-            criteria=["Be safe"],
             workspace_dir="/tmp/test-workspace",
         )
         assert RESULT_FILENAME in prompt
@@ -507,7 +588,6 @@ class TestGenerateObjectiveConfig:
         config = generate_objective_config(
             self._base_config(),
             tmp_path,
-            "You are a planner.",
         )
         assert isinstance(config, dict)
         assert "agents" in config or "agent" in config
@@ -520,24 +600,34 @@ class TestGenerateObjectiveConfig:
         config = generate_objective_config(
             self._base_config(),
             tmp_path,
-            "You are a planner.",
         )
         assert str(tmp_path) in config["orchestrator"]["snapshot_storage"]
 
-    def test_injects_system_message(self, tmp_path: Path):
+    def test_does_not_touch_system_message(self, tmp_path: Path):
+        """The checkpoint task lives in the user message (passed via
+        run_massgen_subrun's `prompt` arg), NOT as system_message on each
+        agent. Each agent's system_message should retain whatever the
+        base config supplied (or be absent if the base didn't set it).
+        """
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
             generate_objective_config,
         )
 
-        prompt = "You are a safety planner."
-        config = generate_objective_config(
-            self._base_config(),
-            tmp_path,
-            prompt,
-        )
+        base = self._base_config()
+        # Base config has no system_message — neither should the result.
+        config = generate_objective_config(base, tmp_path)
         agents = config.get("agents", [config.get("agent")])
         for agent in agents:
-            assert agent["system_message"] == prompt
+            assert "system_message" not in agent
+
+        # If the base supplies one, generate_objective_config must pass it
+        # through unchanged.
+        base2 = self._base_config()
+        base2["agents"][0]["system_message"] = "preset stays"
+        config2 = generate_objective_config(base2, tmp_path)
+        agents2 = config2.get("agents", [config2.get("agent")])
+        for agent in agents2:
+            assert agent["system_message"] == "preset stays"
 
     def test_disables_checkpoint_recursion(self, tmp_path: Path):
         from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
@@ -547,7 +637,6 @@ class TestGenerateObjectiveConfig:
         config = generate_objective_config(
             self._base_config(),
             tmp_path,
-            "prompt",
         )
         coord = config["orchestrator"]["coordination"]
         assert coord["checkpoint_enabled"] is False
@@ -560,7 +649,6 @@ class TestGenerateObjectiveConfig:
         config = generate_objective_config(
             self._base_config(),
             tmp_path,
-            "prompt",
         )
         agents = config.get("agents", [config.get("agent")])
         for agent in agents:
@@ -569,6 +657,37 @@ class TestGenerateObjectiveConfig:
             assert "massgen_checkpoint" not in mcp_names
             # filesystem should still be there
             assert "filesystem" in mcp_names
+
+    def test_injects_checklist_criteria_inline(self, tmp_path: Path):
+        """Criteria pass through to MassGen's native checklist field."""
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            generate_objective_config,
+        )
+
+        criteria = [
+            {"text": "Backup before delete", "category": "primary"},
+            {"text": "Run tests after deploy", "category": "standard"},
+        ]
+        config = generate_objective_config(
+            self._base_config(),
+            tmp_path,
+            checklist_criteria=criteria,
+        )
+        coord = config["orchestrator"]["coordination"]
+        assert coord["checklist_criteria_inline"] == criteria
+
+    def test_omits_checklist_criteria_when_none(self, tmp_path: Path):
+        """When no criteria are passed, the field is not added."""
+        from massgen.mcp_tools.standalone.checkpoint_mcp_server import (
+            generate_objective_config,
+        )
+
+        config = generate_objective_config(
+            self._base_config(),
+            tmp_path,
+        )
+        coord = config["orchestrator"]["coordination"]
+        assert "checklist_criteria_inline" not in coord
 
 
 # ---------------------------------------------------------------------------
@@ -674,10 +793,11 @@ class TestSessionState:
             available_tools=[],
             safety_policy=custom,
         )
-        # Should contain both default and custom
+        # Should contain both default and custom (now stored as list[dict])
         for entry in DEFAULT_SAFETY_POLICY:
             assert entry in _session["safety_policy"]
-        assert "Custom rule" in _session["safety_policy"]
+        texts = [c["text"] for c in _session["safety_policy"]]
+        assert "Custom rule" in texts
 
     @pytest.mark.asyncio
     async def test_init_default_safety_policy(self, tmp_path: Path):
