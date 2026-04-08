@@ -200,6 +200,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.74 (April 8, 2026)** - Checkpoint Improvements & Tool Call Fixes
+
+Major improvements to standalone checkpoint MCP server. Fix for duplicate tool calls in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends. Pre-collab evaluation criteria refinements.
+
 **v0.1.73 (April 6, 2026)** - Eval Criteria Evolver & Checkpoint Objectives
 
 New eval criteria evolver subagent that evolves criteria across rounds. Initial draft of checkpoint objective mode for safety planning of irreversible actions. Improved visibility of evaluation criteria.
@@ -207,10 +211,6 @@ New eval criteria evolver subagent that evolves criteria across rounds. Initial 
 **v0.1.72 (April 3, 2026)** - Grok Backend Update & Circuit Breaker Phase 2
 
 Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only). Config plumbing smoke tests for all backends.
-
-**v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
-
-Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning.
 
 :doc:`Full changelog → <changelog>`
 

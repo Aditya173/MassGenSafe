@@ -9,14 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.74 (April 8, 2026)** - Checkpoint Improvements & Tool Call Fixes
+Major improvements to standalone checkpoint MCP server. Fix for duplicate tool calls in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends. Pre-collab evaluation criteria refinements.
+
 **v0.1.73 (April 6, 2026)** - Eval Criteria Evolver & Checkpoint Objectives
 New eval criteria evolver subagent that evolves criteria across rounds. Initial draft of checkpoint objective mode for safety planning of irreversible actions. Improved visibility of evaluation criteria.
 
 **v0.1.72 (April 3, 2026)** - Grok Backend Update & Circuit Breaker Phase 2
 Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only). Config plumbing smoke tests for all backends.
 
-**v0.1.71 (April 1, 2026)** - Trace Memory & Evaluation Polish
-Trace analyzer subagents now launch in the background after each round to write insights from execution traces into memory. Improved evaluation criteria generation and system prompt tuning. Fixes for final injection, eval criteria GPT pre-collab, trace analyzer launch, and trace memory.
+---
+
+## [0.1.74] - 2026-04-08
+
+### Changed
+- **Checkpoint MCP Improvements** ([#1050](https://github.com/massgen/MassGen/pull/1050)): Major enhancements to standalone checkpoint MCP server (`massgen/mcp_tools/standalone/checkpoint_mcp_server.py`) — refinements to subprocess execution, isolation, workspace handling, and event relay
+- **Pre-collab Criteria Refinements** ([#1050](https://github.com/massgen/MassGen/pull/1050)): Improvements to evaluation criteria generation in `precollab_utils.py`
+
+### Fixed
+- **Duplicate Tool Calls** ([#1050](https://github.com/massgen/MassGen/pull/1050)): Resolved duplicate tool call issues in `base_with_custom_tool_and_mcp.py`, `chat_completions.py` (including for MiniMax on OpenRouter), and `response.py` backends
+
+### Documentation, Configurations and Resources
+- **Updated Checkpoint Module**: Updated `docs/modules/checkpoint.md` with checkpoint MCP improvements
+- **OpenSpec Updates**: Updated `openspec/changes/update-checkpoint-coordination-objectives/` design, spec, and tasks
+
+### Technical Details
+- **Major Focus**: Checkpoint MCP improvements and stability fixes
+- **PRs Merged**: [#1050](https://github.com/massgen/MassGen/pull/1050)
+- **Contributors**: @ncrispino, @HenryQi and the MassGen team
 
 ---
 
