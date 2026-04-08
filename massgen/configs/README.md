@@ -227,19 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.73 - Latest
-**New Features:** Eval Criteria Evolver & Checkpoint Objectives
+### v0.1.74 - Latest
+**New Features:** Checkpoint Improvements & Tool Call Fixes
 
 **Key Features:**
-- **Eval Criteria Evolver Subagent**: New subagent type that evolves evaluation criteria across rounds — sharper, more opinionated criteria as the run progresses
-- **Checkpoint Objective Mode (Initial Draft)**: Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions
-- **Improved Eval Criteria Visibility**: Clearer visibility into what criteria agents are working against
+- **Checkpoint MCP Improvements**: Major enhancements to the standalone checkpoint MCP server — subprocess execution, isolation, and event relay refinements
+- **Duplicate Tool Call Fix**: Resolved duplicate tool call issues in ChatCompletions and Response API backends
+- **MiniMax Backend Fix**: Stability fix for MiniMax provider
+- **Pre-collab Criteria Refinements**: Improvements to evaluation criteria generation in pre-collaboration phase
 
 **Try It:**
 ```bash
-pip install massgen==0.1.73
-uv run massgen --config @examples/features/trace_analyzer_background.yaml "Create an svg of an AI agent coding."
+pip install massgen==0.1.74
+# Try checkpoint mode -- click 'COORD' in the mode bar above the input then the checkpoint box
+uv run massgen --web
 ```
+
+### v0.1.73
+**New Features:** Eval Criteria Evolver & Checkpoint Objectives
+
+**Key Features:**
+- **Eval Criteria Evolver Subagent**: New subagent type that evolves evaluation criteria across rounds
+- **Checkpoint Objective Mode (Initial Draft)**: Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions
 
 ### v0.1.72
 **New Features:** Grok Backend Update & Circuit Breaker Phase 2
