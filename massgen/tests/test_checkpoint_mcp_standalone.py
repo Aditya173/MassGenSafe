@@ -376,6 +376,7 @@ class TestBuildObjectivePrompt:
             objective="Deploy to production",
             available_tools=[{"name": "Bash", "description": "Run commands"}],
             criteria=["No downtime"],
+            workspace_dir="/tmp/test-workspace",
         )
         assert "Deploy to production" in prompt
 
@@ -391,6 +392,7 @@ class TestBuildObjectivePrompt:
                 {"name": "Read", "description": "Read files"},
             ],
             criteria=["Be safe"],
+            workspace_dir="/tmp/test-workspace",
         )
         assert "Bash" in prompt
         assert "Read" in prompt
@@ -404,6 +406,7 @@ class TestBuildObjectivePrompt:
             objective="Deploy",
             available_tools=[],
             criteria=["No downtime", "Run tests first"],
+            workspace_dir="/tmp/test-workspace",
         )
         assert "No downtime" in prompt
         assert "Run tests first" in prompt
@@ -418,6 +421,7 @@ class TestBuildObjectivePrompt:
             objective="Deploy",
             available_tools=[],
             criteria=["Be safe"],
+            workspace_dir="/tmp/test-workspace",
         )
         assert TRAJECTORY_FILENAME in prompt
 
@@ -430,6 +434,7 @@ class TestBuildObjectivePrompt:
             objective="Deploy",
             available_tools=[],
             criteria=["Be safe"],
+            workspace_dir="/tmp/test-workspace",
             action_goals=[
                 {"id": "deploy", "goal": "Deploy to Vercel production"},
             ],
@@ -446,6 +451,7 @@ class TestBuildObjectivePrompt:
             objective="Deploy",
             available_tools=[],
             criteria=["Be safe"],
+            workspace_dir="/tmp/test-workspace",
             action_goals=None,
         )
         assert "action_goals" not in prompt.lower() or "Action Goals" not in prompt
@@ -460,6 +466,7 @@ class TestBuildObjectivePrompt:
             objective="Deploy",
             available_tools=[],
             criteria=["Be safe"],
+            workspace_dir="/tmp/test-workspace",
         )
         assert RESULT_FILENAME in prompt
 
