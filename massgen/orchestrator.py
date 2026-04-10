@@ -8844,16 +8844,6 @@ Your answer:"""
             ),
         )
 
-        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
-        path_permission_manager = getattr(filesystem_manager, "path_permission_manager", None) if filesystem_manager else None
-        if path_permission_manager and getattr(path_permission_manager, "managed_paths", None):
-            from massgen.filesystem_manager import PathPermissionManagerHook
-
-            manager.register_global_hook(
-                HookType.PRE_TOOL_USE,
-                PathPermissionManagerHook(path_permission_manager),
-            )
-
         native_config = adapter.build_native_hooks_config(
             manager,
             agent_id=agent_id,

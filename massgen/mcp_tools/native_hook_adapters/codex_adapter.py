@@ -1,16 +1,12 @@
 """Codex native hook adapter.
 
 This adapter generates ``.codex/hooks.json`` entries for Codex's native hook
-surface. MassGen uses it in a hybrid mode:
-
-- ``PostToolUse`` provides a Bash-only bridge into the shared
-  ``hook_post_tool_use.json`` payload file
-- ``PreToolUse`` provides Bash permission enforcement via a serialized
-  ``permission_manifest.json``
+surface. MassGen uses it in a hybrid mode where ``PostToolUse`` provides a
+Bash-only bridge into the shared ``hook_post_tool_use.json`` payload file.
 
 MassGen runtime payload ownership stays on the existing shared file / MCP path;
 the native adapter only creates Codex hook entries that let Bash consume those
-payloads.
+payloads after tool execution.
 """
 
 from __future__ import annotations
@@ -50,7 +46,7 @@ class CodexNativeHookAdapter(NativeHookAdapter):
     def supports_hook_type(self, hook_type: HookType) -> bool:
         from ..hooks import HookType as HT
 
-        return hook_type in (HT.PRE_TOOL_USE, HT.POST_TOOL_USE)
+        return hook_type == HT.POST_TOOL_USE
 
     def convert_hook_to_native(
         self,
@@ -82,11 +78,9 @@ class CodexNativeHookAdapter(NativeHookAdapter):
             return {}
 
         hook_entries: dict[str, list[dict[str, Any]]] = {
-            "PreToolUse": [],
             "PostToolUse": [],
         }
         event_map = {
-            HT.PRE_TOOL_USE: "PreToolUse",
             HT.POST_TOOL_USE: "PostToolUse",
         }
 

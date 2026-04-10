@@ -1189,31 +1189,10 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         return f"{python_exe} {hook_script_path}" f" --hook-dir {config_dir}" f" --event {event_name}"
 
     def _build_permission_hooks_config(self, config_dir: Path) -> dict[str, Any]:
-        """Build the default Codex PreToolUse hook config for Bash permission checks."""
-        manifest = self._build_permission_manifest()
         manifest_path = config_dir / "permission_manifest.json"
-        if not manifest:
-            manifest_path.unlink(missing_ok=True)
-            return {}
-
-        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        return {
-            "hooks": {
-                "PreToolUse": [
-                    {
-                        "matcher": "Bash",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": self._native_hook_command(config_dir, "PreToolUse"),
-                                "timeout": 10,
-                                "statusMessage": "Checking Bash command",
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
+        """Codex Bash PreToolUse hooks are disabled; remove any stale manifest."""
+        manifest_path.unlink(missing_ok=True)
+        return {}
 
     def _cleanup_workspace_config(self) -> None:
         """Remove the project-scoped .codex/ directory we created."""
@@ -1409,6 +1388,38 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         cmd.append(prompt)
 
         return cmd
+
+    @staticmethod
+    def _truncate_line(line: str, max_chars: int = 200) -> str:
+        """Truncate long diagnostic lines to keep logs readable."""
+        if len(line) <= max_chars:
+            return line
+        return f"{line[:max_chars]}..."
+
+    @staticmethod
+    def _looks_like_json_event_line(line: str) -> bool:
+        """Return True when a stream line resembles a JSON event object."""
+        stripped = line.lstrip()
+        return stripped.startswith("{") or stripped.startswith("[")
+
+    def _decode_codex_event_line(self, line_str: str) -> dict[str, Any] | None:
+        """Decode one Codex stream line, tolerating plain-text diagnostics.
+
+        Codex occasionally emits non-JSON status or hook error text alongside the
+        JSON event stream. Those lines are useful diagnostics, but they are not
+        protocol parse failures and should not be logged as such.
+        """
+        try:
+            return json.loads(line_str)
+        except json.JSONDecodeError:
+            truncated = self._truncate_line(line_str)
+            if self._looks_like_json_event_line(line_str):
+                logger.warning(f"Failed to parse Codex event: {truncated}")
+            elif "Command blocked by PreToolUse hook" in line_str or "ERROR codex_core::" in line_str:
+                logger.info(f"Codex non-JSON output: {truncated}")
+            else:
+                logger.debug(f"Skipping non-JSON Codex output: {truncated}")
+            return None
 
     def _parse_codex_event(self, event: dict[str, Any]) -> list[StreamChunk]:
         """Parse a Codex JSON event into StreamChunks.
@@ -2126,10 +2137,8 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                 if line_str is None:
                     break
 
-                try:
-                    event = json.loads(line_str)
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse Codex event: {line_str}")
+                event = self._decode_codex_event_line(line_str)
+                if event is None:
                     continue
 
                 logger.info(f"Codex raw event (docker): {json.dumps(event, default=str)[:500]}")
@@ -2205,10 +2214,8 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                 if not line_str:
                     continue
 
-                try:
-                    event = json.loads(line_str)
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse Codex event: {line_str}")
+                event = self._decode_codex_event_line(line_str)
+                if event is None:
                     continue
 
                 logger.info(f"Codex raw event: {json.dumps(event, default=str)[:500]}")

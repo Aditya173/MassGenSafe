@@ -713,6 +713,7 @@ def test_setup_hook_manager_for_codex_hybrid_sets_native_and_mcp(mock_orchestrat
     native_config = captured.get("native_config")
     assert isinstance(native_config, dict)
     assert "hooks" in native_config
+    assert "PreToolUse" not in native_config["hooks"]
     assert "PostToolUse" in native_config["hooks"]
     assert native_config["hooks"]["PostToolUse"][0]["matcher"] == "Bash"
     assert agent_id in orchestrator._codex_mcp_hook_agents
