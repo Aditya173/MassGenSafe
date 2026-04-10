@@ -1247,13 +1247,23 @@ def create_app(
             config_path = project_config_path
             has_config = False
 
+        # If the server was launched in automation mode, the caller already
+        # supplied a working --config and is mid-run. The first-run quickstart
+        # wizard is irrelevant in that case — show the live coordination view
+        # directly. We keep `has_config` honest (it reflects only the
+        # quickstart config file's existence) but suppress `needs_setup` so
+        # the frontend doesn't redirect to /setup.
+        needs_setup = not has_config
+        if getattr(app.state, "automation_mode", False):
+            needs_setup = False
+
         # Check Docker using diagnostics (run in thread to avoid blocking event loop)
         import asyncio
 
         diagnostics = await asyncio.to_thread(diagnose_docker)
 
         return {
-            "needs_setup": not has_config,
+            "needs_setup": needs_setup,
             "has_config": has_config,
             "config_path": str(config_path),
             "docker_available": diagnostics.is_available,

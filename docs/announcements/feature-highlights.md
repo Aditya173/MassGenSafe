@@ -17,7 +17,7 @@ Update this when major new features ship.
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/task_planning.html
 
-🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP servers and step mode power the massgen-refinery plugin. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
+🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP server for checkpoint safety installable directly into Claude Code, Codex, and other MCP hosts. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
 
 💾Session continuity — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/skills.html#evolving-skills-code-mode
 
@@ -25,7 +25,7 @@ Update this when major new features ship.
 
 🐳Code execution — Run commands with Docker isolation and a filesystem-based code mode for efficient tool execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/code_execution.html
 
-🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, and skill integration. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
+🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, skill integration, and checkpoint monitoring. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
 
 🪪Trace workflows — Orchestration logs, execution traces with background trace analysis that feeds insights into memory, workspace snapshots, cost tracking, and Logfire integration. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#logging-directory-structure
 
@@ -39,7 +39,7 @@ Update this when major new features ship.
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://lnkd.in/gy5qtbau
 
-🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP servers and step mode power the massgen-refinery plugin. 👉 More Info: https://lnkd.in/gXaCJfkq
+🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP server for checkpoint safety installable directly into Claude Code, Codex, and other MCP hosts. 👉 More Info: https://lnkd.in/gXaCJfkq
 
 💾Session continuity — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://lnkd.in/gQuhFtuh
 
@@ -47,7 +47,7 @@ Update this when major new features ship.
 
 🐳Code execution — Run commands with Docker isolation and a filesystem-based code mode for efficient tool execution. 👉 More Info: https://lnkd.in/gDy5imFE
 
-🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, and skill integration. 👉 More Info: https://lnkd.in/gxWNKCB6
+🖥️Interactive TUI & Web UI — Real-time Terminal UI with mode cycling, log analysis, tool batching, and keyboard shortcuts. Session viewer for observing automation runs. Modernized Web UI with inline final answers, automation auto-start, skill integration, and checkpoint monitoring. 👉 More Info: https://lnkd.in/gxWNKCB6
 
 🪪Trace workflows — Orchestration logs, execution traces with background trace analysis that feeds insights into memory, workspace snapshots, cost tracking, and Logfire integration. 👉 More Info: https://lnkd.in/gecFJE2z
 
