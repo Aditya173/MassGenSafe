@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.74 Features](#-latest-features-v0174)
+- [v0.1.75 Features](#-latest-features-v0175)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.74)](#recent-achievements-v0174)
-- [Previous Achievements (v0.0.3 - v0.1.73)](#previous-achievements-v003---v0173)
+- [Recent Achievements (v0.1.75)](#recent-achievements-v0175)
+- [Previous Achievements (v0.0.3 - v0.1.74)](#previous-achievements-v003---v0174)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.75 Roadmap](#v0175-roadmap)
+- [v0.1.76 Roadmap](#v0176-roadmap)
 </details>
 
 <details open>
@@ -154,19 +154,19 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.74)
+## 🆕 Latest Features (v0.1.75)
 
-**🎉 Released: April 8, 2026**
+**🎉 Released: April 10, 2026**
 
-**What's New in v0.1.74:**
-- **🛡️ Checkpoint MCP Improvements** - Major enhancements to standalone checkpoint MCP server.
-- **🔧 Duplicate Tool Call Fix** - Resolved duplicate tool calls in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends.
-- **📋 Pre-collab Criteria Refinements** - Improvements to evaluation criteria generation in pre-collaboration phase.
+**What's New in v0.1.75:**
+- **🪝 Codex Native Hooks** - Hybrid hook system for Codex backend combining native and MCP capabilities.
+- **🛡️ Checkpoint WebUI Auto-Launch** - Checkpoint workflows auto-launch the WebUI for visual monitoring.
+- **📖 Standalone MCP Server Docs** - Guide for `massgen-checkpoint-mcp` with safety policy integration.
 
-**Try v0.1.74 Features:**
+**Try v0.1.75 Features:**
 ```bash
-pip install massgen==0.1.74
-# Try checkpoint mode in Claude Code
+pip install massgen==0.1.75
+# Try checkpoint MCP in Claude Code
 claude mcp add massgen-checkpoint-mcp -- \
   uvx --from massgen massgen-checkpoint-mcp --config path/to/config.yaml
 ```
@@ -1240,16 +1240,18 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.74)
+### Recent Achievements (v0.1.75)
 
-**🎉 Released: April 8, 2026**
+**🎉 Released: April 10, 2026**
 
-#### Checkpoint Improvements & Tool Call Fixes
-- **Checkpoint MCP Improvements** ([#1050](https://github.com/massgen/MassGen/pull/1050)): Major enhancements to the standalone checkpoint MCP server — subprocess execution, isolation, and event relay refinements
-- **Duplicate Tool Call Fix** ([#1050](https://github.com/massgen/MassGen/pull/1050)): Resolved duplicate tool call issues in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends
-- **Pre-collab Criteria Refinements** ([#1050](https://github.com/massgen/MassGen/pull/1050)): Improvements to evaluation criteria generation in pre-collaboration phase
+#### Codex Hooks & Checkpoint WebUI
+- **Codex Native Hooks** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Hybrid hook system for Codex backend combining native hooks and MCP capabilities
+- **Checkpoint WebUI Auto-Launch** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Checkpoint workflows auto-launch WebUI with configurable host/port for visual monitoring
+- **Standalone MCP Server Docs**: Guide for `massgen-checkpoint-mcp` with safety policy integration
 
-### Previous Achievements (v0.0.3 - v0.1.73)
+### Previous Achievements (v0.0.3 - v0.1.74)
+
+✅ **Checkpoint Improvements & Tool Call Fixes (v0.1.74)**: Major improvements to standalone checkpoint MCP server. Fix for duplicate tool calls in ChatCompletions and Response API backends.
 
 ✅ **Eval Criteria Evolver & Checkpoint Objectives (v0.1.73)**: New eval criteria evolver subagent that evolves criteria across rounds. Initial draft of checkpoint objective mode for safety planning of irreversible actions.
 
@@ -1542,9 +1544,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.75 Roadmap
+### v0.1.76 Roadmap
 
-Version 0.1.75 focuses on cloud execution:
+Version 0.1.76 focuses on cloud execution:
 
 #### Planned Features
 - **Cloud Modal MVP** ([#982](https://github.com/massgen/MassGen/issues/982)): Run MassGen as a cloud job on Modal — progress streams to terminal, results saved locally under `.massgen/cloud_jobs/`

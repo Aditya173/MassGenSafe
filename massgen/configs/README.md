@@ -227,21 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.74 - Latest
-**New Features:** Checkpoint Improvements & Tool Call Fixes
+### v0.1.75 - Latest
+**New Features:** Codex Hooks & Checkpoint WebUI
 
 **Key Features:**
-- **Checkpoint MCP Improvements**: Major enhancements to the standalone checkpoint MCP server — subprocess execution, isolation, and event relay refinements
-- **Duplicate Tool Call Fix**: Resolved duplicate tool call issues in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends
-- **Pre-collab Criteria Refinements**: Improvements to evaluation criteria generation in pre-collaboration phase
+- **Codex Native Hooks**: Hybrid hook system for Codex backend combining native and MCP capabilities
+- **Checkpoint WebUI Auto-Launch**: Checkpoint workflows auto-launch WebUI for visual monitoring
+- **Standalone MCP Server Docs**: Guide for `massgen-checkpoint-mcp` with safety policy integration
 
 **Try It:**
 ```bash
-pip install massgen==0.1.74
-# Try checkpoint mode in Claude Code
+pip install massgen==0.1.75
+# Try checkpoint MCP in Claude Code
 claude mcp add massgen-checkpoint-mcp -- \
   uvx --from massgen massgen-checkpoint-mcp --config path/to/config.yaml
 ```
+
+### v0.1.74
+**New Features:** Checkpoint Improvements & Tool Call Fixes
+
+**Key Features:**
+- **Checkpoint MCP Improvements**: Major enhancements to the standalone checkpoint MCP server
+- **Duplicate Tool Call Fix**: Resolved duplicate tool call issues in ChatCompletions and Response API backends
 
 ### v0.1.73
 **New Features:** Eval Criteria Evolver & Checkpoint Objectives

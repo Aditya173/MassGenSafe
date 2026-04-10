@@ -9,14 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.75 (April 10, 2026)** - Codex Hooks & Checkpoint WebUI
+Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server documentation and safety policy integration.
+
 **v0.1.74 (April 8, 2026)** - Checkpoint Improvements & Tool Call Fixes
 Major improvements to standalone checkpoint MCP server. Fix for duplicate tool calls in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends. Pre-collab evaluation criteria refinements.
 
 **v0.1.73 (April 6, 2026)** - Eval Criteria Evolver & Checkpoint Objectives
 New eval criteria evolver subagent that evolves criteria across rounds. Initial draft of checkpoint objective mode for safety planning of irreversible actions. Improved visibility of evaluation criteria.
 
-**v0.1.72 (April 3, 2026)** - Grok Backend Update & Circuit Breaker Phase 2
-Grok backend update with latest improvements. LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only). Config plumbing smoke tests for all backends.
+---
+
+## [0.1.75] - 2026-04-10
+
+### Added
+- **Codex Native Hooks** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Hybrid hook system for Codex backend combining native hooks and MCP capabilities
+- **Checkpoint WebUI Auto-Launch** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Checkpoint workflows now auto-launch the WebUI with configurable host/port for visual monitoring
+- **Standalone MCP Server Documentation**: Guide for `massgen-checkpoint-mcp` with setup, examples, troubleshooting, and safety policy integration
+
+### Changed
+- **Checkpoint Planning Improvements** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Precondition validation and recovery tree support; user/system prompt and eval criteria pass-through to checkpoint agents
+- **Safety Policy Update**: Updated safety policy for checkpoint based on Claude Code safe mode
+
+### Fixed
+- **WebUI Automation Redirect** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Fixed erroneous setup redirect during automation mode
+
+### Documentation, Configurations and Resources
+- **Updated Coordination Workflow**: Updated `docs/modules/coordination_workflow.md` with hook architecture and delivery rules
+- **Updated Injection Guide**: Updated `docs/modules/injection.md`
+- **Standalone MCP README**: New comprehensive `massgen/mcp_tools/standalone/README.md`
+
+### Technical Details
+- **Major Focus**: Codex Hooks & Checkpoint WebUI — deeper Codex integration and visual checkpoint monitoring
+- **PRs Merged**: [#1053](https://github.com/massgen/MassGen/pull/1053)
+- **Contributors**: @ncrispino, @HenryQi and the MassGen team
 
 ---
 

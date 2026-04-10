@@ -1,4 +1,4 @@
-# MassGen v0.1.74 Release Announcement
+# MassGen v0.1.75 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.74 — Checkpoint Improvements & Tool Call Fixes! 🚀 Major improvements to checkpoint MCP standalone server, fix for duplicate tool calls in ChatCompletions backend (including for MiniMax on OpenRouter), and evaluation criteria refinements.
+We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! 🚀 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server documentation and safety policy integration.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.74
+pip install massgen==0.1.75
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.74
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.75
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,30 +29,37 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.74 — Checkpoint Improvements & Tool Call Fixes! 🚀 Major improvements to checkpoint MCP standalone server. Fix for duplicate tool calls in ChatCompletions backend (including for MiniMax on OpenRouter). Evaluation criteria refinements.
+We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! 🚀 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server documentation and safety policy integration.
 
 **Key Improvements:**
 
-🛡️ **Checkpoint MCP Improvements** — Significant enhancements to checkpoint coordination:
-- Major additions to standalone checkpoint MCP server
-- Refinements to subprocess execution and event relay
-- Better isolation and workspace handling
+🪝 **Codex Native Hooks** — Hybrid hook system for Codex backend:
+- Combines native hooks and MCP capabilities
+- Enables richer integration between Codex and MassGen's coordination
 
-🔧 **Duplicate Tool Call Fix** — Resolved duplicate tool call issues in ChatCompletions and Response API backends
+🛡️ **Checkpoint WebUI Auto-Launch** — Visual monitoring for checkpoint workflows:
+- Checkpoint runs now auto-launch the WebUI with configurable host/port
+- User/system prompt and eval criteria pass-through to checkpoint agents
+- Improved checkpoint planning with precondition validation and recovery trees
+
+📖 **Standalone MCP Server Documentation** — Guide for `massgen-checkpoint-mcp`:
+- Setup guide with examples and troubleshooting
+- Safety policy integration documentation
 
 **Plus:**
-- 📋 **Evaluation criteria refinements** — Pre-collab criteria generation improvements
+- 🔒 **Safety policy update** — Updated safety policy for checkpoint based on Claude Code safe mode
+- 🐛 **WebUI automation fix** — Fixed erroneous setup redirect during automation mode
 
 **Getting Started:**
 
 ```bash
-pip install massgen==0.1.74
-# Try checkpoint mode in Claude Code
+pip install massgen==0.1.75
+# Try checkpoint MCP in Claude Code
 claude mcp add massgen-checkpoint-mcp -- \
   uvx --from massgen massgen-checkpoint-mcp --config path/to/config.yaml
 ```
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.74
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.75
 
 Feature highlights:
 

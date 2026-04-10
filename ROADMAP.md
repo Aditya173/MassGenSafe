@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.74
+**Current Version:** v0.1.75
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** April 8, 2026
+**Last Updated:** April 10, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,48 +42,27 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.75** | 04/11/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
-| **v0.1.76** | 04/13/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
-| **v0.1.77** | 04/15/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
+| **v0.1.76** | 04/13/26 | Cloud Modal MVP | @ncrispino | Run MassGen as a cloud job on Modal ([#982](https://github.com/massgen/MassGen/issues/982)) |
+| **v0.1.77** | 04/15/26 | OpenAI Audio API | @ncrispino | Support OpenAI audio API for audio understanding ([#960](https://github.com/massgen/MassGen/issues/960)) |
+| **v0.1.78** | 04/17/26 | Image/Video Edit Capabilities | @ncrispino | Check and support img/video editing capabilities ([#959](https://github.com/massgen/MassGen/issues/959)) |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.74 - Checkpoint Improvements & Tool Call Fixes (Completed)
+## ✅ v0.1.75 - Codex Hooks & Checkpoint WebUI (Completed)
 
-**Released:** April 8, 2026 | PRs: [#1050](https://github.com/massgen/MassGen/pull/1050)
+**Released:** April 10, 2026 | PRs: [#1053](https://github.com/massgen/MassGen/pull/1053)
 
 ### Features
-- **Checkpoint MCP Improvements**: Major enhancements to the standalone checkpoint MCP server — subprocess execution, isolation, and event relay refinements
-- **Duplicate Tool Call Fix**: Resolved duplicate tool call issues in ChatCompletions (including for MiniMax on OpenRouter) and Response API backends
-- **Pre-collab Criteria Refinements**: Improvements to evaluation criteria generation in pre-collaboration phase
+- **Codex Native Hooks**: Hybrid hook system for Codex backend combining native hooks and MCP capabilities
+- **Checkpoint WebUI Auto-Launch**: Checkpoint workflows auto-launch WebUI with configurable host/port for visual monitoring
+- **Standalone MCP Server Docs**: Guide for `massgen-checkpoint-mcp` with safety policy integration
+- **Safety Policy Update**: Updated safety policy for checkpoint based on Claude Code safe mode
 
 ---
 
-## ✅ v0.1.73 - Eval Criteria Evolver & Checkpoint Objectives (Completed)
-
-**Released:** April 6, 2026 | PRs: [#1047](https://github.com/massgen/MassGen/pull/1047)
-
-### Features
-- **Eval Criteria Evolver Subagent**: New subagent type that evolves evaluation criteria across rounds — sharper, more opinionated criteria as the run progresses
-- **Checkpoint Objective Mode (Initial Draft)**: Initial draft of checkpoint MCP with `objective` mode for safety planning of irreversible actions
-- **Improved Eval Criteria Visibility**: Clearer visibility into what criteria agents are working against
-
----
-
-## ✅ v0.1.72 - Grok Backend Update & Circuit Breaker Phase 2 (Completed)
-
-**Released:** April 3, 2026 | PRs: [#1038](https://github.com/massgen/MassGen/pull/1038), [#1044](https://github.com/massgen/MassGen/pull/1044)
-
-### Features
-- **Grok Backend Update**: Updated Grok backend with latest improvements
-- **Circuit Breaker Phase 2**: LLM API circuit breaker extended to ChatCompletions, Response API, and Gemini backends (was Claude-only); Gemini also handles 503
-- **Config Plumbing Smoke Tests**: Verify circuit breaker wiring for all backends
-
----
-
-## 📋 v0.1.75 - Cloud Modal MVP
+## 📋 v0.1.76 - Cloud Modal MVP
 
 ### Features
 
@@ -99,7 +78,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.76 - OpenAI Audio API
+## 📋 v0.1.77 - OpenAI Audio API
 
 ### Features
 
@@ -115,7 +94,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.77 - Image/Video Edit Capabilities
+## 📋 v0.1.78 - Image/Video Edit Capabilities
 
 ### Features
 
