@@ -336,7 +336,8 @@ When new peer work exists, delivery path is selected by backend capability:
 |---|---|
 | `set_general_hook_manager` | General hook manager (`MidStreamInjectionHook`) |
 | `supports_native_hooks()` | Native backend hook adapter (Claude Code path) |
-| `supports_mcp_server_hooks()` | MCP server-level hook file IPC (Codex path) |
+| `supports_native_hooks()` + `supports_mcp_server_hooks()` | Hybrid native-hook + MCP/file IPC delivery (Codex path) |
+| `supports_mcp_server_hooks()` | MCP server-level hook file IPC |
 | none of the above | Defensive hookless fallback via enforcement-message injection/restart |
 
 ### Delivery rules

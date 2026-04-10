@@ -69,6 +69,7 @@ from .mcp_tools.hooks import (
     HumanInputHook,
     MediaCallLedgerHook,
     MidStreamInjectionHook,
+    PythonCallableHook,
     RoundTimeoutPostHook,
     RoundTimeoutPreHook,
     RoundTimeoutState,
@@ -8464,6 +8465,20 @@ Your answer:"""
         self._ensure_runtime_human_input_hook_initialized()
         self._ensure_runtime_inbox_poller_initialized()
 
+        backend = getattr(agent, "backend", None)
+        backend_provider = backend.get_provider_name() if backend and hasattr(backend, "get_provider_name") else ""
+
+        # Codex uses a hybrid path: native Bash hooks plus MCP/file-based payload delivery.
+        if (
+            backend_provider == "codex"
+            and hasattr(agent.backend, "supports_native_hooks")
+            and agent.backend.supports_native_hooks()
+            and hasattr(agent.backend, "supports_mcp_server_hooks")
+            and agent.backend.supports_mcp_server_hooks()
+        ):
+            self._setup_codex_hybrid_hooks(agent_id, agent, answers)
+            return
+
         # Check if backend supports native hooks (e.g., Claude Code)
         if hasattr(agent.backend, "supports_native_hooks") and agent.backend.supports_native_hooks():
             self._setup_native_hooks_for_agent(agent_id, agent, answers)
@@ -8794,6 +8809,64 @@ Your answer:"""
         logger.info(
             "[Orchestrator] Set up MCP server-level hook delivery for %s",
             agent_id,
+        )
+
+    def _setup_codex_hybrid_hooks(
+        self,
+        agent_id: str,
+        agent: ChatAgent,
+        answers: dict[str, str],
+    ) -> None:
+        """Set up Codex's hybrid delivery path.
+
+        Codex native hooks currently cover Bash-only ``PreToolUse`` and
+        ``PostToolUse``. MassGen runtime payload delivery still flows through the
+        shared ``hook_post_tool_use.json`` file and the MCP/file carry-forward
+        path, so we register a lightweight native Bash bridge and keep the
+        existing Codex MCP setup in place.
+        """
+        adapter = agent.backend.get_native_hook_adapter()
+        if not adapter:
+            logger.warning(
+                "[Orchestrator] Codex backend reported native hooks but no adapter was available for %s",
+                agent_id,
+            )
+            self._setup_codex_mcp_hooks(agent_id, agent, answers)
+            return
+
+        manager = GeneralHookManager()
+        manager.register_global_hook(
+            HookType.POST_TOOL_USE,
+            PythonCallableHook(
+                name="codex_post_tool_bridge",
+                handler=lambda _event: None,
+                matcher="Bash",
+            ),
+        )
+
+        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+        path_permission_manager = getattr(filesystem_manager, "path_permission_manager", None) if filesystem_manager else None
+        if path_permission_manager and getattr(path_permission_manager, "managed_paths", None):
+            from massgen.filesystem_manager import PathPermissionManagerHook
+
+            manager.register_global_hook(
+                HookType.PRE_TOOL_USE,
+                PathPermissionManagerHook(path_permission_manager),
+            )
+
+        native_config = adapter.build_native_hooks_config(
+            manager,
+            agent_id=agent_id,
+        )
+        agent.backend.set_native_hooks_config(native_config)
+        self._setup_codex_mcp_hooks(agent_id, agent, answers)
+
+        hooks = native_config.get("hooks", {}) if isinstance(native_config, dict) else {}
+        logger.info(
+            "[Orchestrator] Set up Codex hybrid hooks for %s: PreToolUse=%d, PostToolUse=%d",
+            agent_id,
+            len(hooks.get("PreToolUse", [])),
+            len(hooks.get("PostToolUse", [])),
         )
 
     async def _flush_codex_hook_payloads(

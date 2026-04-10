@@ -3,18 +3,77 @@ Shared utilities for checkpoint and gated_action sub-runs.
 
 This module provides common functionality for spawning MassGen sub-runs
 that are used by both the checkpoint and gated_action MCP tools.
+
+Environment variables (read per sub-run at spawn time):
+
+    MASSGEN_CHECKPOINT_WEB_UI  = "auto" | "view" | unset
+        "auto" — enable the MassGen web UI for the sub-run AND open the
+                 default browser to the session URL.
+        "view" — enable the web UI and print the URL, but do NOT open a
+                 browser. Useful when you want to inspect on demand.
+        unset / anything else — no web UI (current default).
+
+    MASSGEN_CHECKPOINT_WEB_PORT = integer
+        Port to bind the web UI to. Default 8000. Override this when
+        running multiple concurrent sub-runs to avoid collisions.
+
+    MASSGEN_CHECKPOINT_WEB_HOST = string
+        Host to bind the web UI to. Default 127.0.0.1 (localhost only).
+
+Caveats:
+- Port 8000 collides if multiple checkpoints run at once. Set a custom
+  port via MASSGEN_CHECKPOINT_WEB_PORT per shell if needed.
+- The MCP server and your browser must share a host (localhost binding
+  is the default).
 """
 
 import asyncio
 import logging
+import os
 import shutil
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+def _web_ui_settings() -> tuple[str, str, int]:
+    """Read web UI env vars. Returns (mode, host, port).
+
+    mode is one of: "auto", "view", "none".
+    """
+    mode = os.environ.get("MASSGEN_CHECKPOINT_WEB_UI", "").strip().lower()
+    if mode not in {"auto", "view"}:
+        mode = "none"
+    host = os.environ.get("MASSGEN_CHECKPOINT_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    port_raw = os.environ.get("MASSGEN_CHECKPOINT_WEB_PORT", "8000").strip() or "8000"
+    try:
+        port = int(port_raw)
+    except ValueError:
+        logger.warning(
+            "[SubrunRunner] Invalid MASSGEN_CHECKPOINT_WEB_PORT=%r, falling back to 8000",
+            port_raw,
+        )
+        port = 8000
+    return mode, host, port
+
+
+async def _open_browser_after_delay(url: str, delay_seconds: float = 2.0) -> None:
+    """Open the default browser to `url` after a short delay.
+
+    The delay gives the MassGen web server time to bind the port before
+    the browser tries to load the page. Any failure is logged, not raised.
+    """
+    try:
+        await asyncio.sleep(delay_seconds)
+        webbrowser.open(url)
+        logger.info("[SubrunRunner] Opened browser at %s", url)
+    except Exception as e:  # pragma: no cover - best-effort
+        logger.warning("[SubrunRunner] Could not open browser at %s: %s", url, e)
 
 
 def deep_copy_dict(d: Any) -> Any:
@@ -273,8 +332,42 @@ async def run_massgen_subrun(
         "--no-parse-at-references",
         "--output-file",
         str(answer_file),
-        prompt,
     ]
+
+    # Optional web UI (env-driven — see module docstring).
+    web_mode, web_host, web_port = _web_ui_settings()
+    web_url: str | None = None
+    if web_mode != "none":
+        cmd.extend(
+            [
+                "--web",
+                "--web-host",
+                web_host,
+                "--web-port",
+                str(web_port),
+                "--no-browser",  # we open the browser ourselves after a delay
+            ],
+        )
+        # The bare URL is enough: when MassGen runs with --automation,
+        # `/api/setup/status` reports needs_setup=false (server.py change)
+        # so the frontend skips the first-run wizard entirely and lands
+        # on the live coordination view. The frontend then calls
+        # /api/active-session and auto-attaches to the run that
+        # --automation kicked off.
+        web_url = f"http://{web_host}:{web_port}/"
+        logger.info(
+            "[SubrunRunner] Web UI enabled (mode=%s) at %s",
+            web_mode,
+            web_url,
+        )
+        # Surface URL prominently to stderr so the user sees it even with
+        # --automation suppressing most output.
+        print(
+            f"[massgen-checkpoint-mcp] Web UI: {web_url}  (mode={web_mode})",
+            flush=True,
+        )
+
+    cmd.append(prompt)
 
     logger.info(f"[SubrunRunner] Spawning sub-run with config: {config_path}")
 
@@ -287,6 +380,12 @@ async def run_massgen_subrun(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(workspace),
         )
+
+        # In "auto" mode, open the browser shortly after the subprocess
+        # starts. We schedule this as a background task so it doesn't
+        # block the await on process.communicate() below.
+        if web_mode == "auto" and web_url is not None:
+            asyncio.create_task(_open_browser_after_delay(web_url))
 
         try:
             stdout, stderr = await asyncio.wait_for(

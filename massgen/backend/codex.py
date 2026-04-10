@@ -41,7 +41,9 @@ Sandbox Limitations (IMPORTANT):
 - The OS sandbox ONLY restricts WRITES - reads are NOT blocked!
 - This means Codex can read files from anywhere on the filesystem, including
   sensitive directories outside the workspace and context_paths.
-- MassGen's permission hooks cannot intercept Codex's native tool calls.
+- MassGen can add limited Bash-only guardrails via native Codex hooks, but it
+  still cannot fully intercept Codex-native Write/WebSearch/MCP/non-shell tool
+  calls.
 - For security-sensitive workloads, PREFER DOCKER MODE which provides full
   filesystem isolation via container boundaries.
 - When running without Docker, the writable_roots config restricts writes
@@ -63,6 +65,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable
@@ -142,6 +145,9 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         if kwargs.get("command_line_execution_mode") == "docker":
             self._remove_injected_command_line_mcp()
         self.__init_native_tool_mixin__()
+        self._init_native_hook_adapter(
+            "massgen.mcp_tools.native_hook_adapters.CodexNativeHookAdapter",
+        )
 
         # Authentication setup
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -195,6 +201,11 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         # Docker execution mode
         self._docker_execution = kwargs.get("command_line_execution_mode") == "docker"
         self._docker_codex_verified = False
+        adapter = self.get_native_hook_adapter()
+        if adapter and hasattr(adapter, "hook_dir"):
+            adapter.hook_dir = self.get_hook_dir()
+        if adapter and hasattr(adapter, "docker_mode"):
+            adapter.docker_mode = self._docker_execution
 
         # Custom tools: wrap as MCP server for Codex to connect to
         custom_tools = list(kwargs.get("custom_tools", []))
@@ -806,6 +817,11 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         config: dict[str, Any] = {}
         config_dir = Path(self.cwd) / ".codex"
         config_dir.mkdir(parents=True, exist_ok=True)
+        adapter = self.get_native_hook_adapter()
+        if adapter and hasattr(adapter, "hook_dir"):
+            adapter.hook_dir = config_dir
+        if adapter and hasattr(adapter, "docker_mode"):
+            adapter.docker_mode = self._docker_execution
 
         # Model settings
         if self.model:
@@ -973,6 +989,26 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             config["model_instructions_file"] = str(agents_md_path)
             logger.info(f"Wrote Codex AGENTS.md: {agents_md_path} ({len(full_prompt)} chars)")
 
+        permission_hooks_config = self._build_permission_hooks_config(config_dir)
+        merged_hooks_config = permission_hooks_config
+        if adapter and self._massgen_hooks_config:
+            merged_hooks_config = adapter.merge_native_configs(
+                permission_hooks_config,
+                self._massgen_hooks_config,
+            )
+        elif self._massgen_hooks_config:
+            merged_hooks_config = self._massgen_hooks_config
+
+        hooks_path = config_dir / "hooks.json"
+        hooks_section = merged_hooks_config.get("hooks", {}) if merged_hooks_config else {}
+        if hooks_section:
+            self._prepare_native_hook_script(config_dir)
+            hooks_path.write_text(json.dumps(merged_hooks_config, indent=2), encoding="utf-8")
+            config.setdefault("features", {})["codex_hooks"] = True
+        else:
+            hooks_path.unlink(missing_ok=True)
+            (config_dir / "codex_hook_script.py").unlink(missing_ok=True)
+
         # Configure sandbox for local (non-Docker) workspace-write mode.
         # Codex OS-level sandbox (Seatbelt on macOS, Landlock on Linux) restricts writes to:
         #   cwd (workspace) + /tmp + writable_roots
@@ -1105,6 +1141,80 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
                 lines.append("")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    def _build_permission_manifest(self) -> dict[str, Any] | None:
+        """Serialize managed path permissions for the standalone Codex hook script."""
+        fm = getattr(self, "filesystem_manager", None)
+        if fm is None:
+            return None
+
+        ppm = getattr(fm, "path_permission_manager", None)
+        managed_paths = getattr(ppm, "managed_paths", None)
+        if ppm is None or not managed_paths:
+            return None
+
+        return {
+            "version": 1,
+            "workspace": str(Path(self.cwd).resolve()),
+            "managed_paths": [
+                {
+                    "path": str(Path(mp.path).resolve()),
+                    "permission": mp.permission.value,
+                    "path_type": mp.path_type,
+                    "is_file": bool(mp.is_file),
+                    "protected_paths": [str(Path(p).resolve()) for p in (mp.protected_paths or [])],
+                }
+                for mp in managed_paths
+            ],
+        }
+
+    def _prepare_native_hook_script(self, config_dir: Path) -> Path | None:
+        """Copy the standalone Codex hook script into the workspace hook dir."""
+        try:
+            from ..mcp_tools.native_hook_adapters.codex_adapter import (
+                _HOOK_SCRIPT_NAME,
+                _HOOK_SCRIPT_PATH,
+            )
+        except ImportError:
+            logger.warning("Codex native hook adapter not available, skipping hook script copy")
+            return None
+
+        destination = config_dir / _HOOK_SCRIPT_NAME
+        shutil.copy2(_HOOK_SCRIPT_PATH, destination)
+        return destination
+
+    def _native_hook_command(self, config_dir: Path, event_name: str) -> str:
+        """Build the command string Codex should execute for a native hook event."""
+        hook_script_path = config_dir / "codex_hook_script.py"
+        python_exe = "python3" if self._docker_execution else sys.executable
+        return f"{python_exe} {hook_script_path}" f" --hook-dir {config_dir}" f" --event {event_name}"
+
+    def _build_permission_hooks_config(self, config_dir: Path) -> dict[str, Any]:
+        """Build the default Codex PreToolUse hook config for Bash permission checks."""
+        manifest = self._build_permission_manifest()
+        manifest_path = config_dir / "permission_manifest.json"
+        if not manifest:
+            manifest_path.unlink(missing_ok=True)
+            return {}
+
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        return {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": self._native_hook_command(config_dir, "PreToolUse"),
+                                "timeout": 10,
+                                "statusMessage": "Checking Bash command",
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+
     def _cleanup_workspace_config(self) -> None:
         """Remove the project-scoped .codex/ directory we created."""
         if not self._workspace_config_written and not self._custom_tools_specs_path:
@@ -1112,7 +1222,16 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         config_dir = Path(self.cwd) / ".codex"
         try:
             # Remove individual files we created
-            for filename in ("config.toml", "custom_tool_specs.json", "workflow_tool_specs.json", "checklist_specs.json", "AGENTS.md"):
+            for filename in (
+                "config.toml",
+                "custom_tool_specs.json",
+                "workflow_tool_specs.json",
+                "checklist_specs.json",
+                "AGENTS.md",
+                "hooks.json",
+                "permission_manifest.json",
+                "codex_hook_script.py",
+            ):
                 filepath = config_dir / filename
                 if filepath.exists():
                     filepath.unlink()

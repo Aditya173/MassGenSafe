@@ -685,6 +685,40 @@ async def test_codex_hook_flush_includes_local_subagent_queue(mock_orchestrator,
     assert orchestrator._pending_subagent_results.get(agent_id) in (None, [])
 
 
+def test_setup_hook_manager_for_codex_hybrid_sets_native_and_mcp(mock_orchestrator, tmp_path: Path):
+    """Codex hybrid setup should configure native Bash hooks without losing MCP delivery."""
+    from massgen.mcp_tools.native_hook_adapters.codex_adapter import (
+        CodexNativeHookAdapter,
+    )
+
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    captured: dict[str, object] = {}
+    adapter = CodexNativeHookAdapter(hook_dir=tmp_path / ".codex")
+
+    agent.backend._provider_name = "codex"
+    agent.backend.supports_native_hooks = lambda: True
+    agent.backend.supports_mcp_server_hooks = lambda: True
+    agent.backend.get_native_hook_adapter = lambda: adapter
+    agent.backend.set_native_hooks_config = lambda config: captured.setdefault("native_config", config)
+    agent.backend.set_background_wait_interrupt_provider = lambda provider: captured.setdefault(
+        "wait_provider",
+        provider,
+    )
+
+    orchestrator._setup_hook_manager_for_agent(agent_id, agent, {})
+
+    native_config = captured.get("native_config")
+    assert isinstance(native_config, dict)
+    assert "hooks" in native_config
+    assert "PostToolUse" in native_config["hooks"]
+    assert native_config["hooks"]["PostToolUse"][0]["matcher"] == "Bash"
+    assert agent_id in orchestrator._codex_mcp_hook_agents
+    assert callable(captured.get("wait_provider"))
+
+
 # =============================================================================
 # Hookless delivery event emissions (MAS-308)
 # =============================================================================
