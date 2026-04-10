@@ -162,7 +162,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 **What's New in v0.1.75:**
 - **🪝 Codex Native Hooks** - Hybrid hook system for Codex backend combining native and MCP capabilities.
 - **🛡️ Checkpoint WebUI Auto-Launch** - Checkpoint workflows auto-launch the WebUI for visual monitoring.
-- **📖 Standalone MCP Server Docs** - Comprehensive guide for `massgen-checkpoint-mcp` with safety policy integration.
+- **📖 Standalone MCP Server Docs** - Guide for `massgen-checkpoint-mcp` with safety policy integration.
 
 **Try v0.1.75 Features:**
 ```bash
@@ -1248,7 +1248,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 #### Codex Hooks & Checkpoint WebUI
 - **Codex Native Hooks** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Hybrid hook system for Codex backend combining native hooks and MCP capabilities
 - **Checkpoint WebUI Auto-Launch** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Checkpoint workflows auto-launch WebUI with configurable host/port for visual monitoring
-- **Standalone MCP Server Docs**: Comprehensive guide for `massgen-checkpoint-mcp` with safety policy integration
+- **Standalone MCP Server Docs**: Guide for `massgen-checkpoint-mcp` with safety policy integration
 
 ### Previous Achievements (v0.0.3 - v0.1.74)
 

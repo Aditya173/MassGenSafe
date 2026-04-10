@@ -233,7 +233,7 @@ Most configurations use environment variables for API keys:so
 **Key Features:**
 - **Codex Native Hooks**: Hybrid hook system for Codex backend combining native and MCP capabilities
 - **Checkpoint WebUI Auto-Launch**: Checkpoint workflows auto-launch WebUI for visual monitoring
-- **Standalone MCP Server Docs**: Comprehensive guide for `massgen-checkpoint-mcp` with safety policy integration
+- **Standalone MCP Server Docs**: Guide for `massgen-checkpoint-mcp` with safety policy integration
 
 **Try It:**
 ```bash

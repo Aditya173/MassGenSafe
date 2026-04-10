@@ -50,6 +50,18 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
+## ✅ v0.1.75 - Codex Hooks & Checkpoint WebUI (Completed)
+
+**Released:** April 10, 2026 | PRs: [#1053](https://github.com/massgen/MassGen/pull/1053)
+
+### Features
+- **Codex Native Hooks**: Hybrid hook system for Codex backend combining native hooks and MCP capabilities
+- **Checkpoint WebUI Auto-Launch**: Checkpoint workflows auto-launch WebUI with configurable host/port for visual monitoring
+- **Standalone MCP Server Docs**: Guide for `massgen-checkpoint-mcp` with safety policy integration
+- **Safety Policy Update**: Updated safety policy for checkpoint based on Claude Code safe mode
+
+---
+
 ## ✅ v0.1.74 - Checkpoint Improvements & Tool Call Fixes (Completed)
 
 **Released:** April 8, 2026 | PRs: [#1050](https://github.com/massgen/MassGen/pull/1050)

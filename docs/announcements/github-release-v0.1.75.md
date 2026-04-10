@@ -9,7 +9,7 @@
 - **Improved planning**: Precondition validation and recovery tree support
 
 ### 📖 [Standalone MCP Server Docs](https://github.com/massgen/MassGen/blob/main/massgen/mcp_tools/standalone/README.md)
-- **Comprehensive guide**: Setup, examples, and troubleshooting for `massgen-checkpoint-mcp`
+- **Setup guide**: Setup, examples, and troubleshooting for `massgen-checkpoint-mcp`
 - **Safety policy integration**: Documentation for configuring safety policies
 
 ---

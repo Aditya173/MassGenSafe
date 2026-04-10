@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! 🚀 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server with comprehensive documentation and safety policy integration.
+We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! 🚀 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server documentation and safety policy integration.
 
 ## Install
 
@@ -29,7 +29,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! 🚀 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server with comprehensive documentation and safety policy integration.
+We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! 🚀 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server documentation and safety policy integration.
 
 **Key Improvements:**
 
@@ -42,12 +42,12 @@ We're excited to release MassGen v0.1.75 — Codex Hooks & Checkpoint WebUI! �
 - User/system prompt and eval criteria pass-through to checkpoint agents
 - Improved checkpoint planning with precondition validation and recovery trees
 
-📖 **Standalone MCP Server Documentation** — Comprehensive guide for `massgen-checkpoint-mcp`:
+📖 **Standalone MCP Server Documentation** — Guide for `massgen-checkpoint-mcp`:
 - Setup guide with examples and troubleshooting
 - Safety policy integration documentation
 
 **Plus:**
-- 🔒 **Safety policy update** — Updated safety policy based on Claude Code safe mode
+- 🔒 **Safety policy update** — Updated safety policy for checkpoint based on Claude Code safe mode
 - 🐛 **WebUI automation fix** — Fixed erroneous setup redirect during automation mode
 
 **Getting Started:**

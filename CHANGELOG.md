@@ -25,11 +25,11 @@ New eval criteria evolver subagent that evolves criteria across rounds. Initial 
 ### Added
 - **Codex Native Hooks** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Hybrid hook system for Codex backend combining native hooks and MCP capabilities
 - **Checkpoint WebUI Auto-Launch** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Checkpoint workflows now auto-launch the WebUI with configurable host/port for visual monitoring
-- **Standalone MCP Server Documentation**: Comprehensive guide for `massgen-checkpoint-mcp` with setup, examples, troubleshooting, and safety policy integration
+- **Standalone MCP Server Documentation**: Guide for `massgen-checkpoint-mcp` with setup, examples, troubleshooting, and safety policy integration
 
 ### Changed
 - **Checkpoint Planning Improvements** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Precondition validation and recovery tree support; user/system prompt and eval criteria pass-through to checkpoint agents
-- **Safety Policy Update**: Updated safety policy based on Claude Code safe mode
+- **Safety Policy Update**: Updated safety policy for checkpoint based on Claude Code safe mode
 
 ### Fixed
 - **WebUI Automation Redirect** ([#1053](https://github.com/massgen/MassGen/pull/1053)): Fixed erroneous setup redirect during automation mode
