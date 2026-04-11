@@ -83,7 +83,7 @@ class CircuitBreakerMetrics:
                 to_state=to_state,
             ).inc()
             self._current_state.labels(backend=backend).set(
-                self._state_value(to_state)
+                self._state_value(to_state),
             )
 
     def record_request(
@@ -111,7 +111,7 @@ class CircuitBreakerMetrics:
         with self._lock:
             self._requests.labels(backend=backend, outcome=outcome).inc()
             self._request_latency.labels(backend=backend).observe(
-                latency_seconds
+                latency_seconds,
             )
 
     def get_registry(self) -> Any:

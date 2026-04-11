@@ -9,10 +9,9 @@ Covers:
 from __future__ import annotations
 
 import sys
-import threading
 import time
 from types import ModuleType
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -23,10 +22,10 @@ from massgen.backend.llm_circuit_breaker import (
 )
 from massgen.observability import CircuitBreakerMetrics
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _install_fake_prometheus() -> tuple[ModuleType, dict]:
     """Install a minimal fake prometheus_client into sys.modules.
@@ -280,10 +279,7 @@ class TestCircuitBreakerIntegration:
 
         assert cb.state == CircuitState.OPEN
         transitions = calls["transitions"]
-        assert any(
-            t["from_state"] == "closed" and t["to_state"] == "open"
-            for t in transitions
-        ), f"Expected closed->open transition, got: {transitions}"
+        assert any(t["from_state"] == "closed" and t["to_state"] == "open" for t in transitions), f"Expected closed->open transition, got: {transitions}"
 
     def test_cb_emits_metrics_on_success_close(self) -> None:
         """CB transitions OPEN->CLOSED on success emit state transition metric."""
@@ -295,10 +291,7 @@ class TestCircuitBreakerIntegration:
         assert cb.state == CircuitState.CLOSED
         transitions = calls["transitions"]
         # Should have open->closed or half_open->closed
-        close_transitions = [
-            t for t in transitions
-            if t.get("to_state") == "closed"
-        ]
+        close_transitions = [t for t in transitions if t.get("to_state") == "closed"]
         assert len(close_transitions) >= 1
 
     def test_cb_emits_metrics_on_force_open(self) -> None:
@@ -322,10 +315,7 @@ class TestCircuitBreakerIntegration:
         cb.force_open(reason="second")
 
         transitions = calls["transitions"]
-        assert any(
-            t["from_state"] == "open" and t["to_state"] == "open"
-            for t in transitions
-        )
+        assert any(t["from_state"] == "open" and t["to_state"] == "open" for t in transitions)
 
     def test_cb_reset_emits_transition_metric(self) -> None:
         """reset() from OPEN emits open->closed state transition metric."""
@@ -339,10 +329,7 @@ class TestCircuitBreakerIntegration:
 
         assert cb.state == CircuitState.CLOSED
         transitions = calls["transitions"]
-        assert any(
-            t.get("from_state") == "open" and t.get("to_state") == "closed"
-            for t in transitions
-        ), f"Expected open->closed from reset(), got: {transitions}"
+        assert any(t.get("from_state") == "open" and t.get("to_state") == "closed" for t in transitions), f"Expected open->closed from reset(), got: {transitions}"
 
     def test_cb_reset_from_closed_no_emit(self) -> None:
         """reset() when already CLOSED must not emit a spurious metric."""
@@ -352,10 +339,7 @@ class TestCircuitBreakerIntegration:
         calls["transitions"].clear()
         cb.reset()
 
-        assert calls["transitions"] == [], (
-            f"Expected no transition from reset() on already-CLOSED CB, "
-            f"got: {calls['transitions']}"
-        )
+        assert calls["transitions"] == [], f"Expected no transition from reset() on already-CLOSED CB, " f"got: {calls['transitions']}"
 
     def test_cb_reset_from_half_open_emits_transition(self) -> None:
         """reset() from HALF_OPEN emits half_open->closed metric."""
@@ -372,15 +356,14 @@ class TestCircuitBreakerIntegration:
         cb.reset()
 
         assert cb.state == CircuitState.CLOSED
-        assert any(
-            t.get("from_state") == "half_open" and t.get("to_state") == "closed"
-            for t in calls["transitions"]
-        ), f"Expected half_open->closed from reset(), got: {calls['transitions']}"
+        assert any(t.get("from_state") == "half_open" and t.get("to_state") == "closed" for t in calls["transitions"]), f"Expected half_open->closed from reset(), got: {calls['transitions']}"
 
     def test_cb_metrics_none_full_lifecycle(self) -> None:
         """metrics=None: full CB lifecycle (CLOSED->OPEN->HALF_OPEN->CLOSED) without error."""
         config = LLMCircuitBreakerConfig(
-            enabled=True, max_failures=1, reset_time_seconds=1
+            enabled=True,
+            max_failures=1,
+            reset_time_seconds=1,
         )
         cb = LLMCircuitBreaker(config=config, backend_name="test", metrics=None)
 
@@ -405,7 +388,9 @@ class TestCircuitBreakerIntegration:
         try:
             metrics = CircuitBreakerMetrics()
             config = LLMCircuitBreakerConfig(
-                enabled=True, max_failures=1, reset_time_seconds=999
+                enabled=True,
+                max_failures=1,
+                reset_time_seconds=999,
             )
             cb = LLMCircuitBreaker(config=config, backend_name="test", metrics=metrics)
 
@@ -421,17 +406,10 @@ class TestCircuitBreakerIntegration:
             assert not blocked
             assert cb.state == CircuitState.HALF_OPEN
 
-            half_open_transitions = [
-                t for t in calls["transitions"]
-                if t.get("from_state") == "open" and t.get("to_state") == "half_open"
-            ]
-            assert len(half_open_transitions) == 1, (
-                f"Expected open->half_open transition metric, got: {calls['transitions']}"
-            )
+            half_open_transitions = [t for t in calls["transitions"] if t.get("from_state") == "open" and t.get("to_state") == "half_open"]
+            assert len(half_open_transitions) == 1, f"Expected open->half_open transition metric, got: {calls['transitions']}"
             # Gauge encoding: HALF_OPEN == 1
-            assert any(g.get("value") == 1 for g in calls["gauge_sets"]), (
-                f"Expected gauge=1 for HALF_OPEN, got: {calls['gauge_sets']}"
-            )
+            assert any(g.get("value") == 1 for g in calls["gauge_sets"]), f"Expected gauge=1 for HALF_OPEN, got: {calls['gauge_sets']}"
         finally:
             _remove_fake_prometheus()
 
@@ -475,6 +453,7 @@ class TestRound5Additions:
 
             class _FakeCap429(Exception):
                 """Fake exception that looks like a 429 with no Retry-After (CAP)."""
+
                 status_code = 429
 
             config = LLMCircuitBreakerConfig(
@@ -483,7 +462,9 @@ class TestRound5Additions:
                 reset_time_seconds=999,
             )
             cb = LLMCircuitBreaker(
-                config=config, backend_name="test_cap", metrics=self._metrics
+                config=config,
+                backend_name="test_cap",
+                metrics=self._metrics,
             )
 
             async def _coro():
@@ -492,16 +473,14 @@ class TestRound5Additions:
                 raise _FakeCap429()
 
             import pytest as _pytest
+
             with _pytest.raises(_FakeCap429):
                 await cb.call_with_retry(_coro, max_retries=2)
 
         asyncio.run(_run())
         # 2 attempts (initial + 1 retry), both must be counted
         cap_requests = [r for r in self._calls["requests"] if r.get("backend") == "test_cap"]
-        assert len(cap_requests) == attempt_count, (
-            f"Expected {attempt_count} request metrics (one per attempt), "
-            f"got {len(cap_requests)}: {cap_requests}"
-        )
+        assert len(cap_requests) == attempt_count, f"Expected {attempt_count} request metrics (one per attempt), " f"got {len(cap_requests)}: {cap_requests}"
 
     def test_metrics_emit_exception_does_not_crash_cb(self) -> None:
         """If metrics.record_request raises, a successful API result is still returned."""
@@ -517,7 +496,9 @@ class TestRound5Additions:
             boom_metrics = _ExplodingMetrics()
             config = LLMCircuitBreakerConfig(enabled=True, max_failures=5)
             cb = LLMCircuitBreaker(
-                config=config, backend_name="test_explode", metrics=boom_metrics
+                config=config,
+                backend_name="test_explode",
+                metrics=boom_metrics,
             )
 
             async def _success_coro():
@@ -578,12 +559,14 @@ class TestRound5Additions:
 
         class _FakeWait429(Exception):
             """Fake 429 with Retry-After=1 (below threshold) -- WAIT action."""
+
             status_code = 429
 
             @property
             def response(self):
                 class _R:
                     headers = {"Retry-After": "1"}
+
                 return _R()
 
         async def _run() -> None:
@@ -595,7 +578,9 @@ class TestRound5Additions:
                 retry_after_threshold_seconds=60.0,  # 1 < 60 -> WAIT
             )
             cb = LLMCircuitBreaker(
-                config=config, backend_name="test_wait", metrics=self._metrics
+                config=config,
+                backend_name="test_wait",
+                metrics=self._metrics,
             )
 
             async def _coro():
@@ -610,10 +595,7 @@ class TestRound5Additions:
         asyncio.run(_run())
         # All attempts (max_retries+1 = 3) must each produce a failure metric
         wait_requests = [r for r in self._calls["requests"] if r.get("backend") == "test_wait"]
-        assert len(wait_requests) == attempt_count, (
-            f"Expected {attempt_count} request metrics (one per WAIT attempt), "
-            f"got {len(wait_requests)}: {wait_requests}"
-        )
+        assert len(wait_requests) == attempt_count, f"Expected {attempt_count} request metrics (one per WAIT attempt), " f"got {len(wait_requests)}: {wait_requests}"
 
     def test_label_cardinality_caller_responsibility_documented(self) -> None:
         """Verify unbounded backend/outcome labels are accepted (caller responsibility).
@@ -624,6 +606,4 @@ class TestRound5Additions:
         # Record with dynamic-looking values (not crashed, not normalized)
         dynamic_backend = f"backend_{id(self)}"
         self._metrics.record_request(dynamic_backend, "success", 0.1)
-        assert any(r.get("backend") == dynamic_backend for r in self._calls["requests"]), (
-            "Dynamic backend label should be recorded as-is (caller owns cardinality)"
-        )
+        assert any(r.get("backend") == dynamic_backend for r in self._calls["requests"]), "Dynamic backend label should be recorded as-is (caller owns cardinality)"

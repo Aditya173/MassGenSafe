@@ -10,15 +10,13 @@ Categories covered (per jarvis-team-cleanup.md):
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import threading
-import time
 from types import ModuleType
 from unittest.mock import patch
 
 import pytest
-
-import asyncio
 
 from massgen.backend.llm_circuit_breaker import (
     CircuitState,
@@ -26,7 +24,6 @@ from massgen.backend.llm_circuit_breaker import (
     LLMCircuitBreakerConfig,
 )
 from massgen.observability import CircuitBreakerMetrics
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -164,7 +161,7 @@ class TestAdversarialCorruptedInput:
 
     def test_unicode_backend_name(self) -> None:
         """Unicode backend name must not crash and is recorded."""
-        name = "backend-\u30AF\u30ED\u30FC\u30C9"
+        name = "backend-\u30af\u30ed\u30fc\u30c9"
         self._m.record_state_transition(name, "closed", "open")
         assert any(t["backend"] == name for t in self._calls["transitions"])
 
@@ -203,9 +200,7 @@ class TestAdversarialConcurrentAccess:
             t.join()
 
         assert errors == [], f"Exceptions in threads: {errors}"
-        assert len(self._calls["transitions"]) == N, (
-            f"Expected {N} transitions, got {len(self._calls['transitions'])}"
-        )
+        assert len(self._calls["transitions"]) == N, f"Expected {N} transitions, got {len(self._calls['transitions'])}"
 
     def test_concurrent_record_requests_no_lost_updates(self) -> None:
         """100 threads record requests; no updates must be lost."""
@@ -245,10 +240,7 @@ class TestAdversarialConcurrentAccess:
             except Exception as exc:
                 errors.append(exc)
 
-        threads = (
-            [threading.Thread(target=transition_worker) for _ in range(N)]
-            + [threading.Thread(target=request_worker) for _ in range(N)]
-        )
+        threads = [threading.Thread(target=transition_worker) for _ in range(N)] + [threading.Thread(target=request_worker) for _ in range(N)]
         for t in threads:
             t.start()
         for t in threads:
@@ -313,6 +305,7 @@ class TestAdversarialFailureInjection:
 
     def test_prometheus_client_raises_at_import_time(self) -> None:
         """prometheus_client raises ImportError: graceful no-op fallback."""
+
         def mock_import(name, *args, **kwargs):
             if name == "prometheus_client":
                 raise ImportError("prometheus_client not installed")
@@ -327,6 +320,7 @@ class TestAdversarialFailureInjection:
 
     def test_prometheus_unexpected_exception_at_import_propagates(self) -> None:
         """Non-ImportError at import (e.g. OSError) must propagate, not be swallowed."""
+
         def mock_import(name, *args, **kwargs):
             if name == "prometheus_client":
                 raise OSError("disk I/O error loading prometheus_client")
@@ -394,12 +388,8 @@ class TestAdversarialFailureInjection:
         m.record_request("x", "success", 0.1)
         assert m.get_registry() is None
 
-        assert len(calls["transitions"]) == before_transitions, (
-            "transitions grew despite _available=False"
-        )
-        assert len(calls["requests"]) == before_requests, (
-            "requests grew despite _available=False"
-        )
+        assert len(calls["transitions"]) == before_transitions, "transitions grew despite _available=False"
+        assert len(calls["requests"]) == before_requests, "requests grew despite _available=False"
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +434,7 @@ class TestAdversarialHalfOpenEdgeCases:
             await cb.call_with_retry(lambda: (_ for _ in ()).throw(Exception("unreachable")))
 
         import asyncio
+
         from massgen.backend.llm_circuit_breaker import CircuitBreakerOpenError
 
         with pytest.raises(CircuitBreakerOpenError):
@@ -473,13 +464,8 @@ class TestAdversarialHalfOpenEdgeCases:
 
         # Transition metric half_open->open must have been emitted
         transitions = self._calls["transitions"]
-        abnormal_reopens = [
-            t for t in transitions
-            if t.get("from_state") == "half_open" and t.get("to_state") == "open"
-        ]
-        assert len(abnormal_reopens) >= 1, (
-            f"Expected half_open->open transition, got: {transitions}"
-        )
+        abnormal_reopens = [t for t in transitions if t.get("from_state") == "half_open" and t.get("to_state") == "open"]
+        assert len(abnormal_reopens) >= 1, f"Expected half_open->open transition, got: {transitions}"
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +498,9 @@ class TestAdversarialRound5:
 
             def labels(self, **kw):
                 class _LS:
-                    def inc(self): pass
+                    def inc(self):
+                        pass
+
                 return _LS()
 
         mod = _ModuleType("prometheus_client")
@@ -525,9 +513,7 @@ class TestAdversarialRound5:
         m = CircuitBreakerMetrics()
         # After partial construction failure, _available must be False (no partial state)
         m.record_state_transition("test", "closed", "open")
-        assert m._available is False, (
-            "After Histogram init failure, _available must be False (no partial metric state)"
-        )
+        assert m._available is False, "After Histogram init failure, _available must be False (no partial metric state)"
         # Subsequent calls must be no-ops
         m.record_request("test", "success", 0.1)
         assert m.get_registry() is None
@@ -558,14 +544,12 @@ class TestAdversarialRound5:
         assert len(results) == N
         # All threads must get the same non-None registry object
         assert all(r is not None for r in results), "Some threads got None registry"
-        assert len({id(r) for r in results}) == 1, (
-            "Multiple distinct registry objects created -- init not idempotent under concurrency"
-        )
+        assert len({id(r) for r in results}) == 1, "Multiple distinct registry objects created -- init not idempotent under concurrency"
 
     def test_reentrancy_get_registry_during_record(self) -> None:
         """Calling get_registry() inside a metric callback must not deadlock (RLock)."""
-        from types import ModuleType as _ModuleType
         import threading as _threading
+        from types import ModuleType as _ModuleType
 
         m_holder: list = []
         deadlock_errors: list = []
@@ -579,8 +563,11 @@ class TestAdversarialRound5:
                 except Exception as exc:
                     deadlock_errors.append(exc)
 
-            def observe(self, v): pass
-            def set(self, v): pass
+            def observe(self, v):
+                pass
+
+            def set(self, v):
+                pass
 
         class _ReentrantMetric:
             def __init__(self, name, *a, **kw):
