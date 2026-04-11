@@ -566,6 +566,55 @@ class TestRound5Additions:
         self._metrics.record_state_transition("claude", "closed", "")
         assert len(self._calls["transitions"]) == initial + 1
 
+    def test_per_attempt_latency_wait_retry(self) -> None:
+        """WAIT retry path: each failed attempt emits a separate request metric.
+
+        With max_retries=2 and 3 WAIT-429 attempts, all 3 should be counted.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        attempt_count = 0
+
+        class _FakeWait429(Exception):
+            """Fake 429 with Retry-After=1 (below threshold) -- WAIT action."""
+            status_code = 429
+
+            @property
+            def response(self):
+                class _R:
+                    headers = {"Retry-After": "1"}
+                return _R()
+
+        async def _run() -> None:
+            nonlocal attempt_count
+            config = LLMCircuitBreakerConfig(
+                enabled=True,
+                max_failures=10,
+                reset_time_seconds=999,
+                retry_after_threshold_seconds=60.0,  # 1 < 60 -> WAIT
+            )
+            cb = LLMCircuitBreaker(
+                config=config, backend_name="test_wait", metrics=self._metrics
+            )
+
+            async def _coro():
+                nonlocal attempt_count
+                attempt_count += 1
+                raise _FakeWait429()
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(_FakeWait429):
+                    await cb.call_with_retry(_coro, max_retries=2)
+
+        asyncio.run(_run())
+        # All attempts (max_retries+1 = 3) must each produce a failure metric
+        wait_requests = [r for r in self._calls["requests"] if r.get("backend") == "test_wait"]
+        assert len(wait_requests) == attempt_count, (
+            f"Expected {attempt_count} request metrics (one per WAIT attempt), "
+            f"got {len(wait_requests)}: {wait_requests}"
+        )
+
     def test_label_cardinality_caller_responsibility_documented(self) -> None:
         """Verify unbounded backend/outcome labels are accepted (caller responsibility).
 
