@@ -82,6 +82,7 @@ video = [
 ]
 observability = [
     "logfire>=3.0.0",
+    "prometheus-client>=0.20",
 ]
 
 dev = [
@@ -126,6 +127,7 @@ litellm = [
 all = [
     "litellm>=1.0.0,<=1.82.6",
     "logfire>=3.0.0",
+    "prometheus-client>=0.20",
 ]
 
 [project.scripts]

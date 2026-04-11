@@ -1,4 +1,29 @@
-"""Optional Prometheus metrics for circuit breaker behavior."""
+"""Optional Prometheus metrics for circuit breaker behavior.
+
+Enablement
+----------
+Install the optional dependency::
+
+    pip install massgen[observability]
+
+Then create an instance and pass it to the circuit breaker::
+
+    from massgen.observability.prometheus import CircuitBreakerMetrics
+    from massgen.backend.llm_circuit_breaker import LLMCircuitBreaker
+
+    metrics = CircuitBreakerMetrics()
+    cb = LLMCircuitBreaker(backend_name="claude", metrics=metrics)
+
+Expose metrics for scraping using the custom registry::
+
+    import prometheus_client
+    registry = metrics.get_registry()
+    if registry is not None:
+        prometheus_client.start_http_server(8000, registry=registry)
+        # or: prometheus_client.generate_latest(registry)
+
+If ``prometheus_client`` is not installed, all methods silently no-op.
+"""
 
 from __future__ import annotations
 
@@ -118,32 +143,43 @@ class CircuitBreakerMetrics:
                 self._available = False
                 return False
 
-            self._registry = CollectorRegistry()
-            self._state_transitions = Counter(
-                "cb_state_transitions_total",
-                "Circuit breaker state transitions.",
-                ["backend", "from_state", "to_state"],
-                registry=self._registry,
-            )
-            self._requests = Counter(
-                "cb_requests_total",
-                "Circuit breaker requests by outcome.",
-                ["backend", "outcome"],
-                registry=self._registry,
-            )
-            self._request_latency = Histogram(
-                "cb_request_latency_seconds",
-                "Circuit breaker request latency in seconds.",
-                ["backend"],
-                buckets=self._LATENCY_BUCKETS,
-                registry=self._registry,
-            )
-            self._current_state = Gauge(
-                "cb_current_state",
-                "Circuit breaker current state: 0=CLOSED, 1=HALF_OPEN, 2=OPEN.",
-                ["backend"],
-                registry=self._registry,
-            )
+            try:
+                self._registry = CollectorRegistry()
+                self._state_transitions = Counter(
+                    "cb_state_transitions_total",
+                    "Circuit breaker state transitions.",
+                    ["backend", "from_state", "to_state"],
+                    registry=self._registry,
+                )
+                self._requests = Counter(
+                    "cb_requests_total",
+                    "Circuit breaker requests by outcome.",
+                    ["backend", "outcome"],
+                    registry=self._registry,
+                )
+                self._request_latency = Histogram(
+                    "cb_request_latency_seconds",
+                    "Circuit breaker request latency in seconds.",
+                    ["backend"],
+                    buckets=self._LATENCY_BUCKETS,
+                    registry=self._registry,
+                )
+                self._current_state = Gauge(
+                    "cb_current_state",
+                    "Circuit breaker current state: 0=CLOSED, 1=HALF_OPEN, 2=OPEN.",
+                    ["backend"],
+                    registry=self._registry,
+                )
+            except Exception:
+                # Partial construction -- clear all fields to prevent inconsistent state
+                self._registry = None
+                self._state_transitions = None
+                self._requests = None
+                self._request_latency = None
+                self._current_state = None
+                self._available = False
+                return False
+
             self._available = True
             return True
 

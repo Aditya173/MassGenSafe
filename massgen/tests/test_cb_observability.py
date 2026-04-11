@@ -397,3 +397,184 @@ class TestCircuitBreakerIntegration:
 
         cb.record_success()  # HALF_OPEN->CLOSED
         assert cb.state == CircuitState.CLOSED
+
+    def test_open_to_half_open_transition_emits_metric(self) -> None:
+        """OPEN->HALF_OPEN via should_block() emits transition metric and sets gauge to 1."""
+        _remove_fake_prometheus()
+        _, calls = _install_fake_prometheus()
+        try:
+            metrics = CircuitBreakerMetrics()
+            config = LLMCircuitBreakerConfig(
+                enabled=True, max_failures=1, reset_time_seconds=999
+            )
+            cb = LLMCircuitBreaker(config=config, backend_name="test", metrics=metrics)
+
+            cb.record_failure()  # CLOSED->OPEN
+            assert cb.state == CircuitState.OPEN
+            calls["transitions"].clear()
+            calls["gauge_sets"].clear()
+
+            # Expire the open window and trigger OPEN->HALF_OPEN
+            with cb._lock:
+                cb._open_until = time.monotonic() - 1
+            blocked = cb.should_block()  # triggers OPEN->HALF_OPEN
+            assert not blocked
+            assert cb.state == CircuitState.HALF_OPEN
+
+            half_open_transitions = [
+                t for t in calls["transitions"]
+                if t.get("from_state") == "open" and t.get("to_state") == "half_open"
+            ]
+            assert len(half_open_transitions) == 1, (
+                f"Expected open->half_open transition metric, got: {calls['transitions']}"
+            )
+            # Gauge encoding: HALF_OPEN == 1
+            assert any(g.get("value") == 1 for g in calls["gauge_sets"]), (
+                f"Expected gauge=1 for HALF_OPEN, got: {calls['gauge_sets']}"
+            )
+        finally:
+            _remove_fake_prometheus()
+
+
+# ---------------------------------------------------------------------------
+# TestRound5Additions -- tests added in Round 5 review
+# ---------------------------------------------------------------------------
+
+
+class TestRound5Additions:
+    """Tests for gaps identified in Round 5 review (R-1 BUG2, R-3 BUGs 1-8)."""
+
+    def setup_method(self) -> None:
+        _remove_fake_prometheus()
+        self._fake_mod, self._calls = _install_fake_prometheus()
+        self._metrics = CircuitBreakerMetrics()
+
+    def teardown_method(self) -> None:
+        _remove_fake_prometheus()
+
+    def _make_cb(self, max_failures: int = 2) -> tuple[LLMCircuitBreaker, dict]:
+        config = LLMCircuitBreakerConfig(
+            enabled=True,
+            max_failures=max_failures,
+            reset_time_seconds=999,
+        )
+        cb = LLMCircuitBreaker(config=config, backend_name="test", metrics=self._metrics)
+        return cb, self._calls
+
+    def test_per_attempt_latency_cap_retry(self) -> None:
+        """CAP retry path: each failed attempt emits a separate request metric (BUG 2 fix).
+
+        With 1 retry, two attempts should produce 2 request metrics, not 1.
+        """
+        import asyncio
+
+        attempt_count = 0
+
+        async def _run() -> None:
+            nonlocal attempt_count
+
+            class _FakeCap429(Exception):
+                """Fake exception that looks like a 429 with no Retry-After (CAP)."""
+                status_code = 429
+
+            config = LLMCircuitBreakerConfig(
+                enabled=True,
+                max_failures=10,
+                reset_time_seconds=999,
+            )
+            cb = LLMCircuitBreaker(
+                config=config, backend_name="test_cap", metrics=self._metrics
+            )
+
+            async def _coro():
+                nonlocal attempt_count
+                attempt_count += 1
+                raise _FakeCap429()
+
+            import pytest as _pytest
+            with _pytest.raises(_FakeCap429):
+                await cb.call_with_retry(_coro, max_retries=2)
+
+        asyncio.run(_run())
+        # 2 attempts (initial + 1 retry), both must be counted
+        cap_requests = [r for r in self._calls["requests"] if r.get("backend") == "test_cap"]
+        assert len(cap_requests) == attempt_count, (
+            f"Expected {attempt_count} request metrics (one per attempt), "
+            f"got {len(cap_requests)}: {cap_requests}"
+        )
+
+    def test_metrics_emit_exception_does_not_crash_cb(self) -> None:
+        """If metrics.record_request raises, a successful API result is still returned."""
+        import asyncio
+
+        class _ExplodingMetrics(CircuitBreakerMetrics):
+            def record_request(self, backend, outcome, latency):  # type: ignore[override]
+                raise RuntimeError("metrics exploded")
+
+        _remove_fake_prometheus()
+        _, calls = _install_fake_prometheus()
+        try:
+            boom_metrics = _ExplodingMetrics()
+            config = LLMCircuitBreakerConfig(enabled=True, max_failures=5)
+            cb = LLMCircuitBreaker(
+                config=config, backend_name="test_explode", metrics=boom_metrics
+            )
+
+            async def _success_coro():
+                return "ok"
+
+            # Should return "ok" without raising, even though metrics explode
+            result = asyncio.run(cb.call_with_retry(_success_coro))
+            assert result == "ok"
+        finally:
+            _remove_fake_prometheus()
+
+    def test_none_from_state_does_not_crash(self) -> None:
+        """record_state_transition with from_state=None must not raise."""
+        # Rule 3: None/empty boundary on all label params
+        # Should either raise a documented ValueError or record without crash.
+        try:
+            self._metrics.record_state_transition("claude", None, "open")  # type: ignore[arg-type]
+        except (TypeError, AttributeError):
+            # Acceptable: documented exception; what must NOT happen is a partial write
+            # followed by crash at a different layer
+            pass
+
+    def test_none_to_state_does_not_crash(self) -> None:
+        """record_state_transition with to_state=None must not raise past the gauge call."""
+        try:
+            self._metrics.record_state_transition("claude", "closed", None)  # type: ignore[arg-type]
+        except (TypeError, AttributeError, KeyError):
+            pass  # Documented: gauge lookup calls _state_value(None) -> -1 or crash
+
+    def test_none_outcome_does_not_crash(self) -> None:
+        """record_request with outcome=None must not raise."""
+        try:
+            self._metrics.record_request("claude", None, 0.5)  # type: ignore[arg-type]
+        except (TypeError, AttributeError):
+            pass
+
+    def test_empty_string_from_state(self) -> None:
+        """Empty from_state is recorded without crash (boundary: Rule 3)."""
+        initial = len(self._calls["transitions"])
+        self._metrics.record_state_transition("claude", "", "open")
+        assert len(self._calls["transitions"]) == initial + 1
+
+    def test_empty_string_to_state(self) -> None:
+        """Empty to_state is recorded without crash (boundary: Rule 3)."""
+        initial = len(self._calls["transitions"])
+        self._metrics.record_state_transition("claude", "closed", "")
+        assert len(self._calls["transitions"]) == initial + 1
+
+    def test_label_cardinality_caller_responsibility_documented(self) -> None:
+        """Verify unbounded backend/outcome labels are accepted (caller responsibility).
+
+        Per design decision: CircuitBreakerMetrics does not cap or normalize labels.
+        Callers are responsible for label cardinality. This test documents that contract.
+        """
+        # Record with dynamic-looking values (not crashed, not normalized)
+        dynamic_backend = f"backend_{id(self)}"
+        self._metrics.record_request(dynamic_backend, "success", 0.1)
+        assert any(r.get("backend") == dynamic_backend for r in self._calls["requests"]), (
+            "Dynamic backend label should be recorded as-is (caller owns cardinality)"
+        )

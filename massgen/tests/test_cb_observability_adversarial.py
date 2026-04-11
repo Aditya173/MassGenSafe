@@ -480,3 +480,138 @@ class TestAdversarialHalfOpenEdgeCases:
         assert len(abnormal_reopens) >= 1, (
             f"Expected half_open->open transition, got: {transitions}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Category 5: Round 5 additional adversarial gaps
+# ---------------------------------------------------------------------------
+
+
+class TestAdversarialRound5:
+    """Adversarial tests added in Round 5 to close R-3 gaps."""
+
+    def setup_method(self) -> None:
+        _remove_fake()
+
+    def teardown_method(self) -> None:
+        _remove_fake()
+
+    def test_partial_prometheus_construction_counter_ok_histogram_fails(self) -> None:
+        """Counter succeeds but Histogram raises -- must not leave partial state."""
+        from types import ModuleType as _ModuleType
+
+        call_count = {"counter": 0}
+
+        class _BadHistogram:
+            def __init__(self, *a, **kw):
+                raise RuntimeError("Histogram init failed")
+
+        class _GoodCounter:
+            def __init__(self, *a, **kw):
+                call_count["counter"] += 1
+
+            def labels(self, **kw):
+                class _LS:
+                    def inc(self): pass
+                return _LS()
+
+        mod = _ModuleType("prometheus_client")
+        mod.CollectorRegistry = type("R", (), {})
+        mod.Counter = lambda *a, **kw: _GoodCounter(*a, **kw)
+        mod.Histogram = _BadHistogram
+        mod.Gauge = lambda *a, **kw: type("G", (), {"labels": lambda s, **k: type("L", (), {"set": lambda s2, v: None})()})()
+        sys.modules["prometheus_client"] = mod
+
+        m = CircuitBreakerMetrics()
+        # After partial construction failure, _available must be False (no partial state)
+        m.record_state_transition("test", "closed", "open")
+        assert m._available is False, (
+            "After Histogram init failure, _available must be False (no partial metric state)"
+        )
+        # Subsequent calls must be no-ops
+        m.record_request("test", "success", 0.1)
+        assert m.get_registry() is None
+
+    def test_concurrent_get_registry_single_construction(self) -> None:
+        """N threads call get_registry() on a fresh instance: constructed exactly once."""
+        _build_fake_prometheus_with_counters()
+        m = CircuitBreakerMetrics()
+
+        results: list = []
+        errors: list = []
+        N = 50
+
+        def _get():
+            try:
+                r = m.get_registry()
+                results.append(r)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_get) for _ in range(N)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Exceptions in threads: {errors}"
+        assert len(results) == N
+        # All threads must get the same non-None registry object
+        assert all(r is not None for r in results), "Some threads got None registry"
+        assert len({id(r) for r in results}) == 1, (
+            "Multiple distinct registry objects created -- init not idempotent under concurrency"
+        )
+
+    def test_reentrancy_get_registry_during_record(self) -> None:
+        """Calling get_registry() inside a metric callback must not deadlock (RLock)."""
+        from types import ModuleType as _ModuleType
+        import threading as _threading
+
+        m_holder: list = []
+        deadlock_errors: list = []
+
+        class _ReentrantLS:
+            def inc(self):
+                # Re-enter get_registry() while lock may be held
+                try:
+                    r = m_holder[0].get_registry()
+                    assert r is not None
+                except Exception as exc:
+                    deadlock_errors.append(exc)
+
+            def observe(self, v): pass
+            def set(self, v): pass
+
+        class _ReentrantMetric:
+            def __init__(self, name, *a, **kw):
+                self._name = name
+
+            def labels(self, **kw):
+                return _ReentrantLS()
+
+        mod = _ModuleType("prometheus_client")
+        mod.CollectorRegistry = type("R", (), {})
+        mod.Counter = lambda *a, **kw: _ReentrantMetric(*a, **kw)
+        mod.Histogram = lambda *a, **kw: _ReentrantMetric(*a, **kw)
+        mod.Gauge = lambda *a, **kw: _ReentrantMetric(*a, **kw)
+        sys.modules["prometheus_client"] = mod
+
+        m = CircuitBreakerMetrics()
+        m_holder.append(m)
+
+        # Trigger record which calls inc() which calls get_registry() recursively
+        done_event = _threading.Event()
+
+        def _run():
+            try:
+                m.record_state_transition("test", "closed", "open")
+            except Exception as exc:
+                deadlock_errors.append(exc)
+            finally:
+                done_event.set()
+
+        t = _threading.Thread(target=_run, daemon=True)
+        t.start()
+        completed = done_event.wait(timeout=5.0)
+        assert completed, "Deadlock: record_state_transition did not complete within 5s"
+        assert deadlock_errors == [], f"Errors during reentrant call: {deadlock_errors}"
