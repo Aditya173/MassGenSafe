@@ -1,0 +1,57 @@
+# MassGen Configuration: Exa AI-Powered Web Search
+# This configuration demonstrates Exa's MCP server for AI-powered web search
+#
+# Prerequisites:
+#   1. Get an API key from https://exa.ai/
+#   2. Set EXA_API_KEY in your .env file
+#
+# Usage:
+#   massgen --config massgen/configs/tools/web-search/exa_search_example.yaml "Research the latest advances in multi-agent AI systems"
+#
+# Features:
+#   - Neural and auto search types for semantic understanding
+#   - Content extraction (full text, highlights, summaries)
+#   - Domain and text filtering
+#   - Category filtering (research papers, news, companies, etc.)
+#   - Date range filtering for time-sensitive queries
+
+agents:
+  - id: "exa_research_agent"
+    backend:
+      type: "claude"
+      model: "claude-sonnet-4-20250514"
+      mcp_servers:
+        - name: "exa_search"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "exa-mcp-server"]
+          env:
+            EXA_API_KEY: "${EXA_API_KEY}"
+
+    system_message: |
+      You are a research assistant with access to Exa AI-powered web search.
+
+      Exa provides semantic web search that understands the meaning of queries,
+      not just keywords. Use it when you need:
+      - Current information from the web
+      - Research papers and academic content
+      - News and recent developments
+      - Company information and financial reports
+
+      When searching, leverage Exa's features:
+      - Use category filters to narrow results (e.g., "research paper", "news", "company")
+      - Use domain filters to focus on specific sources
+      - Use content extraction to get full text or highlights from results
+      - Use date filters for time-sensitive queries
+
+      Provide comprehensive, well-sourced responses based on the search results.
+
+orchestrator:
+  type: sequential
+  max_turns: 5
+  snapshot_storage: ".massgen/snapshots"
+  agent_temporary_workspace: ".massgen/workspaces"
+
+ui:
+  display_type: "textual_terminal"
+  logging_enabled: true

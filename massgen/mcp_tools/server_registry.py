@@ -8,6 +8,7 @@ included in the agent's MCP configuration (if API keys are available).
 Available servers:
 - Context7: Up-to-date documentation for libraries and frameworks
 - Brave Search: Web search via Brave API (requires API key)
+- Exa Search: AI-powered web search via Exa API (requires API key)
 """
 
 import os
@@ -42,6 +43,22 @@ MCP_SERVER_REGISTRY: dict[str, dict[str, Any]] = {
         "api_key_env_var": "BRAVE_API_KEY",
         "rate_limit_warning": "Free tier limited to 2000 queries/month. Avoid parallel queries to prevent rate limiting.",
         "notes": "Get API key at https://brave.com/search/api/. Consider sequential execution for multiple queries.",
+        "security": {
+            "level": "moderate",
+        },
+    },
+    "exa_search": {
+        "name": "exa_search",
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "exa-mcp-server"],
+        "env": {
+            "EXA_API_KEY": "${EXA_API_KEY}",
+        },
+        "description": "AI-powered web search via Exa API. Supports neural, auto, and deep search types with content extraction (text, highlights, summaries), domain/text filtering, category filtering, and date ranges.",
+        "requires_api_key": True,
+        "api_key_env_var": "EXA_API_KEY",
+        "notes": "Get API key at https://exa.ai/. Supports multiple search types (auto, neural, fast, deep) and rich content retrieval modes.",
         "security": {
             "level": "moderate",
         },
@@ -191,7 +208,7 @@ def get_registry_info() -> dict[str, Any]:
     Example:
         >>> info = get_registry_info()
         >>> info['total_servers']
-        2
+        3
         >>> 'context7' in info['available_servers']
         True
     """

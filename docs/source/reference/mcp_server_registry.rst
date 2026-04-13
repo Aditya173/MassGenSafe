@@ -129,6 +129,63 @@ Brave Search
 
    # See: massgen/configs/tools/mcp/brave_search_example.yaml
 
+Exa Search
+~~~~~~~~~~
+
+**Purpose:** AI-powered web search with neural, auto, and deep search types
+
+**Type:** stdio
+
+**API Key:** Required (``EXA_API_KEY``)
+
+**Connection:**
+
+.. code-block:: yaml
+
+   mcp_servers:
+     - name: "exa_search"
+       type: "stdio"
+       command: "npx"
+       args: ["-y", "exa-mcp-server"]
+       env:
+         EXA_API_KEY: "${EXA_API_KEY}"
+
+**Tools:**
+
+- ``web_search_exa`` - AI-powered web search with neural understanding
+- ``find_similar_exa`` - Find pages similar to a given URL
+- ``get_contents_exa`` - Extract contents from URLs (text, highlights, summaries)
+
+**Key Features:**
+
+- Multiple search types: auto, neural, fast, instant, deep, deep-reasoning
+- Content extraction: full text, highlights (relevant snippets), and summaries
+- Domain filtering (include/exclude up to 1200 domains)
+- Text filtering (require or exclude specific terms)
+- Category filtering: company, research paper, news, personal site, financial report, people
+- Date range filtering (published date and crawl date)
+- Live crawling for fresh content
+
+**API Key Setup:**
+
+1. Sign up at https://exa.ai/
+2. Generate API key from dashboard
+3. Add to ``.env``: ``EXA_API_KEY="your_key_here"``
+
+**Use Cases:**
+
+- Research queries requiring semantic understanding
+- Finding similar pages to a reference URL
+- Extracting structured content from search results
+- Category-specific searches (research papers, news, companies)
+- Deep research with extended reasoning
+
+**Example:**
+
+.. code-block:: yaml
+
+   # See: massgen/configs/tools/web-search/exa_search_example.yaml
+
 Auto-Discovery
 --------------
 
@@ -142,6 +199,7 @@ MassGen automatically includes registry servers that are available:
 **Conditionally Included:**
 
 - Brave Search (only if ``BRAVE_API_KEY`` is set in ``.env``)
+- Exa Search (only if ``EXA_API_KEY`` is set in ``.env``)
 
 **Behavior:**
 
@@ -190,6 +248,11 @@ Registry Summary Table
      - Required
      - 2000/month (free)
      - Avoid parallel queries. Pro tier available for heavy usage.
+   * - Exa Search
+     - stdio
+     - Required
+     - Pay-per-use
+     - AI-powered neural search. Supports category filtering, content extraction, and deep search.
 
 Manual Configuration
 --------------------
