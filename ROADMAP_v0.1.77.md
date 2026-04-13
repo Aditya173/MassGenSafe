@@ -27,5 +27,5 @@ Version 0.1.77 focuses on running MassGen as a cloud job on Modal.
 
 ## Related Tracks
 
-- **v0.1.76**: Circuit Breaker Observability & Exa Search — Phase 3 observability, Exa AI search, checkpoint instructions ([#1056](https://github.com/massgen/MassGen/pull/1056), [#1057](https://github.com/massgen/MassGen/pull/1057), [#1058](https://github.com/massgen/MassGen/pull/1058))
+- **v0.1.76**: Exa Search & Circuit Breaker Observability — Phase 3 observability, Exa AI search, checkpoint instructions ([#1056](https://github.com/massgen/MassGen/pull/1056), [#1057](https://github.com/massgen/MassGen/pull/1057), [#1058](https://github.com/massgen/MassGen/pull/1058))
 - **v0.1.78**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))

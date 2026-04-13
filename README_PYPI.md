@@ -159,9 +159,9 @@ This project started with the "threads of thought" and "iterative refinement" id
 **🎉 Released: April 13, 2026**
 
 **What's New in v0.1.76:**
-- **📊 Circuit Breaker Observability (Phase 3)** - Probe ownership, lock release, per-attempt latency tracking across all backends.
 - **🔍 Exa AI Search Tool** - New Exa AI-powered search tool added to MCP server registry.
-- **📋 Checkpoint Agent Instructions** - Copyable custom agent instructions for checkpoint memory files.
+- **📊 Circuit Breaker Observability (Phase 3)** - Probe ownership, lock release, per-attempt latency tracking across all backends.
+- **📋 Checkpoint Agent Instructions** - Copyable custom instructions for agent memory files with checkpoint MCP information.
 
 **Try v0.1.76 Features:**
 ```bash
@@ -1242,10 +1242,10 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 **🎉 Released: April 13, 2026**
 
-#### Circuit Breaker Observability & Exa Search
-- **Circuit Breaker Observability (Phase 3)** ([#1056](https://github.com/massgen/MassGen/pull/1056)): Probe ownership, lock release, per-attempt latency tracking across all backends
+#### Exa Search & Circuit Breaker Observability
 - **Exa AI Search Tool** ([#1057](https://github.com/massgen/MassGen/pull/1057)): New Exa AI-powered search tool added to MCP server registry
-- **Checkpoint Agent Instructions** ([#1058](https://github.com/massgen/MassGen/pull/1058)): Copyable custom agent instructions for checkpoint memory files
+- **Circuit Breaker Observability (Phase 3)** ([#1056](https://github.com/massgen/MassGen/pull/1056)): Probe ownership, lock release, per-attempt latency tracking across all backends
+- **Checkpoint Agent Instructions** ([#1058](https://github.com/massgen/MassGen/pull/1058)): Copyable custom instructions for agent memory files with checkpoint MCP information
 - **Docker Dependency Fixes** ([#1058](https://github.com/massgen/MassGen/pull/1058)): Fixed Dockerfile installs for reliable container builds
 
 ### Previous Achievements (v0.0.3 - v0.1.75)

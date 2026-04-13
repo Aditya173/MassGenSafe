@@ -17,7 +17,7 @@ Update this when major new features ship.
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/task_planning.html
 
-🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP servers for checkpoint safety and AI-powered search, installable directly into Claude Code, Codex, and other MCP hosts. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
+🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP server for checkpoint safety installable directly into Claude Code, Codex, and other MCP hosts. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
 
 💾Session continuity — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/skills.html#evolving-skills-code-mode
 
@@ -39,7 +39,7 @@ Update this when major new features ship.
 
 📋Task planning & execution — Structured plans with chunked execution, progress checkpoints, iterative review, and verification. Spec mode for formal requirements before execution. 👉 More Info: https://lnkd.in/gy5qtbau
 
-🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP servers for checkpoint safety and AI-powered search, installable directly into Claude Code, Codex, and other MCP hosts. 👉 More Info: https://lnkd.in/gXaCJfkq
+🛠️Work with files, apps, and projects — MCP tools and agent skills for file read/write (with worktree isolation), project editing, and more — all with a robust permission system. Use MassGen as a skill from AI coding agents. Standalone MCP server for checkpoint safety installable directly into Claude Code, Codex, and other MCP hosts. 👉 More Info: https://lnkd.in/gXaCJfkq
 
 💾Session continuity — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://lnkd.in/gQuhFtuh
 

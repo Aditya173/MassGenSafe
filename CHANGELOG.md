@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.76 (April 13, 2026)** - Circuit Breaker Observability & Exa Search
-Circuit breaker Phase 3 with observability — probe ownership, lock release, per-attempt latency tracking. New Exa AI-powered search tool for MCP. Copyable checkpoint agent instructions and Docker dependency fixes.
+**v0.1.76 (April 13, 2026)** - Exa Search & Circuit Breaker Observability
+New Exa AI-powered search tool for MCP. Circuit breaker Phase 3 with observability — probe ownership, lock release, per-attempt latency tracking. Copyable checkpoint agent instructions and Docker dependency fixes.
 
 **v0.1.75 (April 10, 2026)** - Codex Hooks & Checkpoint WebUI
 Hybrid hook system for Codex backend combining native and MCP capabilities. Checkpoint workflows now auto-launch the WebUI for visual monitoring. Standalone checkpoint MCP server documentation and safety policy integration.
@@ -23,9 +23,9 @@ Major improvements to standalone checkpoint MCP server. Fix for duplicate tool c
 ## [0.1.76] - 2026-04-13
 
 ### Added
-- **Circuit Breaker Observability (Phase 3)** ([#1056](https://github.com/massgen/MassGen/pull/1056)): Observability module with probe ownership, lock release mechanisms, and per-attempt latency regression tracking
 - **Exa AI Search Tool** ([#1057](https://github.com/massgen/MassGen/pull/1057)): New Exa AI-powered search tool added to MCP server registry with example config
-- **Checkpoint Agent Instructions** ([#1058](https://github.com/massgen/MassGen/pull/1058)): Copyable custom agent instructions for checkpoint memory files
+- **Circuit Breaker Observability (Phase 3)** ([#1056](https://github.com/massgen/MassGen/pull/1056)): Observability module with probe ownership, lock release mechanisms, and per-attempt latency regression tracking
+- **Checkpoint Agent Instructions** ([#1058](https://github.com/massgen/MassGen/pull/1058)): Copyable custom instructions for agent memory files with checkpoint MCP information
 
 ### Fixed
 - **Docker Dependencies** ([#1058](https://github.com/massgen/MassGen/pull/1058)): Fixed Dockerfile installs for reliable container builds
@@ -39,7 +39,7 @@ Major improvements to standalone checkpoint MCP server. Fix for duplicate tool c
 - **New Config**: New `massgen/configs/tools/web-search/exa_search_example.yaml`
 
 ### Technical Details
-- **Major Focus**: Circuit Breaker Observability (Phase 3) & Exa AI Search
+- **Major Focus**: Exa AI Search & Circuit Breaker Observability (Phase 3)
 - **PRs Merged**: [#1056](https://github.com/massgen/MassGen/pull/1056), [#1057](https://github.com/massgen/MassGen/pull/1057), [#1058](https://github.com/massgen/MassGen/pull/1058)
 - **Contributors**: @amabito, @HenryQi, @ncrispino, @teocollazo and the MassGen team
 

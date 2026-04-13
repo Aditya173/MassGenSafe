@@ -200,9 +200,9 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.76 (April 13, 2026)** - Circuit Breaker Observability & Exa Search
+**v0.1.76 (April 13, 2026)** - Exa Search & Circuit Breaker Observability
 
-Circuit breaker Phase 3 with observability — probe ownership, lock release, per-attempt latency tracking. New Exa AI-powered search tool for MCP. Checkpoint agent instructions and Docker dependency fixes.
+New Exa AI-powered search tool for MCP. Circuit breaker Phase 3 with observability — probe ownership, lock release, per-attempt latency tracking. Checkpoint agent instructions and Docker dependency fixes.
 
 **v0.1.75 (April 10, 2026)** - Codex Hooks & Checkpoint WebUI
 

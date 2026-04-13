@@ -50,14 +50,14 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## ✅ v0.1.76 - Circuit Breaker Observability & Exa Search (Completed)
+## ✅ v0.1.76 - Exa Search & Circuit Breaker Observability (Completed)
 
 **Released:** April 13, 2026 | PRs: [#1056](https://github.com/massgen/MassGen/pull/1056), [#1057](https://github.com/massgen/MassGen/pull/1057), [#1058](https://github.com/massgen/MassGen/pull/1058)
 
 ### Features
-- **Circuit Breaker Observability (Phase 3)**: Probe ownership, lock release, per-attempt latency tracking across all backends
 - **Exa AI Search Tool**: New Exa AI-powered search tool for MCP with example config
-- **Checkpoint Agent Instructions**: Copyable custom agent instructions for checkpoint memory files
+- **Circuit Breaker Observability (Phase 3)**: Probe ownership, lock release, per-attempt latency tracking across all backends
+- **Checkpoint Agent Instructions**: Copyable custom instructions for agent memory files with checkpoint MCP information
 - **Docker Dependency Fixes**: Fixed Dockerfile installs for reliable container builds
 
 ---

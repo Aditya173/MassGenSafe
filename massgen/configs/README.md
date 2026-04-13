@@ -228,12 +228,12 @@ Most configurations use environment variables for API keys:so
 ## Release History & Examples
 
 ### v0.1.76 - Latest
-**New Features:** Circuit Breaker Observability & Exa Search
+**New Features:** Exa Search & Circuit Breaker Observability
 
 **Key Features:**
-- **Circuit Breaker Observability (Phase 3)**: Probe ownership, lock release, per-attempt latency tracking across all backends
 - **Exa AI Search Tool**: New Exa AI-powered search tool for MCP with example config
-- **Checkpoint Agent Instructions**: Copyable custom agent instructions for checkpoint memory files
+- **Circuit Breaker Observability (Phase 3)**: Probe ownership, lock release, per-attempt latency tracking across all backends
+- **Checkpoint Agent Instructions**: Copyable custom instructions for agent memory files with checkpoint MCP information
 
 **Try It:**
 ```bash
