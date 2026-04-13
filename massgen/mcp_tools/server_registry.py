@@ -55,10 +55,15 @@ MCP_SERVER_REGISTRY: dict[str, dict[str, Any]] = {
         "env": {
             "EXA_API_KEY": "${EXA_API_KEY}",
         },
-        "description": "AI-powered web search via Exa API. Supports neural, auto, and deep search types with content extraction (text, highlights, summaries), domain/text filtering, category filtering, and date ranges.",
+        "description": ("Exa's official MCP server via npm package. " "Provides AI-powered web search and page fetch tools, " "with additional advanced search options in current Exa docs."),
         "requires_api_key": True,
         "api_key_env_var": "EXA_API_KEY",
-        "notes": "Get API key at https://exa.ai/. Supports multiple search types (auto, neural, fast, deep) and rich content retrieval modes.",
+        "notes": (
+            "Get API key at https://exa.ai/. MassGen uses Exa's official "
+            "npm package (npx -y exa-mcp-server); Exa's docs also recommend "
+            "the hosted MCP endpoint https://mcp.exa.ai/mcp for "
+            "HTTP-capable clients."
+        ),
         "security": {
             "level": "moderate",
         },

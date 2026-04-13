@@ -6,20 +6,20 @@
 #   2. Set EXA_API_KEY in your .env file
 #
 # Usage:
-#   massgen --config massgen/configs/tools/web-search/exa_search_example.yaml "Research the latest advances in multi-agent AI systems"
+#   uv run massgen --config @examples/tools/web-search/exa_search_example.yaml "Research the latest advances in multi-agent AI systems"
 #
 # Features:
-#   - Neural and auto search types for semantic understanding
-#   - Content extraction (full text, highlights, summaries)
-#   - Domain and text filtering
-#   - Category filtering (research papers, news, companies, etc.)
-#   - Date range filtering for time-sensitive queries
+#   - AI-powered web search via Exa's official MCP server
+#   - Full-page fetch / content extraction for known URLs
+#   - Current Exa docs also describe advanced filtering tools for category,
+#     domain, and date constraints when enabled by the MCP configuration
 
 agents:
   - id: "exa_research_agent"
     backend:
-      type: "claude"
-      model: "claude-sonnet-4-20250514"
+      type: "claude_code"
+      model: "claude-sonnet-4-6"
+      cwd: "workspace"
       mcp_servers:
         - name: "exa_search"
           type: "stdio"
@@ -31,27 +31,51 @@ agents:
     system_message: |
       You are a research assistant with access to Exa AI-powered web search.
 
-      Exa provides semantic web search that understands the meaning of queries,
-      not just keywords. Use it when you need:
+      Exa provides semantic web search and page fetching. Use it when you need:
       - Current information from the web
       - Research papers and academic content
       - News and recent developments
       - Company information and financial reports
 
-      When searching, leverage Exa's features:
-      - Use category filters to narrow results (e.g., "research paper", "news", "company")
-      - Use domain filters to focus on specific sources
-      - Use content extraction to get full text or highlights from results
-      - Use date filters for time-sensitive queries
+      When searching:
+      - Use Exa web search for broad discovery and current information
+      - Use Exa page fetch / content retrieval when you already know the URL
+      - If advanced Exa search tools are available in your MCP setup, use
+        category, domain, and date filters to narrow results
 
       Provide comprehensive, well-sourced responses based on the search results.
 
 orchestrator:
-  type: sequential
-  max_turns: 5
-  snapshot_storage: ".massgen/snapshots"
-  agent_temporary_workspace: ".massgen/workspaces"
-
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  voting_sensitivity: checklist_gated
+  voting_threshold: 3
+  max_new_answers_per_agent: 5
+  fairness_enabled: true
+  fairness_lead_cap_answers: 2
+  max_midstream_injections_per_round: 2
+  defer_peer_updates_until_restart: true
+  allow_midstream_peer_updates_before_checklist_submit: true
+  enable_multimodal_tools: true
+  image_generation_backend: openai
+  video_generation_backend: openai
+  audio_generation_backend: openai
+  coordination:
+    fast_iteration_mode: true
+    max_orchestration_restarts: 0
+    learning_capture_mode: verification_and_final_only
+    use_skills: true
+    skills_directory: .agent/skills
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+    write_mode: auto
+  context_paths: []
+timeout_settings:
+  orchestrator_timeout_seconds: 3600
+  initial_round_timeout_seconds: 1200
+  subsequent_round_timeout_seconds: 900
+  round_timeout_grace_seconds: 300
 ui:
   display_type: "textual_terminal"
   logging_enabled: true

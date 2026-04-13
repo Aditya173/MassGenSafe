@@ -132,7 +132,7 @@ Brave Search
 Exa Search
 ~~~~~~~~~~
 
-**Purpose:** AI-powered web search with neural, auto, and deep search types
+**Purpose:** AI-powered web search and page fetch via Exa's official MCP server
 
 **Type:** stdio
 
@@ -150,21 +150,23 @@ Exa Search
        env:
          EXA_API_KEY: "${EXA_API_KEY}"
 
+MassGen currently wires Exa through the official npm package (``npx -y exa-mcp-server``).
+Exa's current docs also highlight a hosted MCP endpoint (``https://mcp.exa.ai/mcp``)
+for clients that support HTTP MCP directly.
+
 **Tools:**
 
-- ``web_search_exa`` - AI-powered web search with neural understanding
-- ``find_similar_exa`` - Find pages similar to a given URL
-- ``get_contents_exa`` - Extract contents from URLs (text, highlights, summaries)
+- ``web_search_exa`` - Search the web and return ready-to-use content
+- ``web_fetch_exa`` - Read a webpage's full content as clean markdown from a URL
+- ``web_search_advanced_exa`` - Advanced search with category, domain, date, highlight, and summary controls
 
 **Key Features:**
 
-- Multiple search types: auto, neural, fast, instant, deep, deep-reasoning
-- Content extraction: full text, highlights (relevant snippets), and summaries
-- Domain filtering (include/exclude up to 1200 domains)
-- Text filtering (require or exclude specific terms)
-- Category filtering: company, research paper, news, personal site, financial report, people
-- Date range filtering (published date and crawl date)
-- Live crawling for fresh content
+- Search the web with Exa's AI-oriented ranking and content extraction
+- Fetch a known page as clean markdown for summarization or downstream analysis
+- Advanced search options documented by Exa include category, domain, and date filters
+- Official Exa docs currently prefer the hosted MCP endpoint for HTTP-capable clients,
+  while MassGen's registry uses the official npm package form above
 
 **API Key Setup:**
 
@@ -175,10 +177,9 @@ Exa Search
 **Use Cases:**
 
 - Research queries requiring semantic understanding
-- Finding similar pages to a reference URL
-- Extracting structured content from search results
+- Fetching and summarizing the full contents of a known page
 - Category-specific searches (research papers, news, companies)
-- Deep research with extended reasoning
+- Time-bounded or domain-restricted searches when advanced Exa tooling is enabled
 
 **Example:**
 
