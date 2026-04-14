@@ -533,6 +533,7 @@ if now == nil then
     now = tonumber(redis_time[1]) + (tonumber(redis_time[2]) / 1000000)
 end
 local ttl = tonumber(ARGV[2])
+local probe_ttl = tonumber(ARGV[3])
 local transition = ""
 
 if state["state"] == "open" and now >= tonumber(state["open_until"]) then
@@ -553,7 +554,11 @@ if transition ~= "" then
         "open_until", state["open_until"],
         "half_open_probe_active", state["half_open_probe_active"]
     )
-    redis.call("EXPIRE", KEYS[1], ttl)
+    local effective_ttl = ttl
+    if state["half_open_probe_active"] == "True" then
+        effective_ttl = probe_ttl
+    end
+    redis.call("EXPIRE", KEYS[1], effective_ttl)
 end
 
 return {
@@ -571,10 +576,17 @@ return {
         redis_client: Any,
         ttl: int = 3600,
         key_prefix: str = "massgen:cb",
+        half_open_probe_ttl: int | None = None,
     ) -> None:
+        if redis_client is None:
+            raise ValueError("redis_client is required for RedisStore")
         self._client = redis_client
         self._ttl = ttl
         self._key_prefix = key_prefix
+        # Probe TTL must be at least as long as the base TTL so the
+        # half_open state survives a long probe request even when callers
+        # configure a small base TTL.
+        self._half_open_probe_ttl = max(ttl, half_open_probe_ttl) if half_open_probe_ttl is not None else ttl
         self._fallback_lock = threading.Lock()
 
     def get_state(self, backend: str) -> dict:
@@ -680,6 +692,7 @@ return {
                 self._key(backend),
                 str(now),
                 str(max(1, self._ttl)),
+                str(max(1, self._half_open_probe_ttl)),
             )
         except Exception as exc:
             if not self._script_unavailable(exc):
@@ -792,6 +805,8 @@ return {
             open_until = float(updates.get("open_until", 0))
             remaining = int(open_until - time.time())
             return max(1, self._ttl, remaining + 60)
+        if updates.get("state") == "half_open" and updates.get("half_open_probe_active"):
+            return max(1, self._half_open_probe_ttl)
         return max(1, self._ttl)
 
     @staticmethod
@@ -968,8 +983,10 @@ def make_store(backend: str = "memory", **kwargs: Any) -> CircuitBreakerStore:
         backend: ``"memory"`` for the in-process store or ``"redis"`` for the
             Redis-backed store.
         **kwargs: For ``"redis"``, ``redis_client`` is required; ``ttl``
-            (default 3600) and ``key_prefix`` (default ``"massgen:cb"``)
-            are forwarded to ``RedisStore``.
+            (default 3600), ``key_prefix`` (default ``"massgen:cb"``), and
+            ``half_open_probe_ttl`` (default equals ``ttl``) are forwarded
+            to ``RedisStore``. Use ``half_open_probe_ttl`` to keep the
+            half_open probe entry alive longer than the base TTL.
 
     Raises:
         ValueError: If ``backend`` is unknown, or if ``backend=="redis"`` but
@@ -986,5 +1003,7 @@ def make_store(backend: str = "memory", **kwargs: Any) -> CircuitBreakerStore:
         redis_kwargs: dict[str, Any] = {"ttl": kwargs.get("ttl", 3600)}
         if "key_prefix" in kwargs:
             redis_kwargs["key_prefix"] = kwargs["key_prefix"]
+        if "half_open_probe_ttl" in kwargs:
+            redis_kwargs["half_open_probe_ttl"] = kwargs["half_open_probe_ttl"]
         return RedisStore(redis_client, **redis_kwargs)
     raise ValueError(f"Unknown circuit breaker store backend: {backend}")
