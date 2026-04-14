@@ -296,6 +296,9 @@ class TestAdversarialRedisStore:
             def watch(self, key: str) -> None:
                 raise RuntimeError("watch conflict")
 
+            def reset(self) -> None:
+                pass
+
         monkeypatch.setattr(store._client, "eval", raise_unknown_command)
         monkeypatch.setattr(
             store._client,

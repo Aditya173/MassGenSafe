@@ -826,6 +826,8 @@ return {
                     time.sleep(0.001 * (2**attempt))
                     continue
                 raise
+            finally:
+                pipe.reset()
         return False
 
     def _increment_failure_without_lua(self, backend: str) -> int:
@@ -848,6 +850,8 @@ return {
                     time.sleep(0.001 * (2**attempt))
                     continue
                 raise
+            finally:
+                pipe.reset()
         raise RuntimeError(
             f"Failed to atomically increment failure count for {backend!r} " "after 3 retries",
         )

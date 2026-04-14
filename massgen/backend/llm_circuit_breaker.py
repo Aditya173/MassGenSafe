@@ -479,17 +479,42 @@ class LLMCircuitBreaker:
         if self._store is not None:
             now = time.time()
             duration = max(self.config.reset_time_seconds, open_for_seconds)
-            state = self._store.get_state(self.backend_name)
-            prev_state_value = state.get("state", CircuitState.CLOSED.value)
-            state.update(
-                {
+            computed_open_until = now + duration
+            prev_state_value = CircuitState.CLOSED.value
+            _MAX_CAS_ATTEMPTS = 5
+            for _attempt in range(_MAX_CAS_ATTEMPTS):
+                current = self._store.get_state(self.backend_name)
+                prev_state_value = current.get("state", CircuitState.CLOSED.value)
+                # Preserve longer open_until and more recent failure time
+                # if a concurrent force_open has already written a later value.
+                merged_open_until = max(computed_open_until, float(current.get("open_until", 0)))
+                merged_last_failure = max(now, float(current.get("last_failure_time", 0)))
+                updates = {
                     "state": CircuitState.OPEN.value,
-                    "last_failure_time": now,
-                    "open_until": now + duration,
+                    "last_failure_time": merged_last_failure,
+                    "open_until": merged_open_until,
                     "half_open_probe_active": False,
-                },
-            )
-            self._store.set_state(self.backend_name, state)
+                }
+                applied = self._store.cas_state(self.backend_name, prev_state_value, updates)
+                if applied:
+                    break
+                # CAS conflict -- retry with refreshed state
+            else:
+                # All CAS attempts failed; fall back to unconditional set to
+                # avoid leaving the CB in a non-open state under quota exhaustion.
+                current = self._store.get_state(self.backend_name)
+                merged_open_until = max(computed_open_until, float(current.get("open_until", 0)))
+                merged_last_failure = max(now, float(current.get("last_failure_time", 0)))
+                self._store.set_state(
+                    self.backend_name,
+                    {
+                        **current,
+                        "state": CircuitState.OPEN.value,
+                        "last_failure_time": merged_last_failure,
+                        "open_until": merged_open_until,
+                        "half_open_probe_active": False,
+                    },
+                )
             self._log(
                 f"Circuit breaker force-opened: {reason}",
                 open_for_seconds=duration,
@@ -706,7 +731,10 @@ class LLMCircuitBreaker:
                             error_type=f"http_{status_code}",
                             error_message=str(exc)[:200],
                         )
-                        if attempt < max_retries and not self.should_block():
+                        _retry_blocked2, _retry_claimed2 = self._should_block_with_claim()
+                        if _retry_claimed2:
+                            _owns_probe = True
+                        if attempt < max_retries and not _retry_blocked2:
                             jittered = delay * random.uniform(0.8, 1.2)  # noqa: S311
                             self._log(
                                 f"Retryable error (HTTP {status_code}), backing off",
@@ -743,16 +771,20 @@ class LLMCircuitBreaker:
             _transition_args: tuple[str, str, str] | None = None
             if _owns_probe:
                 if self._store is not None:
-                    state = self._store.get_state(self.backend_name)
-                    if CircuitState(state["state"]) == CircuitState.HALF_OPEN and state["half_open_probe_active"]:
-                        state.update(
-                            {
-                                "state": CircuitState.OPEN.value,
-                                "open_until": time.time() + self.config.reset_time_seconds,
-                                "half_open_probe_active": False,
-                            },
-                        )
-                        self._store.set_state(self.backend_name, state)
+                    # Use CAS to avoid overwriting a longer open_until written
+                    # concurrently (e.g. force_open from another coroutine).
+                    _probe_now = time.time()
+                    _probe_open_until = _probe_now + self.config.reset_time_seconds
+                    _probe_applied = self._store.cas_state(
+                        self.backend_name,
+                        CircuitState.HALF_OPEN.value,
+                        {
+                            "state": CircuitState.OPEN.value,
+                            "open_until": _probe_open_until,
+                            "half_open_probe_active": False,
+                        },
+                    )
+                    if _probe_applied:
                         self._log(
                             "Probe terminated abnormally, circuit breaker re-opened",
                         )
