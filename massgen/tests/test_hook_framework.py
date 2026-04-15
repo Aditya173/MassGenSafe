@@ -1368,8 +1368,8 @@ class TestRoundTimeoutHooks:
         assert shared_state.soft_timeout_reason == "manual"
 
     @pytest.mark.asyncio
-    async def test_manual_wrap_up_request_uses_shorter_manual_grace_after_delivery(self):
-        """Manual Answer Now should hard-block much sooner than the normal timeout grace."""
+    async def test_manual_wrap_up_request_still_uses_configured_grace_after_delivery(self):
+        """Manual Answer Now should still respect the configured hard-timeout grace."""
         shared_state = RoundTimeoutState()
         round_start = datetime.now(timezone.utc).timestamp()
 
@@ -1399,11 +1399,12 @@ class TestRoundTimeoutHooks:
         assert post_hook.consume_pending_wrap_up_injection() is not None
         assert shared_state.soft_timeout_reason == "manual"
 
-        # 11 seconds is well inside the normal 45s grace, so denial here proves
-        # the manual Answer Now path uses a stricter post-delivery grace window.
         shared_state.soft_timeout_fired_at = time.time() - 11
-        denied = await pre_hook.execute("write_file", "{}")
+        allowed = await pre_hook.execute("write_file", "{}")
+        assert allowed.allowed is True
 
+        shared_state.soft_timeout_fired_at = time.time() - 46
+        denied = await pre_hook.execute("write_file", "{}")
         assert denied.allowed is False
         assert "hard timeout" in (denied.reason or "").lower() or "submit" in (denied.reason or "").lower()
 

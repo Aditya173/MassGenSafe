@@ -11748,10 +11748,6 @@ Your answer:"""
 
         grace_seconds = timeout_config.round_timeout_grace_seconds or 0
         shared_timeout_state = state.round_timeout_state
-        if shared_timeout_state:
-            grace_seconds = shared_timeout_state.get_effective_grace_seconds(
-                grace_seconds,
-            )
         if shared_timeout_state and shared_timeout_state.soft_timeout_fired_at is not None:
             return (time.time() - shared_timeout_state.soft_timeout_fired_at) >= grace_seconds
 
@@ -20348,8 +20344,6 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             elapsed = time.time() - state.round_start_time
             remaining_soft = max(0, active_timeout - elapsed)
             grace = timeout_config.round_timeout_grace_seconds or 0
-            if state.round_timeout_state:
-                grace = state.round_timeout_state.get_effective_grace_seconds(grace)
             if state.round_timeout_state and state.round_timeout_state.soft_timeout_fired_at is not None:
                 remaining_hard = max(
                     0,
@@ -20374,17 +20368,11 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             soft_timeout_fired = True
             wrap_up_requested = True
 
-        effective_grace_seconds = timeout_config.round_timeout_grace_seconds or 0
-        if state.round_timeout_state:
-            effective_grace_seconds = state.round_timeout_state.get_effective_grace_seconds(
-                effective_grace_seconds,
-            )
-
         return {
             "round_number": round_num,
             "round_start_time": state.round_start_time,
             "active_timeout": active_timeout,
-            "grace_seconds": effective_grace_seconds,
+            "grace_seconds": timeout_config.round_timeout_grace_seconds or 0,
             "elapsed": elapsed,
             "remaining_soft": remaining_soft,
             "remaining_hard": remaining_hard,

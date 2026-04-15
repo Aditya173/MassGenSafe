@@ -1472,7 +1472,6 @@ class RoundTimeoutState:
 
     # Maximum consecutive denials before forcing termination
     MAX_CONSECUTIVE_DENIALS = 10
-    MANUAL_WRAP_UP_GRACE_SECONDS = 10
 
     def __init__(self):
         self.soft_timeout_fired_at: float | None = None
@@ -1483,21 +1482,13 @@ class RoundTimeoutState:
     def mark_soft_fired(self, reason: str = "timeout") -> None:
         """Record when the soft-timeout phase started.
 
-        This is idempotent within a round so manual Answer Now requests can start
-        the grace timer immediately without that timestamp being reset later when
-        the wrap-up guidance is actually delivered.
+        This is idempotent within a round so the grace timer starts exactly once
+        when the wrap-up guidance has actually been delivered.
         """
         if self.soft_timeout_fired_at is None:
             self.soft_timeout_fired_at = time.time()
         if self.soft_timeout_reason is None:
             self.soft_timeout_reason = reason
-
-    def get_effective_grace_seconds(self, default_grace_seconds: int) -> int:
-        """Return the grace window that should apply to the current wrap-up phase."""
-        grace_seconds = max(0, int(default_grace_seconds))
-        if self.soft_timeout_reason == "manual":
-            return min(grace_seconds, self.MANUAL_WRAP_UP_GRACE_SECONDS)
-        return grace_seconds
 
     def record_hard_denial(self) -> bool:
         """Record a hard timeout denial and check if we should force terminate.
@@ -1652,16 +1643,6 @@ Do NOT leave partial work in deliverable/ - include everything needed or nothing
 """
 
         grace_seconds = self.grace_seconds
-        if manual:
-            if self._shared_state:
-                grace_seconds = self._shared_state.get_effective_grace_seconds(
-                    self.grace_seconds,
-                )
-            else:
-                grace_seconds = min(
-                    self.grace_seconds,
-                    RoundTimeoutState.MANUAL_WRAP_UP_GRACE_SECONDS,
-                )
 
         if manual:
             intro = f"A teammate requested that this {round_type} round move to resolution now.\n" f"You have spent {elapsed:.0f}s in this round so far " f"(configured soft limit: {timeout}s)."
@@ -1844,14 +1825,11 @@ class RoundTimeoutPreHook(PatternHook):
 
             # Calculate hard timeout from when soft was injected
             time_since_soft = time.time() - soft_fired_at
-            effective_grace = self._shared_state.get_effective_grace_seconds(
-                self.grace_seconds,
-            )
             logger.debug(
-                f"[RoundTimeoutPreHook] Agent {self.agent_id}: " f"time_since_soft={time_since_soft:.0f}s, grace={effective_grace}s",
+                f"[RoundTimeoutPreHook] Agent {self.agent_id}: " f"time_since_soft={time_since_soft:.0f}s, grace={self.grace_seconds}s",
             )
 
-            if time_since_soft < effective_grace:
+            if time_since_soft < self.grace_seconds:
                 # Within grace period - reset denial count and allow
                 self._shared_state.reset_denial_count()
                 return HookResult.allow()
@@ -1868,7 +1846,7 @@ class RoundTimeoutPreHook(PatternHook):
 
             logger.warning(
                 f"[RoundTimeoutPreHook] DENIED tool `{function_name}` for {self.agent_id} - "
-                f"grace period exceeded ({time_since_soft:.0f}s / {effective_grace}s), "
+                f"grace period exceeded ({time_since_soft:.0f}s / {self.grace_seconds}s), "
                 f"denial #{denial_count}" + (" - FORCE TERMINATE TRIGGERED" if force_terminate else ""),
             )
 
@@ -1877,7 +1855,7 @@ class RoundTimeoutPreHook(PatternHook):
                 reason=(
                     f"⛔ HARD TIMEOUT - TOOL `{function_name}` BLOCKED (attempt #{denial_count})\n"
                     f"You received the time limit warning {time_since_soft:.0f}s ago "
-                    f"(grace period: {effective_grace}s).\n"
+                    f"(grace period: {self.grace_seconds}s).\n"
                     f"Only `vote` or `new_answer` tools are allowed. Submit immediately. Note any unsolved problems."
                     + (
                         f"\n⚠️ WARNING: {denial_count} consecutive blocked calls. " f"Turn will be terminated after {RoundTimeoutState.MAX_CONSECUTIVE_DENIALS} blocked calls."
