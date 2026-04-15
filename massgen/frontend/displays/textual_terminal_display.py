@@ -82,6 +82,7 @@ try:
         AnalysisSkillLifecycleChanged,
         AnalysisTargetChanged,
         AnalysisTargetTypeChanged,
+        AnswerNowClicked,
         BackgroundTasksClicked,
         BackgroundTasksModal,
         BroadcastModeChanged,
@@ -998,6 +999,11 @@ class TextualTerminalDisplay(TerminalDisplay):
         """Set the callback for continuing terminal subagents from TUI."""
         if self._app and hasattr(self._app, "set_subagent_continue_callback"):
             self._app.set_subagent_continue_callback(callback)
+
+    def set_answer_now_callback(self, callback) -> None:
+        """Set the callback for the status-bar Answer Now control."""
+        if self._app and hasattr(self._app, "set_answer_now_callback"):
+            self._app.set_answer_now_callback(callback)
 
     def initialize(self, question: str, log_filename: str | None = None):
         """Initialize display with file output."""
@@ -2855,6 +2861,9 @@ if TEXTUAL_AVAILABLE:
     class StatusBarCancelClicked(Message):
         """Message emitted when the cancel button in StatusBar is clicked."""
 
+    class StatusBarAnswerNowClicked(Message):
+        """Message emitted when the Answer Now button in StatusBar is clicked."""
+
     class StatusBarCwdClicked(Message):
         """Message emitted when the CWD display in StatusBar is clicked."""
 
@@ -2903,6 +2912,7 @@ if TEXTUAL_AVAILABLE:
             self._agent_votes_received: dict[str, int] = {}  # agent_id -> votes received for their answers
             # CWD context mode: "off", "read", or "write"
             self._cwd_context_mode = "off"
+            self._timeout_states: dict[str, dict[str, Any]] = {}
             # Initialize vote counts to 0 for all agents and register agents
             for idx, agent_id in enumerate(self._agent_ids):
                 self._vote_counts[agent_id] = 0
@@ -2942,6 +2952,7 @@ if TEXTUAL_AVAILABLE:
             yield Static("📋 0 events", id="status_events", classes="clickable")
             yield Static("[dim]?:help[/]", id="status_hints")  # Always visible, shows q:cancel during coordination
             yield Static("⏱️ 0:00", id="status_timer")
+            yield Static("", id="status_answer_now", classes="answer-now-button hidden")
             yield Static("", id="status_cancel", classes="cancel-button hidden")
 
         def on_click(self, event: events.Click) -> None:
@@ -2951,6 +2962,8 @@ if TEXTUAL_AVAILABLE:
             if widget and hasattr(widget, "id"):
                 if widget.id == "status_events":
                     self.post_message(StatusBarEventsClicked())
+                elif widget.id == "status_answer_now":
+                    self.post_message(StatusBarAnswerNowClicked())
                 elif widget.id == "status_cancel":
                     self.post_message(StatusBarCancelClicked())
                 elif widget.id == "status_tools":
@@ -3028,6 +3041,8 @@ if TEXTUAL_AVAILABLE:
                 self.add_class("phase-presentation")
             else:
                 self.add_class("phase-idle")
+
+            self._update_answer_now_display()
 
         def update_mcp_status(self, server_count: int, tool_count: int) -> None:
             """Update MCP indicator in status bar."""
@@ -3218,6 +3233,62 @@ if TEXTUAL_AVAILABLE:
             except Exception as e:
                 tui_log(f"[TextualDisplay] {e}")  # Widget not mounted yet
 
+        @staticmethod
+        def _format_compact_duration(seconds: float | int | None) -> str:
+            """Format a compact duration for status-bar labels."""
+            if seconds is None:
+                return "--:--"
+            total_seconds = max(0, int(seconds))
+            return f"{total_seconds // 60}:{total_seconds % 60:02d}"
+
+        def set_timeout_state(self, agent_id: str, timeout_state: dict[str, Any]) -> None:
+            """Store timeout state for Answer Now and wrap-up display."""
+            self._timeout_states[agent_id] = dict(timeout_state)
+            self._update_answer_now_display()
+
+        def _update_answer_now_display(self) -> None:
+            """Update the Answer Now control based on wrap-up state."""
+            try:
+                answer_widget = self.query_one("#status_answer_now", Static)
+            except Exception as e:
+                tui_log(f"[TextualDisplay] {e}")
+                return
+
+            is_execution_phase = self._current_phase not in ("idle", "presenting", "presentation")
+            for class_name in ("wrapping-up", "blocked"):
+                answer_widget.remove_class(class_name)
+
+            if not is_execution_phase:
+                answer_widget.add_class("hidden")
+                return
+
+            answer_widget.remove_class("hidden")
+
+            active_states = [timeout_state for timeout_state in self._timeout_states.values() if timeout_state.get("active_timeout")]
+            wrapping_states = [timeout_state for timeout_state in active_states if timeout_state.get("soft_timeout_fired")]
+            pending_states = [timeout_state for timeout_state in active_states if timeout_state.get("wrap_up_requested") and not timeout_state.get("soft_timeout_fired")]
+
+            if any(timeout_state.get("is_hard_blocked") for timeout_state in wrapping_states):
+                answer_widget.update("🚫 Blocked")
+                answer_widget.add_class("blocked")
+                return
+
+            if wrapping_states:
+                remaining_values = [timeout_state.get("remaining_hard") for timeout_state in wrapping_states if timeout_state.get("remaining_hard") is not None]
+                remaining_text = ""
+                if remaining_values:
+                    remaining_text = f" {self._format_compact_duration(min(remaining_values))}"
+                answer_widget.update(f"⚠ Wrapping up{remaining_text}")
+                answer_widget.add_class("wrapping-up")
+                return
+
+            if pending_states:
+                answer_widget.update("⚠ Wrap-up pending")
+                answer_widget.add_class("wrapping-up")
+                return
+
+            answer_widget.update("⚡ Answer Now")
+
         def stop_timer(self) -> None:
             """Stop the timer updates."""
             if self._timer_interval:
@@ -3229,6 +3300,7 @@ if TEXTUAL_AVAILABLE:
             self._vote_counts = {agent_id: 0 for agent_id in self._agent_ids}
             self._event_count = 0
             self._start_time = None
+            self._timeout_states = {}
             self.stop_timer()
             self.update_phase("idle")
             self._update_votes_display()
@@ -3688,6 +3760,7 @@ if TEXTUAL_AVAILABLE:
             self._human_input_hook = None  # Set by orchestrator via set_human_input_hook()
             self._subagent_message_callback = None  # Set by orchestrator via set_subagent_message_callback()
             self._subagent_continue_callback = None  # Set by orchestrator via set_subagent_continue_callback()
+            self._answer_now_callback = None
             self._queued_input_banner: QueuedInputBanner | None = None
             self._queued_input_region: Container | None = None
             self._queued_input_row: Horizontal | None = None
@@ -5380,6 +5453,10 @@ if TEXTUAL_AVAILABLE:
             """Set callback for continuing terminal subagents from SubagentScreen."""
             self._subagent_continue_callback = callback
 
+        def set_answer_now_callback(self, callback) -> None:
+            """Set callback for the status-bar Answer Now action."""
+            self._answer_now_callback = callback
+
         def _submit_question(
             self,
             submitted_text: str | None = None,
@@ -6222,6 +6299,9 @@ Type your question and press Enter to ask the agents.
             """
             if agent_id in self.agent_widgets:
                 self.agent_widgets[agent_id].update_timeout(timeout_state)
+
+            if self._status_bar:
+                self._status_bar.set_timeout_state(agent_id, timeout_state)
 
             # Also update the status ribbon timeout display
             if self._status_ribbon:
@@ -10948,6 +11028,55 @@ Type your question and press Enter to ask the agents.
             """Handle click on status bar running/background tools indicator."""
             self.action_open_background_tools()
 
+        def on_status_bar_answer_now_clicked(self, event: StatusBarAnswerNowClicked) -> None:
+            """Handle click on status bar Answer Now control."""
+            self._trigger_answer_now()
+
+        def on_answer_now_clicked(self, event: AnswerNowClicked) -> None:
+            """Handle click on ribbon Answer Now control."""
+            self._trigger_answer_now()
+
+        def _trigger_answer_now(self) -> None:
+            """Trigger the shared Answer Now callback and show user feedback."""
+            callback = getattr(self, "_answer_now_callback", None)
+            if not callable(callback):
+                self.notify("Answer Now is unavailable for this run.", severity="warning", timeout=2)
+                return
+
+            result = callback() or {}
+            requested_agents = list(result.get("requested_agents") or [])
+            already_requested_agents = list(result.get("already_requested_agents") or [])
+            skipped_agents = list(result.get("skipped_agents") or [])
+
+            if requested_agents:
+                self.add_orchestrator_event(
+                    f"Answer Now requested for: {', '.join(requested_agents)}",
+                )
+                self.notify(
+                    f"Asked {len(requested_agents)} agent(s) to wrap up and answer now.",
+                    severity="warning",
+                    timeout=3,
+                )
+                return
+
+            if already_requested_agents:
+                self.notify(
+                    "Wrap-up is already in progress for the active agents.",
+                    severity="information",
+                    timeout=2,
+                )
+                return
+
+            if skipped_agents:
+                self.notify(
+                    "No active agents are available to wrap up.",
+                    severity="information",
+                    timeout=2,
+                )
+                return
+
+            self.notify("Nothing is currently running.", severity="information", timeout=2)
+
         def on_status_bar_cwd_clicked(self, event: StatusBarCwdClicked) -> None:
             """Handle CWD mode change from status bar click."""
             if self._is_cwd_context_toggle_blocked():
@@ -13908,6 +14037,7 @@ Type your question and press Enter to ask the agents.
             round_start_time = self._timeout_state.get("round_start_time")
             grace_seconds = self._timeout_state.get("grace_seconds", 0)
             soft_timeout_fired = self._timeout_state.get("soft_timeout_fired", False)
+            wrap_up_requested = self._timeout_state.get("wrap_up_requested", False)
 
             if round_start_time is None:
                 return None
@@ -13936,6 +14066,8 @@ Type your question and press Enter to ask the agents.
             elif soft_timeout_fired:
                 # In grace period - show remaining time until hard block
                 return f"| [bold yellow]⚠️ Round {round_num} grace: {fmt_time(remaining_hard)} left[/bold yellow]"
+            elif wrap_up_requested:
+                return f"| [yellow]⚠️ Round {round_num}: wrap up requested[/yellow]"
             elif remaining_soft <= 60:
                 # Less than 1 minute - show warning in yellow
                 return f"| [yellow]⏰ Round {round_num}: {fmt_time(remaining_soft)} / {limit_str}[/yellow]"

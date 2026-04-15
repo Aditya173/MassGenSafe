@@ -6,6 +6,8 @@ This module provides reusable Textual widgets for the production TUI interface.
 
 from .agent_status_ribbon import (
     AgentStatusRibbon,
+    AnswerNowClicked,
+    AnswerNowLabel,
     BackgroundTasksClicked,
     BackgroundTasksLabel,
     ContextPathsClicked,
@@ -121,6 +123,8 @@ __all__ = [
     "SessionInfoClicked",
     # Agent status ribbon
     "AgentStatusRibbon",
+    "AnswerNowClicked",
+    "AnswerNowLabel",
     "BackgroundTasksClicked",
     "BackgroundTasksLabel",
     "ContextPathsClicked",

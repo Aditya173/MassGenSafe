@@ -433,9 +433,7 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
         tmp_file.replace(hook_file)
 
         logger.info(
-            "Wrote hook_post_tool_use.json (seq=%d, %d chars)",
-            self._hook_sequence,
-            len(content),
+            f"Wrote hook_post_tool_use.json (seq={self._hook_sequence}, {len(content)} chars)",
         )
 
     def read_unconsumed_hook_content(self) -> str | None:
@@ -453,14 +451,13 @@ class CodexBackend(StreamingBufferMixin, NativeToolBackendMixin, LLMBackend):
             content = inject.get("content")
             if content:
                 logger.info(
-                    "Read unconsumed hook content (%d chars) — carrying forward",
-                    len(content),
+                    f"Read unconsumed hook content ({len(content)} chars) — carrying forward",
                 )
             return content
         except FileNotFoundError:
             return None
         except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Failed reading unconsumed hook file: %s", e)
+            logger.warning(f"Failed reading unconsumed hook file: {e}")
             hook_file.unlink(missing_ok=True)
             return None
 

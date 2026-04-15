@@ -426,6 +426,7 @@ Per-round timeout hooks (registered via hook layer):
 - soft timeout: injects wrap-up guidance
 - hard timeout: blocks non-terminal tools after grace period
 - repeated denied tool calls after hard timeout can force agent turn termination
+- the Textual TUI `Answer Now` control reuses this same soft-timeout path manually; it requests wrap-up immediately, then starts the grace countdown only once the wrap-up guidance is actually delivered
 
 Enforcement loop behavior:
 

@@ -8849,6 +8849,12 @@ Your answer:"""
             agent_id=agent_id,
         )
         agent.backend.set_native_hooks_config(native_config)
+        # Codex's native hook surface is Bash-only, but the TUI and manual
+        # wrap-up flow still need real timeout hook objects in agent state.
+        # Register those separately so request_answer_now() and timeout status
+        # work on the hybrid path without changing the native hooks config.
+        timeout_manager = GeneralHookManager()
+        self._register_round_timeout_hooks(agent_id, timeout_manager)
         self._setup_codex_mcp_hooks(agent_id, agent, answers)
 
         hooks = native_config.get("hooks", {}) if isinstance(native_config, dict) else {}
@@ -8858,6 +8864,48 @@ Your answer:"""
             len(hooks.get("PreToolUse", [])),
             len(hooks.get("PostToolUse", [])),
         )
+
+    async def _collect_round_timeout_runtime_sections(
+        self,
+        agent_id: str,
+    ) -> list[str]:
+        """Collect timeout/wrap-up injection content for hybrid or hookless delivery paths."""
+        state = self.agent_states.get(agent_id)
+        if not state or not state.round_timeout_hooks:
+            return []
+
+        post_hook, _ = state.round_timeout_hooks
+        execute = getattr(post_hook, "execute", None)
+        if not callable(execute):
+            return []
+
+        try:
+            result = await execute(
+                "codex_runtime_timeout_flush",
+                "{}",
+                _context={"agent_id": agent_id, "hook_type": "PostToolUse"},
+            )
+        except Exception as e:
+            logger.warning(
+                "[Orchestrator] Failed to evaluate round timeout hook for %s: %s",
+                agent_id,
+                e,
+            )
+            return []
+
+        inject = getattr(result, "inject", None) or {}
+        content = inject.get("content")
+        if not content:
+            return []
+
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+        timeout_state = self.get_agent_timeout_state(agent_id)
+        if display and hasattr(display, "update_timeout_status") and timeout_state:
+            display.update_timeout_status(agent_id, timeout_state)
+
+        return [str(content)]
 
     async def _flush_codex_hook_payloads(
         self,
@@ -8883,6 +8931,11 @@ Your answer:"""
 
         # 0. Poll runtime inbox for messages from parent (subagent mode)
         self._poll_runtime_inbox()
+
+        # 0.5. Check for soft-timeout / manual wrap-up injections.
+        injection_parts.extend(
+            await self._collect_round_timeout_runtime_sections(agent_id),
+        )
 
         # 1. Check for human input
         if self._human_input_hook:
@@ -9013,10 +9066,7 @@ Your answer:"""
             if wrote_subagent_payload:
                 self._pending_subagent_results.pop(agent_id, None)
             logger.info(
-                "[Orchestrator] Wrote %d chars to hook file for %s (%d parts)",
-                len(combined),
-                agent_id,
-                len(injection_parts),
+                f"[Orchestrator] Wrote {len(combined)} chars to hook file for {agent_id} " f"({len(injection_parts)} parts)",
             )
 
     def _backend_supports_midstream_hook_injection(self, agent: ChatAgent) -> bool:
@@ -9078,6 +9128,11 @@ Your answer:"""
 
         # 0) Poll runtime inbox for messages from parent (subagent mode)
         self._poll_runtime_inbox()
+
+        # 0.5) Round timeout / manual wrap-up
+        sections.extend(
+            await self._collect_round_timeout_runtime_sections(agent_id),
+        )
 
         # 1) Human runtime input
         has_pending_for_agent = False
@@ -10386,6 +10441,136 @@ Your answer:"""
         if display and hasattr(display, "set_subagent_continue_callback"):
             display.set_subagent_continue_callback(self.continue_subagent_from_tui)
             logger.info("[Orchestrator] Shared subagent continue callback with TUI display")
+        if display and hasattr(display, "set_answer_now_callback"):
+            display.set_answer_now_callback(self.request_answer_now)
+            logger.info("[Orchestrator] Shared Answer Now callback with TUI display")
+
+    def request_answer_now(self) -> dict[str, list[str]]:
+        """Request that all active agents enter the soft-timeout wrap-up flow."""
+        active_agents: list[str] = []
+        if hasattr(self, "_active_streams") and self._active_streams:
+            active_agents.extend(self._active_streams.keys())
+        if hasattr(self, "_active_tasks") and self._active_tasks:
+            for agent_id in self._active_tasks.keys():
+                if agent_id not in active_agents:
+                    active_agents.append(agent_id)
+
+        if not active_agents:
+            # `_active_tasks` is intentionally sparse between chunk polls, and
+            # `_active_streams` can be transiently empty while a live round is
+            # about to resume. Fall back to agent round state so the TUI button
+            # still works during those bookkeeping gaps.
+            for agent_id in self.agents.keys():
+                state = self.agent_states.get(agent_id)
+                if state is None or state.is_killed or state.has_voted:
+                    continue
+                if state.round_start_time is None or not state.round_timeout_hooks:
+                    continue
+                active_agents.append(agent_id)
+
+        requested_agents: list[str] = []
+        already_requested_agents: list[str] = []
+        skipped_agents: list[str] = []
+
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+
+        for agent_id in active_agents:
+            state = self.agent_states.get(agent_id)
+            if state is None or state.is_killed:
+                skipped_agents.append(agent_id)
+                continue
+
+            hooks = state.round_timeout_hooks
+            if not hooks:
+                skipped_agents.append(agent_id)
+                continue
+
+            post_hook, _ = hooks
+            request_wrap_up = getattr(post_hook, "request_wrap_up", None)
+            if not callable(request_wrap_up):
+                skipped_agents.append(agent_id)
+                continue
+
+            if request_wrap_up():
+                requested_agents.append(agent_id)
+                self._prime_answer_now_hook_payload(agent_id)
+                timeout_state = self.get_agent_timeout_state(agent_id)
+                if display and hasattr(display, "update_timeout_status") and timeout_state:
+                    display.update_timeout_status(agent_id, timeout_state)
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop is not None:
+                    loop.create_task(
+                        self._maybe_interrupt_background_wait_for_agent(
+                            agent_id,
+                            trigger="answer_now_requested",
+                        ),
+                    )
+            else:
+                already_requested_agents.append(agent_id)
+
+        logger.info(
+            f"[Orchestrator] Answer Now requested: requested={requested_agents} " f"already_requested={already_requested_agents} skipped={skipped_agents}",
+        )
+        return {
+            "requested_agents": requested_agents,
+            "already_requested_agents": already_requested_agents,
+            "skipped_agents": skipped_agents,
+        }
+
+    def _consume_pending_answer_now_injection(self, agent_id: str) -> str | None:
+        """Return the queued manual wrap-up injection for an agent, if any."""
+        state = self.agent_states.get(agent_id)
+        if state is None or not state.round_timeout_hooks:
+            return None
+
+        post_hook, _ = state.round_timeout_hooks
+        consume_pending = getattr(post_hook, "consume_pending_wrap_up_injection", None)
+        if not callable(consume_pending):
+            return None
+
+        try:
+            content = consume_pending()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[Orchestrator] Failed consuming Answer Now injection for {agent_id}: {e}",
+                exc_info=True,
+            )
+            return None
+
+        if not content:
+            return None
+        return str(content)
+
+    def _prime_answer_now_hook_payload(self, agent_id: str) -> bool:
+        """Immediately write the manual wrap-up payload to hook-IPC backends."""
+        agent = self.agents.get(agent_id)
+        backend = getattr(agent, "backend", None) if agent is not None else None
+        write_hook = getattr(backend, "write_post_tool_use_hook", None)
+        if not callable(write_hook):
+            return False
+
+        content = self._consume_pending_answer_now_injection(agent_id)
+        if not content:
+            return False
+
+        try:
+            write_hook(content)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[Orchestrator] Failed priming Answer Now hook payload for {agent_id}: {e}",
+                exc_info=True,
+            )
+            return False
+
+        logger.info(
+            f"[Orchestrator] Primed Answer Now hook payload for {agent_id} ({len(content)} chars)",
+        )
+        return True
 
     def _register_round_timeout_hooks(
         self,
@@ -11563,6 +11748,10 @@ Your answer:"""
 
         grace_seconds = timeout_config.round_timeout_grace_seconds or 0
         shared_timeout_state = state.round_timeout_state
+        if shared_timeout_state:
+            grace_seconds = shared_timeout_state.get_effective_grace_seconds(
+                grace_seconds,
+            )
         if shared_timeout_state and shared_timeout_state.soft_timeout_fired_at is not None:
             return (time.time() - shared_timeout_state.soft_timeout_fired_at) >= grace_seconds
 
@@ -20159,24 +20348,49 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             elapsed = time.time() - state.round_start_time
             remaining_soft = max(0, active_timeout - elapsed)
             grace = timeout_config.round_timeout_grace_seconds or 0
-            remaining_hard = max(0, active_timeout + grace - elapsed)
+            if state.round_timeout_state:
+                grace = state.round_timeout_state.get_effective_grace_seconds(grace)
+            if state.round_timeout_state and state.round_timeout_state.soft_timeout_fired_at is not None:
+                remaining_hard = max(
+                    0,
+                    grace - (time.time() - state.round_timeout_state.soft_timeout_fired_at),
+                )
+            else:
+                remaining_hard = max(0, active_timeout + grace - elapsed)
 
         # Get soft timeout fired status from hook
         soft_timeout_fired = False
+        wrap_up_requested = False
         if state.round_timeout_hooks:
             post_hook, _ = state.round_timeout_hooks
             # Access the private attribute that tracks if soft timeout fired
             soft_timeout_fired = getattr(post_hook, "_soft_timeout_fired", False)
+            wrap_up_requested = soft_timeout_fired or getattr(
+                post_hook,
+                "_manual_wrap_up_requested",
+                False,
+            )
+        if state.round_timeout_state and state.round_timeout_state.soft_timeout_fired_at is not None:
+            soft_timeout_fired = True
+            wrap_up_requested = True
+
+        effective_grace_seconds = timeout_config.round_timeout_grace_seconds or 0
+        if state.round_timeout_state:
+            effective_grace_seconds = state.round_timeout_state.get_effective_grace_seconds(
+                effective_grace_seconds,
+            )
 
         return {
             "round_number": round_num,
             "round_start_time": state.round_start_time,
             "active_timeout": active_timeout,
-            "grace_seconds": timeout_config.round_timeout_grace_seconds or 0,
+            "grace_seconds": effective_grace_seconds,
             "elapsed": elapsed,
             "remaining_soft": remaining_soft,
             "remaining_hard": remaining_hard,
+            "wrap_up_requested": wrap_up_requested,
             "soft_timeout_fired": soft_timeout_fired,
+            "soft_timeout_reason": (state.round_timeout_state.soft_timeout_reason if state.round_timeout_state else None),
             "is_hard_blocked": remaining_hard == 0 if remaining_hard is not None else False,
         }
 
