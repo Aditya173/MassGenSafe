@@ -7,7 +7,7 @@ When answering a question or executing a task, always follow this workflow:
 
 1. **Call `init()` at the beginning of your session** before doing anything else. Call with your workspace path, trajectory, full tool list, original task, and environment context.
 2. **Investigate.** Read configs, run tests, explore the workspace. Build evidence in your trajectory — reviewers read it to verify your prep.
-3. **Call `checkpoint()` before each dangerous phase** with a scoped objective and action_goals. Call early, with prep done — calling late or thin produces bad plans.
+3. **Call `checkpoint()` with a scoped objective and action_goals** to formulate a safe plan. Call early, with prep done — calling late or thin produces bad plans.
 4. **Follow the returned plan exactly.** Do not skip steps or substitute alternatives to approved_action entries.
 
 ### When to checkpoint
