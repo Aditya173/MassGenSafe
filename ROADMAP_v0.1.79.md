@@ -1,10 +1,10 @@
-# MassGen v0.1.78 Roadmap
+# MassGen v0.1.79 Roadmap
 
-**Target Release:** April 17, 2026
+**Target Release:** April 20, 2026
 
 ## Overview
 
-Version 0.1.78 focuses on running MassGen as a cloud job on Modal.
+Version 0.1.79 picks up the Cloud Modal MVP originally planned for v0.1.78 (deferred because v0.1.78 shipped the Circuit Breaker Distributed Store — Phase 4 — instead).
 
 ---
 
@@ -27,5 +27,10 @@ Version 0.1.78 focuses on running MassGen as a cloud job on Modal.
 
 ## Related Tracks
 
-- **v0.1.77**: Answer Now Button — faster answers when quality is sufficient ([#1062](https://github.com/massgen/MassGen/pull/1062))
-- **v0.1.79**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))
+- **v0.1.78**: Circuit Breaker Distributed Store — Phase 4 ([#1061](https://github.com/massgen/MassGen/pull/1061)) — pluggable CB state store with in-memory and Redis-backed implementations
+- **v0.1.80**: OpenAI Audio API ([#960](https://github.com/massgen/MassGen/issues/960))
+
+## What's Next
+
+- **v0.1.80**: OpenAI Audio API — integrate OpenAI audio API with existing `read_media` tool for audio understanding
+- **v0.1.81**: Image/Video Edit Capabilities — investigate and support image/video editing across providers
