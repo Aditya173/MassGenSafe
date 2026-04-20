@@ -17,6 +17,7 @@ import {
   type WorkspaceFileInfo,
 } from '../stores/workspaceStore';
 import type { WorkspaceWSEvent } from '../types';
+import { buildAuthenticatedUrl } from '../utils/authToken';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_INTERVAL = 1000; // ms
@@ -77,7 +78,8 @@ export function useWorkspaceConnection() {
   const getWsUrl = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    return `${protocol}//${host}/ws/workspace/${sessionIdRef.current}`;
+    const path = buildAuthenticatedUrl(`/ws/workspace/${sessionIdRef.current}`);
+    return `${protocol}//${host}${path}`;
   }, []);
 
   // Handle incoming WebSocket messages

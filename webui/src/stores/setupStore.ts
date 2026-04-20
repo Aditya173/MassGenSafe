@@ -8,6 +8,7 @@
  */
 
 import { create } from 'zustand';
+import { buildAuthenticatedUrl } from '../utils/authToken';
 
 // Docker status values from backend diagnostics
 export type DockerStatusValue =
@@ -235,7 +236,9 @@ export const useSetupStore = create<SetupState>()((set, get) => ({
       set({ pullJobId: job_id });
 
       // Connect to SSE stream
-      const eventSource = new EventSource(`/api/docker/pull/${job_id}/stream`);
+      const eventSource = new EventSource(
+        buildAuthenticatedUrl(`/api/docker/pull/${job_id}/stream`)
+      );
 
       eventSource.onmessage = (event) => {
         try {

@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import JSONResponse
 
+from massgen.privacy import extract_token_from_http, token_matches
 from massgen.tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 
 from ..engine import Engine, MassGenEngine
@@ -47,6 +48,16 @@ def build_router(*, engine: Engine | None = None, settings: ServerSettings | Non
 
     @router.post("/v1/chat/completions")
     async def chat_completions(req: ChatCompletionRequest, request: Request):
+        if settings.private_mode:
+            provided_token = extract_token_from_http(request)
+            if not token_matches(provided_token, settings.server_token):
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "Authentication required. Provide token via Authorization: Bearer <token> or ?token=<token>.",
+                    },
+                )
+
         # Guard against collisions with MassGen workflow tools.
         tool_names = _extract_client_tool_names(req.tools)
         collisions = sorted(set(tool_names).intersection(set(WORKFLOW_TOOL_NAMES)))

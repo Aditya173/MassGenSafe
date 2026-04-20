@@ -12,6 +12,7 @@ import { useModeStore } from '../stores/v2/modeStore';
 import { useReviewStore } from '../stores/v2/reviewStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import type { WSEvent } from '../types';
+import { buildAuthenticatedUrl } from '../utils/authToken';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -58,7 +59,8 @@ export function useWebSocket({
   const getWsUrl = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    return `${protocol}//${host}/ws/${sessionId}`;
+    const path = buildAuthenticatedUrl(`/ws/${sessionId}`);
+    return `${protocol}//${host}${path}`;
   }, [sessionId]);
 
   // Handle incoming messages — dispatch to both v1 and v2 stores

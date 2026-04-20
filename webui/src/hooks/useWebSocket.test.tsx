@@ -111,4 +111,20 @@ describe('useWebSocket', () => {
 
     unmount()
   })
+
+  it('appends auth token to websocket URL when present', () => {
+    sessionStorage.setItem('massgen_auth_token', 'tok123')
+
+    const { unmount } = renderHook(() =>
+      useWebSocket({
+        sessionId: 'session-1',
+      })
+    )
+
+    const socket = MockWebSocket.instances[0]
+    expect(socket).toBeDefined()
+    expect(socket.url).toContain('token=tok123')
+
+    unmount()
+  })
 })

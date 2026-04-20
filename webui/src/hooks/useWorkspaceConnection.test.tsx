@@ -280,4 +280,19 @@ describe('useWorkspaceConnection', () => {
 
     unmount()
   })
+
+  it('appends auth token to workspace websocket URL when present', () => {
+    sessionStorage.setItem('massgen_auth_token', 'tok123')
+    act(() => {
+      useAgentStore.setState({ sessionId: 'session-6', isComplete: false })
+    })
+
+    const { unmount } = renderHook(() => useWorkspaceConnection())
+    const socket = MockWebSocket.instances[0]
+
+    expect(socket).toBeDefined()
+    expect(socket.url).toContain('token=tok123')
+
+    unmount()
+  })
 })

@@ -36,6 +36,12 @@ from massgen.filesystem_manager._constants import (
     get_language_for_extension,
 )
 from massgen.frontend.displays.web_display import WebDisplay
+from massgen.privacy import (
+    PrivacySettings,
+    extract_token_from_http,
+    extract_token_from_websocket,
+    token_matches,
+)
 
 if TYPE_CHECKING:
     from massgen.orchestrator import Orchestrator
@@ -889,6 +895,8 @@ def create_app(
     # when the first WebSocket client connects, giving the user the full
     # visual experience (loading screen, preparation, agent cards, etc.).
     app.state.pending_question = pending_question
+    app.state.privacy_settings = PrivacySettings.from_env()
+    app.state.local_api_token = app.state.privacy_settings.local_api_token
 
     # CORS for development
     app.add_middleware(
@@ -898,6 +906,29 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _private_auth_middleware(request: Request, call_next):
+        privacy_settings = app.state.privacy_settings
+        if not privacy_settings.private_mode or request.method.upper() == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+        needs_auth = (
+            path.startswith("/api/") or path.startswith("/workspace-preview/")
+        ) and path != "/api/health"
+        if not needs_auth:
+            return await call_next(request)
+
+        provided_token = extract_token_from_http(request)
+        if not token_matches(provided_token, privacy_settings.local_api_token):
+            return JSONResponse(
+                {
+                    "error": "Authentication required. Provide token via Authorization: Bearer <token> or ?token=<token>.",
+                },
+                status_code=401,
+            )
+        return await call_next(request)
 
     # Load persisted WebUI sessions from disk
     try:
@@ -1261,6 +1292,7 @@ def create_app(
         import asyncio
 
         diagnostics = await asyncio.to_thread(diagnose_docker)
+        privacy_settings = app.state.privacy_settings
 
         return {
             "needs_setup": needs_setup,
@@ -1270,6 +1302,16 @@ def create_app(
             "docker_status": diagnostics.status.value,
             "docker_error": diagnostics.error_message if not diagnostics.is_available else None,
             "docker_resolution": diagnostics.resolution_steps if not diagnostics.is_available else None,
+            "privacy": {
+                "private_mode": privacy_settings.private_mode,
+                "requires_auth_token": bool(
+                    privacy_settings.private_mode and privacy_settings.local_api_token,
+                ),
+                "sharing_enabled": (
+                    (not privacy_settings.private_mode) or privacy_settings.allow_unsafe_sharing
+                ),
+                "web_key_save_enabled": privacy_settings.web_key_save_enabled,
+            },
         }
 
     @app.get("/api/docker/diagnostics")
@@ -1369,6 +1411,18 @@ def create_app(
         import os
 
         from massgen.config_builder import build_quickstart_env_path
+
+        privacy_settings = app.state.privacy_settings
+        if privacy_settings.private_mode and not privacy_settings.web_key_save_enabled:
+            return JSONResponse(
+                {
+                    "error": (
+                        "WebUI API key saving is disabled in private mode. "
+                        "Set API keys through environment variables or .env files."
+                    ),
+                },
+                status_code=403,
+            )
 
         keys = request_data.get("keys", {})
         save_location = request_data.get("save_location", "global")
@@ -4489,6 +4543,18 @@ def create_app(
         Requires GitHub CLI (gh) to be installed and authenticated.
         Returns the viewer URL for the shared session.
         """
+        privacy_settings = app.state.privacy_settings
+        if privacy_settings.private_mode and not privacy_settings.allow_unsafe_sharing:
+            return JSONResponse(
+                {
+                    "error": (
+                        "Session sharing is disabled in private mode. "
+                        "Set MASSGEN_ALLOW_UNSAFE_SHARING=1 to enable public sharing."
+                    ),
+                },
+                status_code=403,
+            )
+
         from massgen.share import ShareError, share_session
 
         # Get the log session dir from the display
@@ -4661,6 +4727,13 @@ def create_app(
     @app.websocket("/ws/{session_id}")
     async def websocket_endpoint(websocket: WebSocket, session_id: str):
         """WebSocket endpoint for real-time coordination updates."""
+        privacy_settings = app.state.privacy_settings
+        if privacy_settings.private_mode:
+            provided_token = extract_token_from_websocket(websocket)
+            if not token_matches(provided_token, privacy_settings.local_api_token):
+                await websocket.close(code=1008, reason="Authentication required")
+                return
+
         await manager.connect(websocket, session_id)
 
         try:
@@ -5049,6 +5122,12 @@ def create_app(
         - Client can request refresh: { "action": "refresh", "path": "/path/to/workspace" }
         """
         workspace_logger.info(f"WS endpoint: new connection for session={session_id}")
+        privacy_settings = app.state.privacy_settings
+        if privacy_settings.private_mode:
+            provided_token = extract_token_from_websocket(websocket)
+            if not token_matches(provided_token, privacy_settings.local_api_token):
+                await websocket.close(code=1008, reason="Authentication required")
+                return
 
         # Get workspace paths from query params or wait for watch action
         initial_paths: list[str] = []
@@ -6675,6 +6754,20 @@ def run_server(
             "uvicorn is not installed. Install with: pip install massgen",
         )
 
+    privacy_settings = PrivacySettings.from_env()
+    if privacy_settings.private_mode and not privacy_settings.allow_remote_access and host not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        print(
+            "[WebUI] Private mode is enabled; forcing host to 127.0.0.1. "
+            "Set MASSGEN_ALLOW_REMOTE_ACCESS=1 to allow remote binding.",
+        )
+        host = "127.0.0.1"
+    if privacy_settings.private_mode and privacy_settings.local_api_token_generated and privacy_settings.local_api_token:
+        print(f"[WebUI] Private mode token: {privacy_settings.local_api_token}")
+
     # Set default config before starting server
     if config_path:
         set_default_config(config_path)
@@ -6741,6 +6834,18 @@ def run_temporary_quickstart_server(
             "uvicorn is not installed. Install with: pip install massgen",
         )
 
+    privacy_settings = PrivacySettings.from_env()
+    if privacy_settings.private_mode and not privacy_settings.allow_remote_access and host not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        print(
+            "[WebUI] Private mode is enabled; forcing host to 127.0.0.1. "
+            "Set MASSGEN_ALLOW_REMOTE_ACCESS=1 to allow remote binding.",
+        )
+        host = "127.0.0.1"
+
     session: dict[str, Any] = {
         "mode": "temporary",
         "status": "running",
@@ -6764,9 +6869,14 @@ def run_temporary_quickstart_server(
     if not no_browser:
         import threading
         import time
+        import urllib.parse
         import webbrowser
 
         browser_url = f"http://{host}:{port}/?temporary=1&wizard=open&skill=1"
+        if privacy_settings.private_mode and privacy_settings.local_api_token:
+            browser_url = (
+                f"{browser_url}&token={urllib.parse.quote(privacy_settings.local_api_token)}"
+            )
 
         def open_browser() -> None:
             time.sleep(0.5)

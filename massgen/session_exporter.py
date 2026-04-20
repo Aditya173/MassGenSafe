@@ -337,11 +337,13 @@ def export_command(args) -> int:
         Exit code (0 for success, 1 for error)
     """
     from .share import ShareError, parse_size, share_session_multi_turn
+    from .privacy import PrivacySettings
 
     # Check for JSON output mode
     json_output = getattr(args, "json", False)
     dry_run = getattr(args, "dry_run", False)
     verbose = getattr(args, "verbose", False)
+    privacy_settings = PrivacySettings.from_env()
 
     # For JSON output, suppress console output until the end
     console = Console(quiet=json_output)
@@ -355,6 +357,18 @@ def export_command(args) -> int:
         "files": [],
         "total_size": 0,
     }
+
+    if privacy_settings.private_mode and not privacy_settings.allow_unsafe_sharing and not dry_run:
+        error_msg = (
+            "Public sharing is disabled in private mode. "
+            "Set MASSGEN_ALLOW_UNSAFE_SHARING=1 to enable."
+        )
+        if json_output:
+            result_data["error"] = error_msg
+            print(json.dumps(result_data, indent=2))
+        else:
+            console.print(f"[red]Error:[/red] {error_msg}")
+        return 1
 
     try:
         # Resolve log directory to session root

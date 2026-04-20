@@ -4,6 +4,10 @@ import App from './App';
 import SetupPage from './pages/SetupPage';
 import ArtifactTester from './pages/ArtifactTester';
 import './styles/globals.css';
+import { bootstrapAuthTokenFromUrl, installAuthenticatedFetch } from './utils/authToken';
+
+bootstrapAuthTokenFromUrl();
+installAuthenticatedFetch();
 
 // Simple routing based on URL path with first-time setup detection
 function Router() {

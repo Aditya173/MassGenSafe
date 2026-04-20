@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -13,6 +14,13 @@ import pytest
 def _env_flag(name: str) -> bool:
     v = os.getenv(name, "").strip().lower()
     return v in {"1", "true", "yes", "y", "on"}
+
+
+@pytest.fixture(autouse=True)
+def _default_non_private_mode_for_tests(monkeypatch: pytest.MonkeyPatch):
+    """Keep legacy tests stable by defaulting private mode off unless explicitly set."""
+    if os.getenv("MASSGEN_PRIVATE_MODE") is None:
+        monkeypatch.setenv("MASSGEN_PRIVATE_MODE", "0")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -68,9 +76,9 @@ _expired_xfails: list[_XfailEntry] = []
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _isolate_test_logs(tmp_path_factory: pytest.TempPathFactory):
+def _isolate_test_logs():
     """Route test-created logs to an isolated temp directory."""
-    log_base_dir = tmp_path_factory.mktemp("massgen_test_logs")
+    log_base_dir = Path(tempfile.mkdtemp(prefix="massgen_test_logs_"))
     previous = os.environ.get("MASSGEN_LOG_BASE_DIR")
     os.environ["MASSGEN_LOG_BASE_DIR"] = str(log_base_dir)
 

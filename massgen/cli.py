@@ -10703,7 +10703,7 @@ def cli_main():
             "--host",
             type=str,
             default=None,
-            help="Host to bind (default: 0.0.0.0)",
+            help="Host to bind (default: 127.0.0.1)",
         )
         serve_parser.add_argument(
             "--port",
@@ -10757,6 +10757,21 @@ def cli_main():
             overrides["default_config"] = str(resolved_config)
         if overrides:
             settings = replace(settings, **overrides)
+
+        if settings.private_mode and not settings.allow_remote_access and settings.host not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }:
+            print(
+                "⚠️ Private mode is enabled; forcing server host to 127.0.0.1. "
+                "Set MASSGEN_ALLOW_REMOTE_ACCESS=1 to allow remote binding.",
+            )
+            settings = replace(settings, host="127.0.0.1")
+
+        if settings.private_mode and settings.server_token_generated and settings.server_token:
+            print("🔒 Private mode token (server):")
+            print(f"   {settings.server_token}")
 
         app = create_app(settings=settings)
         uvicorn.run(
@@ -10826,6 +10841,7 @@ def cli_main():
     if len(sys.argv) >= 2 and sys.argv[1] == "shares":
         from rich.console import Console
 
+        from .privacy import PrivacySettings
         from .share import delete_share, list_shares
 
         shares_parser = argparse.ArgumentParser(
@@ -10845,6 +10861,13 @@ def cli_main():
         delete_parser.add_argument("gist_id", help="Gist ID to delete")
 
         shares_args = shares_parser.parse_args(sys.argv[2:])
+        privacy_settings = PrivacySettings.from_env()
+        if privacy_settings.private_mode and not privacy_settings.allow_unsafe_sharing:
+            print(
+                "❌ Public sharing commands are disabled in private mode. "
+                "Set MASSGEN_ALLOW_UNSAFE_SHARING=1 to enable.",
+            )
+            sys.exit(1)
         console = Console()
 
         if shares_args.shares_command == "list":
@@ -11805,10 +11828,20 @@ def _cli_main_continued(args):
     if args.web_quickstart:
         try:
             from .frontend.web.server import run_temporary_quickstart_server
+            from .privacy import PrivacySettings
+
+            privacy_settings = PrivacySettings.from_env()
+            quickstart_url = f"http://{args.web_host}:{args.web_port}/?temporary=1&wizard=open"
+            if privacy_settings.private_mode and privacy_settings.local_api_token:
+                import urllib.parse
+
+                quickstart_url = (
+                    f"{quickstart_url}&token={urllib.parse.quote(privacy_settings.local_api_token)}"
+                )
 
             print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web Quickstart...{RESET}")
             print(
-                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}/?temporary=1&wizard=open{RESET}",
+                f"{BRIGHT_GREEN}   Server: {quickstart_url}{RESET}",
             )
             print(
                 f"{BRIGHT_YELLOW}   This temporary setup session will close automatically when complete{RESET}\n",
@@ -11867,19 +11900,32 @@ def _cli_main_continued(args):
             # are in the URL (see App.tsx useEffect at line ~226).
             import urllib.parse
 
+            from .privacy import PrivacySettings
+
+            privacy_settings = PrivacySettings.from_env()
             base_url = f"http://{args.web_host}:{args.web_port}/"
             url_params = []
             if question:
                 url_params.append(f"prompt={urllib.parse.quote(question)}")
             if config_path:
                 url_params.append(f"config={urllib.parse.quote(config_path)}")
+            if privacy_settings.private_mode and privacy_settings.local_api_token:
+                url_params.append(f"token={urllib.parse.quote(privacy_settings.local_api_token)}")
             auto_url = f"{base_url}?{'&'.join(url_params)}" if url_params else base_url
             # Print a short URL for the terminal (no giant prompt)
             short_url_params = []
             if config_path:
                 short_url_params.append(f"config={urllib.parse.quote(config_path)}")
+            if privacy_settings.private_mode and privacy_settings.local_api_token:
+                short_url_params.append(f"token={urllib.parse.quote(privacy_settings.local_api_token)}")
             short_url = f"{base_url}?{'&'.join(short_url_params)}" if short_url_params else base_url
             print(f"{BRIGHT_GREEN}   UI: {short_url}{RESET}")
+            if (
+                privacy_settings.private_mode
+                and privacy_settings.local_api_token_generated
+                and privacy_settings.local_api_token
+            ):
+                print(f"{BRIGHT_YELLOW}   Private mode token: {privacy_settings.local_api_token}{RESET}")
 
             if automation_mode:
                 if question:

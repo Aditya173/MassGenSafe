@@ -23,6 +23,7 @@ from typing import Any
 
 from rich.console import Console
 
+from .privacy import PrivacySettings
 from .filesystem_manager._constants import MAX_FILE_SIZE_FOR_SHARING as MAX_FILE_SIZE
 from .filesystem_manager._constants import MAX_FILES_FOR_SHARING as MAX_FILES
 from .filesystem_manager._constants import (
@@ -276,6 +277,16 @@ VIEWER_URL_BASE = "https://massgen.github.io/MassGen-Viewer/"
 
 class ShareError(Exception):
     """Error during share operation."""
+
+
+def ensure_public_sharing_allowed() -> None:
+    """Raise when sharing is disabled by private-mode policy."""
+    privacy_settings = PrivacySettings.from_env()
+    if privacy_settings.private_mode and not privacy_settings.allow_unsafe_sharing:
+        raise ShareError(
+            "Public sharing is disabled in private mode. "
+            "Set MASSGEN_ALLOW_UNSAFE_SHARING=1 to enable.",
+        )
 
 
 def should_exclude(path: Path, rel_path: str) -> bool:
@@ -1221,6 +1232,8 @@ def create_gist(files: dict[str, str], description: str, console: Console | None
     Raises:
         ShareError: If gist creation fails
     """
+    ensure_public_sharing_allowed()
+
     # Calculate total size to decide which method to use
     total_size = sum(len(content) for content in files.values())
     # Use git push for large uploads (>10MB) to avoid API limits
@@ -1411,6 +1424,8 @@ def share_session_multi_turn(
     Raises:
         ShareError: If sharing fails
     """
+    ensure_public_sharing_allowed()
+
     if console:
         console.print(f"[bold]Session:[/bold] {session_root.name}")
         console.print(f"[bold]Turns:[/bold] {len(turns)}")
@@ -1537,6 +1552,8 @@ def share_session(log_dir: Path | str, console: Console | None = None) -> str:
     Raises:
         ShareError: If sharing fails
     """
+    ensure_public_sharing_allowed()
+
     # Ensure log_dir is a Path object
     if isinstance(log_dir, str):
         log_dir = Path(log_dir)
